@@ -56,13 +56,55 @@ Running everything (port 3200)<br>
 
 ### Running locally with docker
 
-Configure your environment variables in `.env` file
-and run the following command:  
-`make install`
-Running it as a docker service (port 3600)<br>
-`make up`
+This approach allows you to use your local PostgreSQL instance with Docker.
 
-Run `make help` to see all commands
+**Prerequisites:**
+- Docker installed
+- PostgreSQL running locally
+- Database `droplet_template_development` created
+
+**Step-by-step setup:**
+
+1. **Copy environment file:**
+   ```bash
+   cp .env.local.example .env
+   ```
+
+2. **Edit `.env` file with your database credentials:**
+   ```bash
+   # Required
+   SECRET_KEY_BASE=your_secret_key_here
+
+   # Database connection (use your local PostgreSQL)
+   DATABASE_URL=postgresql://username:password@host.docker.internal:5432/droplet_template_development
+
+   # Environment
+   RAILS_ENV=development
+   ```
+
+3. **Build the Docker image:**
+   ```bash
+   docker build -t droplet-template .
+   ```
+
+4. **Run database migrations (if needed):**
+   ```bash
+   # If you haven't run migrations yet, run them first
+   docker run --env-file .env -e RAILS_ENV=development droplet-template bin/rails db:migrate
+   ```
+
+5. **Run the container:**
+   ```bash
+   docker run -p 3200:80 --env-file .env -e RAILS_ENV=development droplet-template
+   ```
+
+6. **Access the application:**
+   Open your browser and go to: `http://localhost:3200`
+
+**Notes:**
+- Use `host.docker.internal` instead of `localhost` in DATABASE_URL for Docker to access your local PostgreSQL
+- The application will run on port 3200 (mapped from container port 80)
+- Make sure your PostgreSQL is running and accessible before starting the container
 
 ### License
 
