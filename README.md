@@ -106,6 +106,47 @@ This approach allows you to use your local PostgreSQL instance with Docker.
 - The application will run on port 3200 (mapped from container port 80)
 - Make sure your PostgreSQL is running and accessible before starting the container
 
+### Running with Docker for development (with Vite and hot reload)
+
+For a full development experience with Vite, TypeScript compilation, and hot reload:
+
+1. **Copy environment file:**
+   ```bash
+   cp .env.local.example .env
+   ```
+
+2. **Edit `.env` file with your database credentials:**
+   ```bash
+   # Required
+   SECRET_KEY_BASE=your_secret_key_here
+
+   # Database connection (use your local PostgreSQL)
+   DATABASE_URL=postgresql://username:password@host.docker.internal:5432/droplet_template_development
+
+   # Environment
+   RAILS_ENV=development
+   ```
+
+3. **Build the development Docker image:**
+   ```bash
+   docker build -f Dockerfile.dev -t droplet-template-dev .
+   ```
+
+4. **Run the development container:**
+   ```bash
+   docker run -p 3200:3000 -p 3036:3036 --env-file .env -e RAILS_ENV=development droplet-template-dev
+   ```
+
+5. **Access the application:**
+   - **Rails**: http://localhost:3200
+   - **Vite**: http://localhost:3036
+
+**Development features:**
+- Hot reload for frontend changes
+- TypeScript compilation in watch mode
+- Vite dev server for fast frontend development
+- Full Rails development environment
+
 ### License
 
 MIT License
