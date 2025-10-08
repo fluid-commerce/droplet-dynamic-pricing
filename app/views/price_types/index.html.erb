@@ -1,0 +1,38 @@
+<div class="flex items-center justify-between">
+  <div class="flex items-center gap-2">
+    <h1 class="font-custom text-4xl font-bold text-gray-600">Price Types</h1>
+  </div>
+  <!-- Placeholder for future create action -->
+  <div></div>
+</div>
+
+<div class="bg-white rounded-lg p-6 border border-gray-100">
+  <% if @price_types.any? %>
+    <table class="w-full">
+      <thead class="bg-slate-50 border-b border-gray-400">
+        <tr>
+          <th class="pl-2 text-left text-slate-600">Name</th>
+          <th class="pl-2 text-left text-slate-600">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @price_types.each do |price_type| %>
+          <tr class="odd:bg-white even:bg-slate-50 hover:bg-slate-100">
+            <td class="pl-2 text-left text-gray-600 font-medium"><%= price_type.name %></td>
+            <td class="pl-2 text-left text-gray-600">
+              <div class="flex gap-4">
+                <!-- Future Edit/Delete links go here -->
+                <span class="text-gray-400">Coming soon</span>
+              </div>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% else %>
+    <div class="text-center py-8">
+      <h3 class="text-base font-medium text-gray-900 mb-1">No price types found</h3>
+      <p class="text-sm text-gray-500">Create a price type to get started.</p>
+    </div>
+  <% end %>
+</div>
