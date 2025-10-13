@@ -20,5 +20,24 @@ describe Fluid::Customers do
         _(result).must_equal mock_response
       end
     end
+
+    it "appends metadata to a customer" do
+      Tasks::Settings.create_defaults
+      client = FluidClient.new
+      customer_id = 123
+      metadata = { "customer_type" => "preferred_customer" }
+      expected_payload = { body: { "metadata" => metadata } }
+      mock_response = { "customer" => { "id" => customer_id } }
+
+      client.stub :patch, ->(path, options = {}) do
+        _(path).must_equal "/api/customers/#{customer_id}/append_metadata"
+        _(options).must_equal expected_payload
+        mock_response
+      end do
+        result = client.customers.append_metadata(customer_id, metadata)
+
+        _(result).must_equal mock_response
+      end
+    end
   end
 end

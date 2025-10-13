@@ -12,6 +12,11 @@ module Fluid
       def get
         @client.get("/api/customers")
       end
+
+      def append_metadata(customer_id, metadata)
+        payload = { "metadata" => metadata }
+        @client.patch("/api/customers/#{customer_id}/append_metadata", body: payload)
+      end
     end
   end
 end

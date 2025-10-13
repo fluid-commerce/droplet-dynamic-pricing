@@ -32,6 +32,10 @@ class FluidClient
     handle_response(@http.put(path, format_options(options)))
   end
 
+  def patch(path, options = {})
+    handle_response(@http.patch(path, format_options(options)))
+  end
+
   def delete(path, options = {})
     handle_response(@http.delete(path, format_options(options)))
   end
