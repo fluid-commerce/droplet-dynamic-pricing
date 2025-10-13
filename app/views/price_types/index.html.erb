@@ -3,7 +3,7 @@
     <h1 class="font-custom text-4xl font-bold text-gray-600">Price Types</h1>
   </div>
   <!-- Placeholder for future create action -->
-  <div></div>
+  <div>Create</div>
 </div>
 
 <div class="bg-white rounded-lg p-6 border border-gray-100">
@@ -12,6 +12,7 @@
       <thead class="bg-slate-50 border-b border-gray-400">
         <tr>
           <th class="pl-2 text-left text-slate-600">Name</th>
+          <th class="pl-2 text-left text-slate-600">Date</th>
           <th class="pl-2 text-left text-slate-600">Actions</th>
         </tr>
       </thead>
@@ -22,7 +23,7 @@
             <td class="pl-2 text-left text-gray-600">
               <div class="flex gap-4">
                 <!-- Future Edit/Delete links go here -->
-                <span class="text-gray-400">Coming soon</span>
+                <span class="text-gray-400"><%= price_type.created_at.strftime("%Y-%m-%d") %></span>
               </div>
             </td>
           </tr>

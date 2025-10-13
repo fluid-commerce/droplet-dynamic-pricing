@@ -7,6 +7,6 @@ class CreatePriceTypes < ActiveRecord::Migration[8.0]
       t.timestamps
     end
 
-    add_index :price_types, [:company_id, :name], unique: true
+    add_index :price_types, %i[company_id name], unique: true
   end
 end
