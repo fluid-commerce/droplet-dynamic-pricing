@@ -4,6 +4,7 @@ class FluidClient
   include Fluid::Webhooks
   include Fluid::CallbackDefinitions
   include Fluid::CallbackRegistrations
+  include Fluid::Customers
 
   base_uri Setting.fluid_api.base_url
   format :json

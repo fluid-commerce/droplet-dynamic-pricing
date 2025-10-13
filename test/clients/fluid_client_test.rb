@@ -1,6 +1,28 @@
 require "test_helper"
 
 describe FluidClient do
+  describe "Included modules" do
+    it "includes Fluid::Droplets" do
+      assert_includes FluidClient.included_modules, Fluid::Droplets
+    end
+
+    it "includes Fluid::Webhooks" do
+      assert_includes FluidClient.included_modules, Fluid::Webhooks
+    end
+
+    it "includes Fluid::CallbackDefinitions" do
+      assert_includes FluidClient.included_modules, Fluid::CallbackDefinitions
+    end
+
+    it "includes Fluid::CallbackRegistrations" do
+      assert_includes FluidClient.included_modules, Fluid::CallbackRegistrations
+    end
+
+    it "includes Fluid::Customers" do
+      assert_includes FluidClient.included_modules, Fluid::Customers
+    end
+  end
+
   describe "initialization and headers" do
     it "sets headers with auth token when initialized with token" do
       client = FluidClient.new("test_token_123")
