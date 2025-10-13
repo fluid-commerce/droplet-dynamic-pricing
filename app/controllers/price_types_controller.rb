@@ -1,9 +1,23 @@
 class PriceTypesController < ApplicationController
-  before_action :store_dri_in_session, only: [ :index ]
+  before_action :store_dri_in_session
   before_action :find_company_by_dri
 
   def index
     @price_types = @company.price_types.order(:name)
+  end
+
+  def new
+    @price_type = @company.price_types.new
+  end
+
+  def create
+    @price_type = @company.price_types.new(price_type_params)
+
+    if @price_type.save
+      redirect_to price_types_path, notice: "Price type created"
+    else
+      render :new, status: :unprocessable_entity
+    end
   end
 
 private
@@ -30,5 +44,9 @@ private
     unless @company
       render json: { error: "Company not found with DRI: #{dri}" }, status: :not_found
     end
+  end
+
+  def price_type_params
+    params.require(:price_type).permit(:name)
   end
 end
