@@ -20,6 +20,20 @@ class PriceTypesController < ApplicationController
     end
   end
 
+  def edit
+    @price_type = @company.price_types.find(params[:id])
+  end
+
+  def update
+    @price_type = @company.price_types.find(params[:id])
+
+    if @price_type.update(price_type_params)
+      redirect_to price_types_path, notice: "Price type updated"
+    else
+      render :edit, status: :unprocessable_entity
+    end
+  end
+
 private
 
   def store_dri_in_session

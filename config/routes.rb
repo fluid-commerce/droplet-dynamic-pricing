@@ -15,7 +15,7 @@ Rails.application.routes.draw do
     end
   end
 
-  resources :price_types, only: %i[ index new create ]
+  resources :price_types, only: %i[ index new create edit update ]
 
   get "up" => "rails/health#show", as: :rails_health_check
 end

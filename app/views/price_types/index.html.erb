@@ -23,9 +23,13 @@
           <tr class="odd:bg-white even:bg-slate-50 hover:bg-slate-100">
             <td class="pl-2 text-left text-gray-600 font-medium"><%= price_type.name %></td>
             <td class="pl-2 text-left text-gray-600">
-              <div class="flex gap-4">
-                <!-- Future Edit/Delete links go here -->
+              <div class="flex gap-4 items-center">
                 <span class="text-gray-400"><%= price_type.created_at.strftime("%Y-%m-%d") %></span>
+              </div>
+            </td>
+            <td class="pl-2 text-left text-gray-600">
+              <div class="flex gap-3">
+                <%= link_to "Edit", edit_price_type_path(price_type), class: "text-indigo-600 hover:text-indigo-800" %>
               </div>
             </td>
           </tr>
