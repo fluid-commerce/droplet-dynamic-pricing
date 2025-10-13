@@ -8,6 +8,12 @@
   </div>
 </div>
 
+<% if notice.present? %>
+  <div class="mb-4 rounded-md bg-green-50 p-4 text-green-700">
+    <%= notice %>
+  </div>
+<% end %>
+
 <div class="bg-white rounded-lg p-6 border border-gray-100">
   <% if @price_types.any? %>
     <table class="w-full">
