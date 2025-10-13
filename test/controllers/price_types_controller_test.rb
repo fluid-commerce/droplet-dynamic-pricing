@@ -64,5 +64,3 @@ describe PriceTypesController do
     end
   end
 end
-
-
