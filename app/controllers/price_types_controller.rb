@@ -1,6 +1,7 @@
 class PriceTypesController < ApplicationController
   before_action :store_dri_in_session
   before_action :find_company_by_dri
+  before_action :set_price_type, only: %i[ edit update ]
 
   def index
     @price_types = @company.price_types.order(:name)
@@ -20,13 +21,9 @@ class PriceTypesController < ApplicationController
     end
   end
 
-  def edit
-    @price_type = @company.price_types.find(params[:id])
-  end
+  def edit; end
 
   def update
-    @price_type = @company.price_types.find(params[:id])
-
     if @price_type.update(price_type_params)
       redirect_to price_types_path, notice: "Price type updated"
     else
@@ -35,6 +32,10 @@ class PriceTypesController < ApplicationController
   end
 
 private
+
+  def set_price_type
+    @price_type = @company.price_types.find(params[:id])
+  end
 
   def store_dri_in_session
     dri = params[:dri]
