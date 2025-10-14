@@ -8,7 +8,7 @@ development:
   <% if ENV['DATABASE_URL'] %>
   url: <%= ENV['DATABASE_URL'] %>
   <% else %>
-  database: droplet_template_development
+  database: droplet_dynamic_pricing_development
   host: <%= ENV.fetch('DB_HOST', 'localhost') %>
   username: <%= ENV.fetch('DB_USERNAME', 'postgres') %>
   password: <%= ENV.fetch('DB_PASSWORD', 'postgres') %>
@@ -17,7 +17,7 @@ development:
 
 test:
   <<: *default
-  database: droplet_template_test
+  database: droplet_dynamic_pricing_test
 
 production:
   primary:

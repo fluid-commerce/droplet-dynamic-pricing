@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_08_11_182801) do
+ActiveRecord::Schema[8.0].define(version: 2025_10_08_180000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -70,6 +70,15 @@ ActiveRecord::Schema[8.0].define(version: 2025_08_11_182801) do
     t.index ["company_id"], name: "index_integration_settings_on_company_id"
   end
 
+  create_table "price_types", force: :cascade do |t|
+    t.bigint "company_id", null: false
+    t.string "name", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["company_id", "name"], name: "index_price_types_on_company_id_and_name", unique: true
+    t.index ["company_id"], name: "index_price_types_on_company_id"
+  end
+
   create_table "settings", force: :cascade do |t|
     t.string "name", null: false
     t.string "description"
@@ -103,4 +112,5 @@ ActiveRecord::Schema[8.0].define(version: 2025_08_11_182801) do
 
   add_foreign_key "events", "companies"
   add_foreign_key "integration_settings", "companies"
+  add_foreign_key "price_types", "companies"
 end
