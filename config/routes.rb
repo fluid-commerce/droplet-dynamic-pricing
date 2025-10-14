@@ -16,7 +16,7 @@ Rails.application.routes.draw do
   end
 
   resources :price_types, except: %i[ show destroy]
-  resources :customers, only: %i[index]
+  resources :customers, only: %i[index edit update]
 
   get "up" => "rails/health#show", as: :rails_health_check
 end

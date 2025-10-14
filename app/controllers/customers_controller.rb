@@ -13,6 +13,27 @@ class CustomersController < ApplicationController
     @meta = response["meta"] || {}
   end
 
+  def edit
+    @customer_id = params[:id]
+    @price_types = @company.price_types
+    @selected_customer_type = params[:customer_type]
+  end
+
+  def update
+    @customer_id = params[:id]
+    customer_type = params.require(:customer).permit(:customer_type)[:customer_type]
+
+    client = FluidClient.new(@company.authentication_token)
+    client.customers.append_metadata(@customer_id, { "customer_type" => customer_type })
+
+    redirect_to customers_path, notice: "Customer updated"
+  rescue StandardError => e
+    flash[:alert] = "Failed to update customer: #{e.message}"
+    @price_types = @company.price_types
+    @selected_customer_type = customer_type
+    render :edit, status: :unprocessable_entity
+  end
+
 private
 
   def store_dri_in_session
