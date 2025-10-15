@@ -11,12 +11,7 @@ class CustomersController < ApplicationController
 
     @customers = response["customers"] || []
     @meta = response["meta"] || {}
-  end
-
-  def edit
-    @customer_id = params[:id]
-    @price_types = @company.price_types
-    @selected_customer_type = params[:customer_type]
+    @price_types = @company.price_types.pluck(:name)
   end
 
   def update

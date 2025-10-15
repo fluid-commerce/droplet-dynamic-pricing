@@ -6,7 +6,6 @@
           <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Full name</th>
           <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Active</th>
           <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer type</th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
         </tr>
       </thead>
       <tbody class="bg-white divide-y divide-gray-200">
@@ -16,9 +15,13 @@
           <tr>
             <td class="px-6 py-4 whitespace-nowrap"><%= customer["full_name"] %></td>
             <td class="px-6 py-4 whitespace-nowrap"><%= customer["active"] ? "Yes" : "No" %></td>
-            <td class="px-6 py-4 whitespace-nowrap"><%= customer_type %></td>
             <td class="px-6 py-4 whitespace-nowrap">
-              <%= link_to "Edit", edit_customer_path(customer["id"], customer_type: customer_type), class: "text-blue-600 hover:text-blue-800" %>
+              <%= form_with url: customer_path(customer["id"]), method: :put, scope: :customer, local: true do |f| %>
+                <div class="flex items-center space-x-2">
+                  <%= f.select :customer_type, options_for_select(@price_types, customer_type), {}, class: "mt-1 block border border-gray-300 rounded-md p-2" %>
+                  <%= f.submit "Save", class: "px-3 py-2 bg-blue-600 text-white rounded" %>
+                </div>
+              <% end %>
             </td>
           </tr>
         <% end %>
