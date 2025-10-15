@@ -11,10 +11,6 @@ class Company < ApplicationRecord
 
   after_initialize :set_default_installed_callback_ids, if: :new_record?
 
-  def price_types
-    ["preferred_customer", "standard_customer", "tier_1"]
-  end
-
 private
 
   def set_default_installed_callback_ids
