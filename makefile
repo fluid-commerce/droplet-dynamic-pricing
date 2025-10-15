@@ -1,6 +1,5 @@
-
 # main app name or workdir defined in Dockerfile
-APPLICATION_NAME=fluid-droplet-NAME
+APPLICATION_NAME=fluid-droplet-dinamic-pricing
 #service as defined in docker compose
 SERVICE_NAME=web
 SERVICE_TEST_NAME=test
@@ -11,7 +10,7 @@ SERVICE_TEST_NAME=test
 LOCAL_COMPOSE=docker/compose.yml
 
 # Database volume
-DB_NAME_VOLUME=postgres_
+DB_NAME_VOLUME=postgres_db
 
 help:
 	@echo ''
@@ -71,6 +70,9 @@ restart: ## Restart app
 logs:
 	@docker compose -f $(LOCAL_COMPOSE) logs -f
 
+install-bundler:
+	@docker compose -f $(LOCAL_COMPOSE) run --rm $(SERVICE_NAME) gem install bundler -v 2.6.5
+
 bundle:
 	@docker compose -f $(LOCAL_COMPOSE) run --rm $(SERVICE_NAME) bundle install -j4 --retry 3
 
@@ -111,6 +113,7 @@ build:
 
 install:
 	@make build
+	@make install-bundler
 	@make bundle
 	@make yarn
 	@make db-prepare
