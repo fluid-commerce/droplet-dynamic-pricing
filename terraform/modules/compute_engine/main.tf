@@ -23,7 +23,6 @@ resource "google_compute_instance" "compute_instance" {
   }
 
   metadata = {
-    gce-container-declaration = module.gce-container.metadata_value
     block-project-ssh-keys    = "true"
     startup-script            = var.startup_script
   }
@@ -44,7 +43,6 @@ resource "google_compute_instance" "compute_instance" {
     prevent_destroy = true # Prevents accidental destruction
     ignore_changes = [
       metadata["ssh-keys"],
-      metadata["gce-container-declaration"]
     ]
   }
 

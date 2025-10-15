@@ -51,7 +51,7 @@ variable "static_ip_address" {
 variable "startup_script" {
   description = "Startup script of the Compute Engine instance"
   type        = string
-  default     = " #! /bin/bash\n docker images \"europe-west1-docker.pkg.dev/PROJECT_ID/fluid-droplets/fluid-droplet-template-rails/web\" --format \"{{.ID}}\" | tail -n +2 | xargs -r docker rmi -f"
+  default     = " #! /bin/bash\n docker images \"europe-west1-docker.pkg.dev/fluid-417204/fluid-droplets/fluid-droplet-dynamic-bundle-rails/web\" --format \"{{.ID}}\" | tail -n +2 | xargs -r docker rmi -f"
 }
 
 variable "email_service_account" {
@@ -64,7 +64,7 @@ variable "email_service_account" {
 variable "container_image" {
   description = "Image of the container"
   type        = string
-  default     = "europe-west1-docker.pkg.dev/PROJECT_ID/fluid-droplets/fluid-droplet-template-rails/web:latest"
+  default     = "europe-west1-docker.pkg.dev/fluid-417204/fluid-droplets/fluid-droplet-dynamic-bundle-rails/web:latest"
 }
 
 variable "container_rails_master_key" {
