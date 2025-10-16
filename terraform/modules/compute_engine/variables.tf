@@ -33,7 +33,7 @@ variable "purpose_compute_engine" {
 variable "boot_disk_image" {
   description = "Image of the Compute Engine instance"
   type        = string
-  default     = "cos-cloud/cos-stable"
+  default     = "ubuntu-os-cloud/ubuntu-2404-lts"
 }
 
 variable "boot_disk_size" {
@@ -51,51 +51,13 @@ variable "static_ip_address" {
 variable "startup_script" {
   description = "Startup script of the Compute Engine instance"
   type        = string
-  default     = " #! /bin/bash\n docker images \"europe-west1-docker.pkg.dev/fluid-417204/fluid-droplets/fluid-droplet-dynamic-bundle-rails/web\" --format \"{{.ID}}\" | tail -n +2 | xargs -r docker rmi -f"
+  default     = " #! /bin/bash\n docker images \"europe-west1-docker.pkg.dev/fluid-417204/fluid-droplets/fluid-droplet-dynamic-pricing-rails/web\" --format \"{{.ID}}\" | tail -n +2 | xargs -r docker rmi -f"
 }
 
 variable "email_service_account" {
   description = "Email of the service account"
   type        = string
 }
-
-# variable module container
-
-variable "container_image" {
-  description = "Image of the container"
-  type        = string
-  default     = "europe-west1-docker.pkg.dev/fluid-417204/fluid-droplets/fluid-droplet-dynamic-bundle-rails/web:latest"
-}
-
-variable "container_rails_master_key" {
-  description = "Rails master key"
-  type        = string
-}
-
-variable "container_db_url_production" {
-  description = "DB production data"
-  type        = string
-  default     = ""
-}
-
-variable "container_db_url_production_queue" {
-  description = "DB production queue"
-  type        = string
-  default     = ""
-}
-
-variable "container_db_url_production_cache" {
-  description = "DB production cache"
-  type        = string
-  default     = ""
-}
-
-variable "container_db_url_production_cable" {
-  description = "DB production cable"
-  type        = string
-  default     = ""
-}
-
 variable "network_tier" {
   description = "Network tier"
   type        = string
