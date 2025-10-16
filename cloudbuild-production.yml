@@ -66,8 +66,9 @@ steps:
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     args:
       [
+        "beta",
         "run",
-        "services",
+        "worker-pools",
         "update",
         "${_APP_NAME}-solidqueue",
         "--platform=managed",
