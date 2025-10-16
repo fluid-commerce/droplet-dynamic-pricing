@@ -46,6 +46,12 @@ variable "email_service_account" {
   type        = string
 }
 
+variable "boot_disk_image" {
+  description = "Image of the Compute Engine instance"
+  type        = string
+  default     = "ubuntu-os-cloud/ubuntu-2404-lts"
+}
+
 # Postgres variables
 variable "postgres_password_production_user" {
   description = "Password of the production user"
@@ -82,36 +88,6 @@ variable "postgres_private_network" {
 variable "container_image" {
   description = "Image of the container"
   type        = string
-}
-
-variable "container_rails_master_key" {
-  description = "Rails master key for the container"
-  type        = string
-  sensitive   = true
-}
-
-variable "container_db_url_production" {
-  description = "Database URL for production environment"
-  type        = string
-  sensitive   = true
-}
-
-variable "container_db_url_production_queue" {
-  description = "Database URL for production queue"
-  type        = string
-  sensitive   = true
-}
-
-variable "container_db_url_production_cache" {
-  description = "Database URL for production cache"
-  type        = string
-  sensitive   = true
-}
-
-variable "container_db_url_production_cable" {
-  description = "Database URL for production cable"
-  type        = string
-  sensitive   = true
 }
 
 # variable module cloud_run fluid droplet

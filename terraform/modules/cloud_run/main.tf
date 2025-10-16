@@ -2,7 +2,7 @@
 resource "google_cloud_run_v2_service" "cloud_run" {
   name     = var.service_name
   location = var.region
-  client   = "cloud-console"
+  client   = "gcloud"
 
   deletion_protection = true
 

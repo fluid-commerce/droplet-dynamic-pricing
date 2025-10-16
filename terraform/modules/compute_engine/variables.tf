@@ -42,12 +42,6 @@ variable "boot_disk_size" {
   default     = "20"
 }
 
-variable "static_ip_address" {
-  description = "Static IP address of the Compute Engine instance"
-  type        = string
-  default     = ""
-}
-
 variable "startup_script" {
   description = "Startup script of the Compute Engine instance"
   type        = string
@@ -58,9 +52,9 @@ variable "email_service_account" {
   description = "Email of the service account"
   type        = string
 }
-variable "network_tier" {
-  description = "Network tier"
-  type        = string
-  default     = "STANDARD"
-}
+# variable "network_tier" {
+#   description = "Network tier"
+#   type        = string
+#   default     = "STANDARD"
+# }
 
