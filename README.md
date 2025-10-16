@@ -9,15 +9,16 @@ Documentation can be found in the [project's GitHub page](https://fluid-commerce
 ### Google cloud infrastructure
 
 - Google Cloud Run (Web)
+- Google Cloud Worker (Solidqueue)
 - Google Cloud Storage (Terraform)
 - Google Cloud SQL (postgreSQL)
 - Google Cloud Build (CI/CD)
-- Google Cloud Compute Engine (jobs console)
+- Google Cloud Compute Engine (console)
 - Artifact Registry (Docker)
 
-web: Google Cloud Run name `fluid-droplet-NAME`
-
-jobs console: Google Cloud Compute Engine name `fluid-droplet-NAME-jobs-console`
+web: Google Cloud Run name `fluid-droplet-dynamic-pricing`
+solidqueue: Google Cloud worker name `fluid-droplet-dynamic-pricing-solidqueue`
+console: Google Cloud Compute Engine name `fluid-droplet--dynamic-pricing-console`
 
 ### Deploy to google cloud
 
@@ -53,6 +54,17 @@ Just the rails server (port 3000)<br>
 
 Running everything (port 3200)<br>
 `bin/dev`
+
+### Running locally with Makefile (Docker)
+
+Configure your environment variables in `.env` file
+and run the following command:  
+`make install`
+Running it as a docker service (port 3600)  
+`make up`
+
+Run `make help` to see all commands  
+
 
 ### Running locally with docker
 
