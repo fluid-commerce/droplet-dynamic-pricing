@@ -2,7 +2,7 @@
 module "cloud_run_jobs_rails" {
   source = "../../modules/cloud_run"
 
-  service_name = var.cloud_run_app_name
+  service_name = "${var.cloud_run_app_name}-solidqueue"
   region       = var.region
 
   environment       = "production"
