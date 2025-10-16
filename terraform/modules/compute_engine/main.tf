@@ -17,13 +17,19 @@ resource "google_compute_instance" "compute_instance" {
     }
   }
 
+  scheduling {
+    preemptible                 = true
+    automatic_restart           = false
+    provisioning_model          = "SPOT"
+    instance_termination_action = "STOP"
+  }
+
   network_interface {
     network    = "fluid-egress-vpc"
     subnetwork = "fluid-compute-workers-europe-subnet"
   }
 
   metadata = {
-    gce-container-declaration = module.gce-container.metadata_value
     block-project-ssh-keys    = "true"
     startup-script            = var.startup_script
   }
@@ -44,7 +50,6 @@ resource "google_compute_instance" "compute_instance" {
     prevent_destroy = true # Prevents accidental destruction
     ignore_changes = [
       metadata["ssh-keys"],
-      metadata["gce-container-declaration"]
     ]
   }
 

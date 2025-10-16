@@ -47,3 +47,6 @@ node_modules
 
 # ignore environment files
 .env.local
+
+# ignore terraform
+.terraform

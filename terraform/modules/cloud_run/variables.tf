@@ -130,3 +130,8 @@ variable "startup_probe_port" {
   default     = 3000
 }
 
+variable "container_command" {
+  description = "Command to run in the container"
+  type        = list(string)
+  default     = null
+}

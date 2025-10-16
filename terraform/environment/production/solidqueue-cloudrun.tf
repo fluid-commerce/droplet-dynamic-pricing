@@ -1,0 +1,112 @@
+# # Cloud Run service module
+# module "cloud_run_jobs_rails" {
+#   source = "../../modules/cloud_run"
+
+#   service_name = "${var.cloud_run_app_name}-solidqueue"
+#   region       = var.region
+
+#   environment       = "production"
+#   project           = var.project
+#   purpose_cloud_run = "jobs"
+
+#   # Service account email
+#   service_account_email = var.email_service_account
+
+#   # Scaling options
+#   max_instances = 1
+#   min_instances = 1
+
+#   # VPC network and subnet
+#   vpc_network_app = var.vpc_network_cloud_run
+#   vpc_subnet_app  = var.vpc_subnet_cloud_run
+
+#   # Cloud SQL instances to connect to the database
+#   cloud_sql_instances = var.cloud_sql_instances_cloud_run
+
+#   # Container name
+#   container_name = "web-1"
+
+#   # Container variable values
+#   container_image = var.container_image
+
+#   # Command to run jobs
+#   container_command = ["/rails/bin/jobs", "start"]
+
+#   # Config Cpu and Memory
+#   resource_limits_cpu    = "1000m"
+#   resource_limits_memory = "1Gi"
+#   # Environment variables
+#   environment_variables = var.environment_variables_cloud_run
+
+#   # Depends on
+#   depends_on = [
+#     google_sql_database.database_production,
+#     google_sql_database.database_production_queue,
+#     google_sql_database.database_production_cache,
+#     google_sql_database.database_production_cable,
+#     google_sql_user.users
+#   ]
+# }
+resource "google_cloud_run_v2_worker_pool" "default" {
+  name     = "${var.cloud_run_app_name}-solidqueue"
+  location = var.region
+  deletion_protection = false
+  launch_stage = "BETA"
+
+  scaling {
+    scaling_mode = "MANUAL"
+    manual_instance_count = 1
+  }
+
+  template {
+
+    volumes {
+      name = "cloudsql"
+      cloud_sql_instance {
+        instances = var.cloud_sql_instances_cloud_run
+      }
+    }
+
+    containers {
+      image = var.container_image
+      command = ["/rails/bin/jobs"]
+      args = [ "start" ]
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+      }
+
+      volume_mounts {
+        name = "cloudsql"
+        mount_path = "/cloudsql"
+      }
+
+      dynamic "env" {
+        for_each = var.environment_variables_cloud_run
+        content {
+          name = env.key
+          value = env.value
+        }
+      }
+    }
+    vpc_access{
+      network_interfaces {
+        network = var.vpc_network_cloud_run
+        subnetwork = var.vpc_subnet_cloud_run
+      }
+      egress = "ALL_TRAFFIC"
+    }
+    service_account = var.email_service_account
+  }
+  # Depends on
+  depends_on = [
+    google_sql_database.database_production,
+    google_sql_database.database_production_queue,
+    google_sql_database.database_production_cache,
+    google_sql_database.database_production_cable,
+    google_sql_user.users
+  ]
+}

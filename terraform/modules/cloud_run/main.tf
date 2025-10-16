@@ -2,7 +2,7 @@
 resource "google_cloud_run_v2_service" "cloud_run" {
   name     = var.service_name
   location = var.region
-  client   = "cloud-console"
+  client   = "gcloud"
 
   deletion_protection = true
 
@@ -42,6 +42,8 @@ resource "google_cloud_run_v2_service" "cloud_run" {
     containers {
       name  = var.container_name
       image = var.container_image
+
+      command = var.container_command
 
       ports {
         name           = "http1"
