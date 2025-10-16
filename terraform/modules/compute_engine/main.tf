@@ -17,6 +17,13 @@ resource "google_compute_instance" "compute_instance" {
     }
   }
 
+  scheduling {
+    preemptible                 = true
+    automatic_restart           = false
+    provisioning_model          = "SPOT"
+    instance_termination_action = "STOP"
+  }
+
   network_interface {
     network    = "fluid-egress-vpc"
     subnetwork = "fluid-compute-workers-europe-subnet"
