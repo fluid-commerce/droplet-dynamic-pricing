@@ -66,15 +66,16 @@ steps:
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     args:
       [
-        "compute",
-        "instances",
-        "update-container",
-        "${_APP_NAME}-jobs-console",
-        "--zone=europe-west1-b",
-        "--container-image=europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
-        "--quiet",
+        "run",
+        "services",
+        "update",
+        "${_APP_NAME}-solidqueue",
+        "--platform=managed",
+        "--image=europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
+        "--region=europe-west1",
+        "--revision-suffix=${COMMIT_SHA}-${_TIMESTAMP}",
       ]
-    id: update-container-jobs-production
+    id: deploy-production-solidqueue
     entrypoint: gcloud
 
 substitutions:
