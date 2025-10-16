@@ -1,51 +1,35 @@
-<div class="flex items-center justify-between">
-  <div class="flex items-center gap-2">
-    <h1 class="font-custom text-4xl font-bold text-gray-600">Price Types</h1>
-  </div>
-  <!-- Placeholder for future create action -->
-  <div>
+<div class="max-w-7xl mx-auto">
+  <div class="flex justify-end mb-4">
     <%= link_to "New Price Type", new_price_type_path, class: "inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:ring-offset-2" %>
   </div>
-</div>
 
-<% if notice.present? %>
-  <div class="mb-4 rounded-md bg-green-50 p-4 text-green-700">
-    <%= notice %>
-  </div>
-<% end %>
-
-<div class="bg-white rounded-lg p-6 border border-gray-100">
-  <% if @price_types.any? %>
-    <table class="w-full">
-      <thead class="bg-slate-50 border-b border-gray-400">
-        <tr>
-          <th class="pl-2 text-left text-slate-600">Name</th>
-          <th class="pl-2 text-left text-slate-600">Date</th>
-          <th class="pl-2 text-left text-slate-600">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% @price_types.each do |price_type| %>
-          <tr class="odd:bg-white even:bg-slate-50 hover:bg-slate-100">
-            <td class="pl-2 text-left text-gray-600 font-medium"><%= price_type.name %></td>
-            <td class="pl-2 text-left text-gray-600">
-              <div class="flex gap-4 items-center">
-                <span class="text-gray-400"><%= price_type.created_at.strftime("%Y-%m-%d") %></span>
-              </div>
-            </td>
-            <td class="pl-2 text-left text-gray-600">
-              <div class="flex gap-3">
-                <%= link_to "Edit", edit_price_type_path(price_type), class: "text-indigo-600 hover:text-indigo-800" %>
-              </div>
-            </td>
+  <div class="overflow-x-auto bg-white shadow rounded">
+    <% if @price_types.any? %>
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
           </tr>
-        <% end %>
-      </tbody>
-    </table>
-  <% else %>
-    <div class="text-center py-8">
-      <h3 class="text-base font-medium text-gray-900 mb-1">No price types found</h3>
-      <p class="text-sm text-gray-500">Create a price type to get started.</p>
-    </div>
-  <% end %>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          <% @price_types.each do |price_type| %>
+            <tr>
+              <td class="px-6 py-4 whitespace-nowrap text-gray-900 font-medium"><%= price_type.name %></td>
+              <td class="px-6 py-4 whitespace-nowrap text-gray-500"><%= price_type.created_at.strftime("%Y-%m-%d") %></td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <%= link_to "Edit", edit_price_type_path(price_type), class: "text-blue-600 hover:text-blue-800" %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    <% else %>
+      <div class="text-center py-8">
+        <h3 class="text-base font-medium text-gray-900 mb-1">No price types found</h3>
+        <p class="text-sm text-gray-500">Create a price type to get started.</p>
+      </div>
+    <% end %>
+  </div>
 </div>

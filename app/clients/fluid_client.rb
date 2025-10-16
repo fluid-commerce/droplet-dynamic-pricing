@@ -4,6 +4,7 @@ class FluidClient
   include Fluid::Webhooks
   include Fluid::CallbackDefinitions
   include Fluid::CallbackRegistrations
+  include Fluid::Customers
 
   base_uri Setting.fluid_api.base_url
   format :json
@@ -29,6 +30,10 @@ class FluidClient
 
   def put(path, options = {})
     handle_response(@http.put(path, format_options(options)))
+  end
+
+  def patch(path, options = {})
+    handle_response(@http.patch(path, format_options(options)))
   end
 
   def delete(path, options = {})
