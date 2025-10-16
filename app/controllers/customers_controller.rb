@@ -16,13 +16,12 @@ class CustomersController < ApplicationController
 
   def update
     @customer_id = params[:id]
-    customer_type = params.require(:customer).permit(:customer_type)[:customer_type]
 
     client = FluidClient.new(@company.authentication_token)
-    client.customers.append_metadata(@customer_id, { "customer_type" => customer_type })
+    client.customers.append_metadata(@customer_id, { "customer_type" => customer_type_param })
 
     redirect_to customers_path, notice: "Customer updated"
-  rescue StandardError => e
+  rescue FluidClient::APIError => e
     alert = "Failed to update customer: #{e.message}"
 
     redirect_back fallback_location: customers_path(page: params[:page], per_page: params[:per_page]), alert: alert
@@ -52,5 +51,9 @@ private
     unless @company
       render json: { error: "Company not found with DRI: #{dri}" }, status: :not_found
     end
+  end
+
+  def customer_type_param
+    params.require(:customer).permit(:customer_type)[:customer_type]
   end
 end
