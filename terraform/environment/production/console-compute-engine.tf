@@ -10,7 +10,7 @@ module "rails_console" {
   project                = var.project
   purpose_compute_engine = var.purpose_compute_engine
 
-  boot_disk_image = "ubuntu-os-cloud/ubuntu-2404-lts"
+  boot_disk_image = "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
 
   email_service_account = var.email_service_account
 
