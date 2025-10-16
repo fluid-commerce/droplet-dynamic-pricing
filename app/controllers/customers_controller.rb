@@ -23,10 +23,9 @@ class CustomersController < ApplicationController
 
     redirect_to customers_path, notice: "Customer updated"
   rescue StandardError => e
-    flash[:alert] = "Failed to update customer: #{e.message}"
-    @price_types = @company.price_types
-    @selected_customer_type = customer_type
-    render :edit, status: :unprocessable_entity
+    alert = "Failed to update customer: #{e.message}"
+
+    redirect_back fallback_location: customers_path(page: params[:page], per_page: params[:per_page]), alert: alert
   end
 
 private

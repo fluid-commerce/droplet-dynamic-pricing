@@ -3,12 +3,6 @@
     <%= link_to "New Price Type", new_price_type_path, class: "inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:ring-offset-2" %>
   </div>
 
-  <% if notice.present? %>
-    <div class="mb-4 rounded-md bg-green-50 p-4 text-green-700">
-      <%= notice %>
-    </div>
-  <% end %>
-
   <div class="overflow-x-auto bg-white shadow rounded">
     <% if @price_types.any? %>
       <table class="min-w-full divide-y divide-gray-200">
