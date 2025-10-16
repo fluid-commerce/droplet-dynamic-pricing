@@ -71,7 +71,6 @@ steps:
         "worker-pools",
         "update",
         "${_APP_NAME}-solidqueue",
-        "--platform=managed",
         "--image=europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
         "--region=europe-west1",
         "--revision-suffix=${COMMIT_SHA}-${_TIMESTAMP}",
