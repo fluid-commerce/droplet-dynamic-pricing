@@ -49,7 +49,7 @@ variable "email_service_account" {
 variable "boot_disk_image" {
   description = "Image of the Compute Engine instance"
   type        = string
-  default     = "ubuntu-os-cloud/ubuntu-2404-lts"
+  default     = "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
 }
 
 # Postgres variables
