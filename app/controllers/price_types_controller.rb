@@ -24,10 +24,16 @@ class PriceTypesController < ApplicationController
   def edit; end
 
   def update
-    if @price_type.update(price_type_params)
+    result = PriceTypeUseCases::Update.call(
+      price_type_id: params[:id],
+      auth_token: @company.authentication_token,
+      attributes: price_type_params
+    )
+
+    if result[:success]
       redirect_to price_types_path, notice: "Price type updated"
     else
-      render :edit, status: :unprocessable_entity
+      redirect_to price_types_path, alert: result[:error]
     end
   end
 

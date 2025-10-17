@@ -29,7 +29,7 @@
               </td>
               <td class="px-6 py-4 whitespace-nowrap">
                 <%= form_with url: customer_path(customer["id"]), method: :put, scope: :customer, local: true, html: { class: "flex items-center gap-3" } do |f| %>
-                  <%= f.select :customer_type, options_for_select(@price_types, customer_type), {}, class: "w-56 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500" %>
+                  <%= f.select :customer_type, options_for_select(@price_types, customer_type), { include_blank: "Unassigned" }, class: "w-56 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500" %>
                   <%= f.submit "Save", class: "inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:ring-offset-2" %>
                 <% end %>
               </td>
