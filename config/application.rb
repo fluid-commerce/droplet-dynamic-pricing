@@ -25,5 +25,11 @@ module DropletTemplate
     config.action_view.field_error_proc = Proc.new { |html_tag, instance|
       "<span class='text-orange-600'>#{html_tag}</span>".html_safe
     }
+
+    config.session_store :cookie_store,
+      key: "_droplet_dynamic_pricing_session",
+      secure: Rails.env.production?,
+      httponly: true,
+      same_site: Rails.env.production? ? :none : :lax
   end
 end
