@@ -1,3 +1,5 @@
+require "cgi"
+
 module Fluid
   module Customers
     def customers
@@ -27,6 +29,12 @@ module Fluid
         query_params = []
         query_params << "page=#{params[:page]}" if params.key?(:page)
         query_params << "per_page=#{params[:per_page]}" if params.key?(:per_page)
+
+        if params.key?(:by_metadata)
+          raw_metadata = params[:by_metadata]
+          json_metadata = raw_metadata.is_a?(String) ? raw_metadata : raw_metadata.to_json
+          query_params << "by_metadata=#{CGI.escape(json_metadata)}"
+        end
 
         "?#{query_params.join('&')}"
       end

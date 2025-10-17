@@ -31,6 +31,16 @@ class PriceTypesController < ApplicationController
     end
   end
 
+  def destroy
+    result = PriceTypeUseCases::Delete.call(price_type_id: params[:id], auth_token: @company.authentication_token)
+
+    if result[:success]
+      redirect_to price_types_path, notice: "Price type deleted"
+    else
+      redirect_back fallback_location: price_types_path, alert: result[:error]
+    end
+  end
+
 private
 
   def set_price_type
