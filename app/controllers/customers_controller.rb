@@ -46,7 +46,7 @@ private
       render json: { error: "DRI parameter is required" }, status: :bad_request
     end
 
-    @company = Company.find_by(droplet_installation_uuid: dri)
+    @company = Company.find_by(company_droplet_uuid: dri)
 
     unless @company
       render json: { error: "Company not found with DRI: #{dri}" }, status: :not_found
