@@ -9,7 +9,7 @@ describe PriceTypesController do
     it "creates a price type and redirects on success" do
       assert_difference -> { company.price_types.count }, +1 do
         post price_types_url, params: {
-          dri: company.company_droplet_uuid,
+          dri: company.droplet_installation_uuid,
           price_type: { name: "Wholesale" },
         }
       end
@@ -22,7 +22,7 @@ describe PriceTypesController do
     it "renders new with 422 on validation failure" do
       assert_no_difference -> { company.price_types.count } do
         post price_types_url, params: {
-          dri: company.company_droplet_uuid,
+          dri: company.droplet_installation_uuid,
           price_type: { name: "" },
         }
       end
@@ -38,7 +38,7 @@ describe PriceTypesController do
 
       PriceTypeUseCases::Update.stub :call, ->(**_kwargs) { { success: true, price_type: price_type } } do
         patch price_type_url(price_type), params: {
-          dri: company.company_droplet_uuid,
+          dri: company.droplet_installation_uuid,
           price_type: { name: "Wholesale" },
         }
       end
@@ -54,7 +54,7 @@ describe PriceTypesController do
       PriceTypeUseCases::Update.stub :call, ->(**_kwargs) {
  { success: false, error: "Cannot update price type: it is in use by one or more customers" } } do
         patch price_type_url(price_type), params: {
-          dri: company.company_droplet_uuid,
+          dri: company.droplet_installation_uuid,
           price_type: { name: "Wholesale" },
         }
       end
@@ -71,7 +71,7 @@ describe PriceTypesController do
 
       PriceTypeUseCases::Delete.stub :call, ->(**_kwargs) { { success: true } } do
         delete price_type_url(price_type), params: {
-          dri: company.company_droplet_uuid,
+          dri: company.droplet_installation_uuid,
         }
       end
 
@@ -86,7 +86,7 @@ describe PriceTypesController do
       PriceTypeUseCases::Delete.stub :call, ->(**_kwargs) {
  { success: false, error: "Cannot delete price type: it is in use by one or more customers" } } do
         delete price_type_url(price_type), params: {
-          dri: company.company_droplet_uuid,
+          dri: company.droplet_installation_uuid,
         }
       end
 
