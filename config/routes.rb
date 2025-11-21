@@ -4,6 +4,7 @@ Rails.application.routes.draw do
   devise_for :users
 
   post "webhook", to: "webhooks#create", as: :webhook
+  post "callback/:callback_name", to: "callbacks#create", as: :callback
 
   namespace :admin do
     get "dashboard/index"
