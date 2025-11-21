@@ -29,6 +29,7 @@ module Fluid
         query_params = []
         query_params << "page=#{params[:page]}" if params.key?(:page)
         query_params << "per_page=#{params[:per_page]}" if params.key?(:per_page)
+        query_params << "email=#{CGI.escape(params[:email])}" if params.key?(:email)
 
         if params.key?(:by_metadata)
           raw_metadata = params[:by_metadata]
