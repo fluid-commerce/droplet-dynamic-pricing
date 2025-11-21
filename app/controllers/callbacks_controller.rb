@@ -5,6 +5,12 @@ class CallbacksController < ApplicationController
   def create
     callback_name = params[:callback_name]
 
+    company = find_company
+
+    if company.blank? || !valid_auth_token?(company)
+      render json: { error: "Unauthorized" }, status: :unauthorized
+    end
+
     case callback_name
     when "verify_email_success"
       handle_verify_email_success
@@ -25,11 +31,6 @@ class CallbacksController < ApplicationController
   end
 
 private
-
-  def authenticate_callback_request
-    # TODO: Implement authentication logic similar to webhooks_controller
-    true
-  end
 
   def handle_verify_email_success
     email = callback_params[:email]
@@ -148,8 +149,15 @@ private
     Rails.logger.error "Failed to update cart items to regular pricing for cart #{cart_id}: #{e.message}"
   end
 
-  def current_company
-    Company.find_by(id: callback_params[:company_id])
+  def valid_auth_token?(company)
+    # Check header auth token first, then fall back to params
+    auth_header = request.headers["AUTH_TOKEN"] || request.headers["X-Auth-Token"] || request.env["HTTP_AUTH_TOKEN"]
+
+    auth_header.present? && company.authentication_token == auth_header
+  end
+
+  def find_company
+    Company.find_by(fluid_company_id: company_params[:fluid_company_id])
   end
 
   def callback_params
