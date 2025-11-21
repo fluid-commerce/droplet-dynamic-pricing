@@ -28,7 +28,6 @@ private
 
   def authenticate_callback_request
     # TODO: Implement authentication logic similar to webhooks_controller
-    # For now, we'll skip authentication during development
     true
   end
 
@@ -38,7 +37,6 @@ private
 
     Rails.logger.info "Processing verify_email_success for email: #{email}, cart: #{cart_id}"
 
-    # Get customer by email and check if preferred_customer
     customer = fetch_customer_by_email(email)
 
     if customer && customer.dig("metadata", "customer_type") == "preferred_customer"
@@ -73,7 +71,6 @@ private
 
     # Check if cart has preferred_customer price_type
     if cart_metadata["price_type"] == "preferred_customer"
-      # Apply subscription pricing to the added item
       apply_subscription_pricing_to_item(cart_id, item_id)
     end
 
@@ -85,10 +82,8 @@ private
 
     Rails.logger.info "Processing subscription_added for cart: #{cart_id}"
 
-    # Force cart metadata to preferred_customer
     update_cart_metadata(cart_id, { "price_type" => "preferred_customer" })
 
-    # Update all items in cart to subscription pricing
     update_all_cart_items_to_subscription_pricing(cart_id)
 
     render json: { success: true }
@@ -99,10 +94,8 @@ private
 
     Rails.logger.info "Processing subscription_removed for cart: #{cart_id}"
 
-    # Reset cart metadata
     update_cart_metadata(cart_id, { "price_type" => nil })
 
-    # Update all items in cart to regular pricing
     update_all_cart_items_to_regular_pricing(cart_id)
 
     render json: { success: true }
@@ -113,7 +106,6 @@ private
 
     client = FluidClient.new(current_company.authentication_token)
     # TODO: Implement customer lookup by email in FluidClient
-    # For now, return nil
     nil
   rescue FluidClient::Error => e
     Rails.logger.error "Failed to fetch customer by email #{email}: #{e.message}"
@@ -123,7 +115,6 @@ private
   def update_cart_metadata(cart_id, metadata)
     return if cart_id.blank?
 
-    # client = FluidClient.new(current_company.authentication_token)
     # TODO: Implement cart metadata update in FluidClient
     Rails.logger.info "Would update cart #{cart_id} metadata: #{metadata}"
   rescue FluidClient::Error => e
@@ -133,7 +124,6 @@ private
   def apply_subscription_pricing_to_item(cart_id, item_id)
     return if cart_id.blank? || item_id.blank?
 
-    # client = FluidClient.new(current_company.authentication_token)
     # TODO: Implement single item price update
     Rails.logger.info "Would apply subscription pricing to item #{item_id} in cart #{cart_id}"
   rescue FluidClient::Error => e
@@ -143,7 +133,6 @@ private
   def update_all_cart_items_to_subscription_pricing(cart_id)
     return if cart_id.blank?
 
-    # client = FluidClient.new(current_company.authentication_token)
     # TODO: Implement cart items price update using updatecartitemsprices endpoint
     Rails.logger.info "Would update all items in cart #{cart_id} to subscription pricing"
   rescue FluidClient::Error => e
@@ -153,7 +142,6 @@ private
   def update_all_cart_items_to_regular_pricing(cart_id)
     return if cart_id.blank?
 
-    # client = FluidClient.new(current_company.authentication_token)
     # TODO: Implement cart items price update using updatecartitemsprices endpoint
     Rails.logger.info "Would update all items in cart #{cart_id} to regular pricing"
   rescue FluidClient::Error => e
@@ -161,9 +149,7 @@ private
   end
 
   def current_company
-    # TODO: Implement company lookup based on callback authentication
-    # For now, return first company
-    Company.first
+    Company.find_by(id: callback_params[:company_id])
   end
 
   def callback_params
