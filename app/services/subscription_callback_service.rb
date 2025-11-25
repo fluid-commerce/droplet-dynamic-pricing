@@ -7,8 +7,7 @@ class SubscriptionCallbackService
     cart = @callback_params[:cart]
     return { success: true } if cart.blank?
 
-    cart_token = cart["cart_token"]
-    cart_items = cart["items"] || []
+    cart_token, cart_items = extract_cart_token_and_items(cart)
 
     update_cart_metadata(cart_token, { "price_type" => "preferred_customer" })
 
@@ -24,8 +23,7 @@ class SubscriptionCallbackService
     cart = @callback_params[:cart]
     return { success: true } if cart.blank?
 
-    cart_token = cart["cart_token"]
-    cart_items = cart["items"] || []
+    cart_token, cart_items = extract_cart_token_and_items(cart)
 
     update_cart_metadata(cart_token, { "price_type" => nil })
 
@@ -77,12 +75,7 @@ private
 
     payload = { "cart_items" => items_data }
 
-    response = client.class.patch("/api/carts/#{cart_token}/update_cart_items_prices",
-                                 body: payload.to_json,
-                                 headers: {
-                                   "Authorization" => "Bearer #{company.authentication_token}",
-                                   "Content-Type" => "application/json",
-                                 })
+    response = make_cart_items_prices_request(client, cart_token, payload, company.authentication_token)
 
     response
   rescue StandardError => e
@@ -105,5 +98,24 @@ private
         "price" => item.dig("product", "price") || item["price"],
       }
     end
+  end
+
+  def extract_cart_token_and_items(cart)
+    cart_token = cart["cart_token"]
+    cart_items = cart["items"] || []
+
+    [ cart_token, cart_items ] if cart_token.present? && cart_items.any?
+  rescue StandardError => e
+    Rails.logger.error "Error extracting cart token and items: #{e.message}"
+    nil
+  end
+
+  def make_cart_items_prices_request(client, cart_token, payload, auth_token)
+    client.class.patch("/api/carts/#{cart_token}/update_cart_items_prices",
+                       body: payload.to_json,
+                       headers: {
+                         "Authorization" => "Bearer #{auth_token}",
+                         "Content-Type" => "application/json",
+                       })
   end
 end
