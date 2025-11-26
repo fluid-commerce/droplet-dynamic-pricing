@@ -35,6 +35,35 @@ class SubscriptionCallbackService
     { success: true }
   end
 
+  def handle_item_added
+    cart = @callback_params[:cart]
+    cart_item = @callback_params[:cart_item]
+
+    return { success: true } if cart.blank? || cart_item.blank?
+
+    price_type = cart.dig("metadata", "price_type")
+
+    if price_type == "preferred_customer"
+      subscription_price = cart_item["subscription_price"]
+
+      if subscription_price
+        modified_cart_item = cart_item.dup
+        modified_cart_item["price"] = subscription_price
+
+        Rails.logger.info "Cart #{cart['cart_token']} item #{cart_item['id']} price changed to subscription price: #{subscription_price}"
+
+        return {
+          success: true,
+          cart_item: modified_cart_item,
+        }
+      end
+    else
+      Rails.logger.info "Cart metadata price_type is not preferred_customer (#{price_type}) - no action needed"
+    end
+
+    { success: true }
+  end
+
 private
 
   def find_company

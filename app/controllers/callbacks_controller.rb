@@ -10,6 +10,8 @@ class CallbacksController < ApplicationController
       service.handle_subscription_added
     when "subscription_removed"
       service.handle_subscription_removed
+    when "item_added"
+      service.handle_item_added
     else
       { success: false, error: "Unknown callback: #{callback_name}" }
     end
