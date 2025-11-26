@@ -5,7 +5,7 @@ class Callbacks::SubscriptionAddedService < Callbacks::BaseService
 
     cart_token, cart_items = extract_cart_token_and_items(cart)
 
-    update_cart_metadata(cart_token, { "price_type" => "preferred_customer" })
+    update_cart_metadata(cart_token, { "price_type" => "subscription_pricing" })
 
     if cart_items.any?
       items_data = build_subscription_items_data(cart_items)

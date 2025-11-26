@@ -35,7 +35,7 @@ protected
     client = FluidClient.new(company.authentication_token)
     return if client.blank?
 
-    client.carts.update_metadata(cart_token, metadata)
+    client.carts.append_metadata(cart_token, metadata)
   rescue StandardError => e
     Rails.logger.error "Failed to update cart metadata for cart #{cart_token}: #{e.message}"
   end
