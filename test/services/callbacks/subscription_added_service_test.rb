@@ -44,7 +44,7 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
 
   test "call processes subscription_added successfully" do
     service = Callbacks::SubscriptionAddedService.new(@callback_params)
-    
+
     # Mock the private methods
     service.stub(:update_cart_metadata, true) do
       service.stub(:update_cart_items_prices, true) do
