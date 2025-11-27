@@ -48,7 +48,7 @@ protected
 
     client = FluidClient.new(company.authentication_token)
     return if client.blank?
-
+    Rails.logger.info "Updating cart items prices: #{items_data}"
     payload = { "cart_items" => items_data }
 
     response = make_cart_items_prices_request(client, cart_token, payload, company.authentication_token)
@@ -77,12 +77,29 @@ protected
   end
 
   def make_cart_items_prices_request(client, cart_token, payload, auth_token)
-    client.class.patch("/api/carts/#{cart_token}/update_cart_items_prices",
-                       body: payload.to_json,
-                       headers: {
-                         "Authorization" => "Bearer #{auth_token}",
-                         "Content-Type" => "application/json",
-                       })
+    Rails.logger.info "Making request to update cart items prices: #{payload}"
+    response = client.patch("/api/carts/#{cart_token}/update_cart_items_prices", body: payload)
+
+    response
+  rescue StandardError => e
+    Rails.logger.error "Error in make_cart_items_prices_request: #{e.message}"
+    Rails.logger.error e.backtrace.join("\n")
+    raise e
+  end
+
+  def get_cart(cart_token)
+    return nil if cart_token.blank?
+
+    company = find_company
+    return nil if company.blank?
+
+    client = FluidClient.new(company.authentication_token)
+    return nil if client.blank?
+    Rails.logger.info "Getting cart: #{cart_token}"
+    client.carts.get(cart_token)
+  rescue StandardError => e
+    Rails.logger.error "Failed to get cart #{cart_token}: #{e.message}"
+    nil
   end
 
   def get_customer_type_by_email(email)
@@ -104,5 +121,46 @@ protected
   rescue StandardError => e
     Rails.logger.error "Failed to get customer type for email #{email}: #{e.message}"
     nil
+  end
+
+  def update_cart_totals(cart_token, cart_items, use_subscription_prices: false)
+    return if cart_token.blank? || cart_items.blank?
+
+    company = find_company
+    return if company.blank?
+
+    client = FluidClient.new(company.authentication_token)
+    return if client.blank?
+
+    total_amount = calculate_total_amount(cart_items, use_subscription_prices)
+    payload = { "amount_total" => total_amount }
+    Rails.logger.info "amount_total: #{total_amount}, Payload: #{payload}"
+
+    make_update_totals_request(client, cart_token, payload, company.authentication_token)
+  rescue StandardError => e
+    Rails.logger.error "Failed to update cart totals for cart #{cart_token}: #{e.message}"
+  end
+
+  def calculate_total_amount(cart_items, use_subscription_prices)
+    cart_items.sum do |item|
+      quantity = item["quantity"] || 1
+      price = if use_subscription_prices
+        item["subscription_price"] || item["price"]
+      else
+        item.dig("product", "price") || item["price"]
+      end
+      Rails.logger.info "price: #{price}, quantity: #{quantity}"
+      price.to_f * quantity.to_i
+    end
+  end
+
+  def make_update_totals_request(client, cart_token, payload, auth_token)
+    response = client.patch("/api/carts/#{cart_token}/update_totals", body: payload)
+
+    response
+  rescue StandardError => e
+    Rails.logger.error "Error in make_update_totals_request: #{e.message}"
+    Rails.logger.error e.backtrace.join("\n")
+    raise e
   end
 end

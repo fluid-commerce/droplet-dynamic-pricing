@@ -10,6 +10,7 @@ class Callbacks::SubscriptionAddedService < Callbacks::BaseService
     if cart_items.any?
       items_data = build_subscription_items_data(cart_items)
       update_cart_items_prices(cart_token, items_data)
+      update_cart_totals(cart_token, cart_items, use_subscription_prices: true)
     end
 
     { success: true }
