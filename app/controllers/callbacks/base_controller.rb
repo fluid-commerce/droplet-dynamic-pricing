@@ -21,6 +21,31 @@ private
   end
 
   def callback_params
-    params.permit!.to_h.with_indifferent_access
+    params.permit(
+      :email,
+      :cart_token,
+      cart: [
+        :id,
+        :cart_token,
+        :email,
+        :customer_id,
+        company: %i[id name subdomain fluid_company_id],
+        metadata: {},
+        items: [
+          :id,
+          :price,
+          :subscription_price,
+          :quantity,
+          product: %i[id price name],
+        ],
+      ],
+      cart_item: [
+        :id,
+        :price,
+        :subscription_price,
+        :quantity,
+        product: %i[id price name],
+      ],
+    ).to_h.with_indifferent_access
   end
 end
