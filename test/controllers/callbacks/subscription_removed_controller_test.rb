@@ -57,4 +57,12 @@ class Callbacks::SubscriptionRemovedControllerTest < ActionDispatch::Integration
       assert_equal "Service error", response_json["error"]
     end
   end
+
+  test "skips CSRF token verification" do
+    Callbacks::SubscriptionRemovedService.stub(:call, { success: true }) do
+      post "/callback/subscription_removed", params: { cart: @cart_data }
+
+      assert_response :success
+    end
+  end
 end

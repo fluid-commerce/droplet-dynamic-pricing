@@ -45,12 +45,15 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
   test "call processes subscription_removed successfully" do
     service = Callbacks::SubscriptionRemovedService.new(@callback_params)
 
-    # Mock the private methods
-    service.stub(:update_cart_metadata, true) do
-      service.stub(:update_cart_items_prices, true) do
-        result = service.call
+    service.stub(:find_company, @company) do
+      service.stub(:update_cart_metadata, true) do
+        service.stub(:update_cart_items_prices, true) do
+          service.stub(:update_cart_totals, true) do
+            result = service.call
 
-        assert_equal({ success: true }, result)
+            assert_equal({ success: true }, result)
+          end
+        end
       end
     end
   end
@@ -74,13 +77,17 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     metadata_called = false
     expected_metadata = { "price_type" => nil }
 
-    service.stub(:update_cart_metadata, ->(cart_token, metadata) {
-      metadata_called = true
-      assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
-      assert_equal expected_metadata, metadata
-    }) do
-      service.stub(:update_cart_items_prices, true) do
-        service.call
+    service.stub(:find_company, @company) do
+      service.stub(:update_cart_metadata, ->(cart_token, metadata) {
+        metadata_called = true
+        assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
+        assert_equal expected_metadata, metadata
+      }) do
+        service.stub(:update_cart_items_prices, true) do
+          service.stub(:update_cart_totals, true) do
+            service.call
+          end
+        end
       end
     end
 
@@ -89,20 +96,29 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
   test "updates items to regular pricing" do
     service = Callbacks::SubscriptionRemovedService.new(@callback_params)
-    prices_called = false
+    prices_called_count = 0
+    expected_calls = [
+      { cart_token: "ct_52blT6sVvSo4Ck2ygrKyW2", item_id: 674137, price: "80.0" },
+      { cart_token: "ct_52blT6sVvSo4Ck2ygrKyW2", item_id: 674138, price: "60.0" },
+    ]
 
-    service.stub(:update_cart_metadata, true) do
-      service.stub(:update_cart_items_prices, ->(cart_token, items_data) {
-        prices_called = true
-        assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
-        assert_equal 2, items_data.length
-        assert_equal "80.0", items_data[0]["price"]
-        assert_equal "60.0", items_data[1]["price"]
-      }) do
-        service.call
+    service.stub(:find_company, @company) do
+      service.stub(:update_cart_metadata, true) do
+        service.stub(:update_cart_items_prices, ->(cart_token, items_data) {
+          prices_called_count += 1
+          expected_call = expected_calls[prices_called_count - 1]
+          assert_equal expected_call[:cart_token], cart_token
+          assert_equal 1, items_data.length
+          assert_equal expected_call[:item_id], items_data[0]["id"]
+          assert_equal expected_call[:price], items_data[0]["price"]
+        }) do
+          service.stub(:update_cart_totals, true) do
+            service.call
+          end
+        end
       end
     end
 
-    assert prices_called, "update_cart_items_prices should have been called"
+    assert_equal 2, prices_called_count, "update_cart_items_prices should have been called twice (once per item)"
   end
 end
