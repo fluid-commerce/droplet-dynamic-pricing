@@ -37,9 +37,55 @@ class DropletInstalledJob < WebhookEventJob
     end
 
     register_active_callbacks(company)
+    register_subscription_webhooks(company)
   end
 
 private
+
+  def register_subscription_webhooks(company)
+    client = FluidClient.new(company.authentication_token)
+    webhook_setting = Setting.fluid_webhook
+    base_url = Setting.host_server.base_url
+    auth_token = company.webhook_verification_token || webhook_setting.auth_token
+
+    webhook_events = [
+      { event: "started", url: subscription_webhook_url(base_url, "subscription_started") },
+      { event: "paused", url: subscription_webhook_url(base_url, "subscription_paused") },
+      { event: "cancelled", url: subscription_webhook_url(base_url, "subscription_cancelled") },
+    ]
+
+    webhook_events.each do |webhook_config|
+      begin
+        webhook_attributes = {
+          resource: "subscription",
+          event: webhook_config[:event],
+          url: webhook_config[:url],
+          active: true,
+          auth_token: auth_token,
+          http_method: "post",
+        }
+
+        response = client.webhooks.create(webhook_attributes)
+        if response && response["webhook"] && response["webhook"]["id"]
+          Rails.logger.info(
+            "[DropletInstalledJob] Successfully registered subscription.#{webhook_config[:event]} webhook: #{response["webhook"]["id"]}"
+          )
+        else
+          Rails.logger.warn(
+            "[DropletInstalledJob] Webhook registered but no ID returned for: subscription.#{webhook_config[:event]}"
+          )
+        end
+      rescue => e
+        Rails.logger.error(
+          "[DropletInstalledJob] Failed to register subscription.#{webhook_config[:event]} webhook: #{e.message}"
+        )
+      end
+    end
+  end
+
+  def subscription_webhook_url(base_url, event_name)
+    "#{base_url}/webhook/#{event_name}"
+  end
 
   def register_active_callbacks(company)
     client = FluidClient.new(company.authentication_token)
