@@ -1,3 +1,5 @@
+require "cgi"
+
 class Callbacks::CartEmailOnCreateService < Callbacks::BaseService
   def call
     cart = @callback_params[:cart]
@@ -100,9 +102,15 @@ per_page: 100)
     client = FluidClient.new(company.authentication_token)
     return nil if client.blank?
 
-    response = client.customers.get(email: email)
+    # Use search_query format like in the example
+    escaped_email = CGI.escape(email.to_s)
+    search_query = "search_query=#{escaped_email}"
+
+    Rails.logger.info "Searching customer with query: #{search_query}"
+    response = client.get("/api/customers?#{search_query}")
     customers = response["customers"] || []
 
+    Rails.logger.info "Found #{customers.length} customers for email #{email}"
     customers.first
   rescue StandardError => e
     Rails.logger.error "Failed to get customer by email #{email}: #{e.message}"
