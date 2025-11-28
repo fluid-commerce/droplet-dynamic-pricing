@@ -9,6 +9,7 @@ module Fluid
         @client = client
       end
 
+      # rubocop:disable Layout/LineLength
       def get(resource_type:, resource_id:, page: 1, per_page: 100)
         @client.get("/api/v2/metafields?resource_type=#{resource_type}&resource_id=#{resource_id}&page=#{page}&per_page=#{per_page}")
       end
