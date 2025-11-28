@@ -8,7 +8,6 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
     update_cart_metadata(cart_token, { "price_type" => nil })
 
     if cart_items.any?
-      # Update items one by one instead of all at once
       cart_items.each do |item|
         item_data = [ {
           "id" => item["id"],
@@ -18,7 +17,6 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
         update_cart_items_prices(cart_token, item_data)
       end
 
-      # Update totals after all items are updated
       update_cart_totals(cart_token, cart_items, use_subscription_prices: false)
     end
 
