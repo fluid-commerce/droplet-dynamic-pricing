@@ -1,6 +1,6 @@
 require "test_helper"
 
-class Callbacks::ItemAddedServiceTest < ActiveSupport::TestCase
+class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
   fixtures(:companies)
 
   def setup
@@ -41,14 +41,14 @@ class Callbacks::ItemAddedServiceTest < ActiveSupport::TestCase
   end
 
   test "call returns success when cart is blank" do
-    service = Callbacks::ItemAddedService.new({ cart: nil, cart_item: @cart_item })
+    service = Callbacks::CartItemAddedService.new({ cart: nil, cart_item: @cart_item })
     result = service.call
 
     assert_equal({ success: true }, result)
   end
 
   test "call returns success when cart_item is blank" do
-    service = Callbacks::ItemAddedService.new({ cart: @cart_data, cart_item: nil })
+    service = Callbacks::CartItemAddedService.new({ cart: @cart_data, cart_item: nil })
     result = service.call
 
     assert_equal({ success: true }, result)
@@ -58,7 +58,7 @@ class Callbacks::ItemAddedServiceTest < ActiveSupport::TestCase
     cart_without_preferred = @cart_data.dup
     cart_without_preferred["metadata"] = { "price_type" => "regular_customer" }
 
-    service = Callbacks::ItemAddedService.new({
+    service = Callbacks::CartItemAddedService.new({
       cart: cart_without_preferred,
       cart_item: @cart_item,
     })
@@ -71,7 +71,7 @@ class Callbacks::ItemAddedServiceTest < ActiveSupport::TestCase
     cart_without_price_type = @cart_data.dup
     cart_without_price_type["metadata"] = {}
 
-    service = Callbacks::ItemAddedService.new({
+    service = Callbacks::CartItemAddedService.new({
       cart: cart_without_price_type,
       cart_item: @cart_item,
     })
@@ -80,8 +80,8 @@ class Callbacks::ItemAddedServiceTest < ActiveSupport::TestCase
     assert_equal({ success: true }, result)
   end
 
-  test "call processes item_added successfully when price_type is preferred_customer" do
-    service = Callbacks::ItemAddedService.new(@callback_params)
+  test "call processes cart_item_added successfully when price_type is preferred_customer" do
+    service = Callbacks::CartItemAddedService.new(@callback_params)
 
     service.stub(:find_company, @company) do
       service.stub(:update_cart_items_prices, true) do
@@ -95,7 +95,7 @@ class Callbacks::ItemAddedServiceTest < ActiveSupport::TestCase
   end
 
   test "updates cart items prices with subscription_price when available" do
-    service = Callbacks::ItemAddedService.new(@callback_params)
+    service = Callbacks::CartItemAddedService.new(@callback_params)
     prices_called = false
     expected_item_data = [
       {
@@ -125,7 +125,7 @@ class Callbacks::ItemAddedServiceTest < ActiveSupport::TestCase
       "price" => "50.0",
     }
 
-    service = Callbacks::ItemAddedService.new({
+    service = Callbacks::CartItemAddedService.new({
       cart: @cart_data,
       cart_item: cart_item_without_subscription,
     })
@@ -153,7 +153,7 @@ class Callbacks::ItemAddedServiceTest < ActiveSupport::TestCase
   end
 
   test "updates cart totals with all items using subscription prices" do
-    service = Callbacks::ItemAddedService.new(@callback_params)
+    service = Callbacks::CartItemAddedService.new(@callback_params)
     totals_called = false
 
     service.stub(:find_company, @company) do
@@ -176,8 +176,8 @@ class Callbacks::ItemAddedServiceTest < ActiveSupport::TestCase
     service_instance = Minitest::Mock.new
     service_instance.expect(:call, { success: true })
 
-    Callbacks::ItemAddedService.stub(:new, ->(params) { service_instance }) do
-      result = Callbacks::ItemAddedService.call(@callback_params)
+    Callbacks::CartItemAddedService.stub(:new, ->(params) { service_instance }) do
+      result = Callbacks::CartItemAddedService.call(@callback_params)
 
       assert_equal({ success: true }, result)
     end

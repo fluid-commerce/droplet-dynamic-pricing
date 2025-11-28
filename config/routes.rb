@@ -7,7 +7,7 @@ Rails.application.routes.draw do
 
   post "callback/subscription_added", to: "callbacks/subscription_added#create"
   post "callback/subscription_removed", to: "callbacks/subscription_removed#create"
-  post "callback/item_added", to: "callbacks/item_added#create"
+  post "callback/cart_item_added", to: "callbacks/cart_item_added#create"
   post "callback/update_cart_email", to: "callbacks/update_cart_email#create"
 
   # Fallback

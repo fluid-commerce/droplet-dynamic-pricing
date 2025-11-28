@@ -1,6 +1,6 @@
 require "test_helper"
 
-class Callbacks::ItemAddedControllerTest < ActionDispatch::IntegrationTest
+class Callbacks::CartItemAddedControllerTest < ActionDispatch::IntegrationTest
   fixtures(:companies)
 
   def setup
@@ -31,9 +31,9 @@ class Callbacks::ItemAddedControllerTest < ActionDispatch::IntegrationTest
     }
   end
 
-  test "handles item_added callback successfully" do
-    Callbacks::ItemAddedService.stub(:call, { success: true }) do
-      post "/callback/item_added", params: {
+  test "handles cart_item_added callback successfully" do
+    Callbacks::CartItemAddedService.stub(:call, { success: true }) do
+      post "/callback/cart_item_added", params: {
         cart: @cart_data,
         cart_item: @cart_item,
       }
@@ -45,8 +45,8 @@ class Callbacks::ItemAddedControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "handles service errors gracefully" do
-    Callbacks::ItemAddedService.stub(:call, ->(params) { raise StandardError.new("Test error") }) do
-      post "/callback/item_added", params: {
+    Callbacks::CartItemAddedService.stub(:call, ->(params) { raise StandardError.new("Test error") }) do
+      post "/callback/cart_item_added", params: {
         cart: @cart_data,
         cart_item: @cart_item,
       }
@@ -59,8 +59,8 @@ class Callbacks::ItemAddedControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "returns bad request when service returns error" do
-    Callbacks::ItemAddedService.stub(:call, { success: false, error: "Service error" }) do
-      post "/callback/item_added", params: {
+    Callbacks::CartItemAddedService.stub(:call, { success: false, error: "Service error" }) do
+      post "/callback/cart_item_added", params: {
         cart: @cart_data,
         cart_item: @cart_item,
       }
@@ -73,8 +73,8 @@ class Callbacks::ItemAddedControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "skips CSRF token verification" do
-    Callbacks::ItemAddedService.stub(:call, { success: true }) do
-      post "/callback/item_added", params: {
+    Callbacks::CartItemAddedService.stub(:call, { success: true }) do
+      post "/callback/cart_item_added", params: {
         cart: @cart_data,
         cart_item: @cart_item,
       }

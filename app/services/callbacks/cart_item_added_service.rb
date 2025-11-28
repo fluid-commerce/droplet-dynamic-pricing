@@ -1,4 +1,4 @@
-class Callbacks::ItemAddedService < Callbacks::BaseService
+class Callbacks::CartItemAddedService < Callbacks::BaseService
   def call
     cart = @callback_params[:cart]
     cart_item = @callback_params[:cart_item]
