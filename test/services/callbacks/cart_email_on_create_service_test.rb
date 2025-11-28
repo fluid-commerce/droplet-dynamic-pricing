@@ -127,4 +127,3 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
     service_instance.verify
   end
 end
-
