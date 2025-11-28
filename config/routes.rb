@@ -4,6 +4,9 @@ Rails.application.routes.draw do
   devise_for :users
 
   post "webhook", to: "webhooks#create", as: :webhook
+  post "webhook/subscription_started", to: "webhooks/subscription_started#create"
+  post "webhook/subscription_paused", to: "webhooks/subscription_paused#create"
+  post "webhook/subscription_cancelled", to: "webhooks/subscription_cancelled#create"
 
   namespace :admin do
     get "dashboard/index"
