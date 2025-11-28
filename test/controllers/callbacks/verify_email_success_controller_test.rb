@@ -1,0 +1,74 @@
+require "test_helper"
+
+class Callbacks::VerifyEmailSuccessControllerTest < ActionDispatch::IntegrationTest
+  fixtures(:companies)
+
+  def setup
+    @company = companies(:acme)
+    @cart_data = {
+      "id" => 265327,
+      "cart_token" => "ct_52blT6sVvSo4Ck2ygrKyW2",
+      "company" => {
+        "id" => @company.fluid_company_id,
+        "name" => @company.name,
+        "subdomain" => "test",
+      },
+    }
+  end
+
+  test "handles verify_email_success callback successfully" do
+    Callbacks::VerifyEmailSuccessService.stub(:call, { success: true }) do
+      post "/callback/verify_email_success", params: {
+        email: "test@example.com",
+        cart_token: "ct_52blT6sVvSo4Ck2ygrKyW2",
+        cart: @cart_data,
+      }
+
+      assert_response :success
+      response_json = JSON.parse(response.body)
+      assert_equal true, response_json["success"]
+    end
+  end
+
+  test "handles service errors gracefully" do
+    Callbacks::VerifyEmailSuccessService.stub(:call, ->(params) { raise StandardError.new("Test error") }) do
+      post "/callback/verify_email_success", params: {
+        email: "test@example.com",
+        cart_token: "ct_52blT6sVvSo4Ck2ygrKyW2",
+        cart: @cart_data,
+      }
+
+      assert_response :internal_server_error
+      response_json = JSON.parse(response.body)
+      assert_equal false, response_json["success"]
+      assert_equal "Test error", response_json["error"]
+    end
+  end
+
+  test "returns bad request when service returns error" do
+    Callbacks::VerifyEmailSuccessService.stub(:call, { success: false, error: "Service error" }) do
+      post "/callback/verify_email_success", params: {
+        email: "test@example.com",
+        cart_token: "ct_52blT6sVvSo4Ck2ygrKyW2",
+        cart: @cart_data,
+      }
+
+      assert_response :bad_request
+      response_json = JSON.parse(response.body)
+      assert_equal false, response_json["success"]
+      assert_equal "Service error", response_json["error"]
+    end
+  end
+
+  test "skips CSRF token verification" do
+    Callbacks::VerifyEmailSuccessService.stub(:call, { success: true }) do
+      post "/callback/verify_email_success", params: {
+        email: "test@example.com",
+        cart_token: "ct_52blT6sVvSo4Ck2ygrKyW2",
+        cart: @cart_data,
+      }
+
+      assert_response :success
+    end
+  end
+end
