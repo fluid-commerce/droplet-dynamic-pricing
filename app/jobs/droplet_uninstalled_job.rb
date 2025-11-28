@@ -21,17 +21,14 @@ private
     client = FluidClient.new(company.authentication_token)
 
     begin
-      # Get all webhooks for the company
       response = client.webhooks.get
       webhooks = response["webhooks"] || []
 
-      # Filter subscription webhooks
       subscription_webhooks = webhooks.select do |webhook|
         webhook["resource"] == "subscription" &&
           %w[started paused cancelled].include?(webhook["event"])
       end
 
-      # Delete each subscription webhook
       subscription_webhooks.each do |webhook|
         begin
           client.webhooks.delete(webhook["id"])
