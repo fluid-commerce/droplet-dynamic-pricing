@@ -102,6 +102,24 @@ protected
     nil
   end
 
+  def get_customer_by_email(email)
+    company = find_company
+    return nil if company.blank?
+
+    client = FluidClient.new(company.authentication_token)
+    return nil if client.blank?
+
+    escaped_email = CGI.escape(email.to_s)
+    search_query = "search_query=#{escaped_email}"
+
+    response = client.get("/api/customers?#{search_query}")
+    customers = response["customers"] || []
+
+    customers.first
+  rescue StandardError => e
+    Rails.logger.error "Failed to get customer by email #{email}: #{e.message}"
+    nil
+  end
   def get_customer_type_by_email(email)
     company = find_company
     return nil if company.blank?
