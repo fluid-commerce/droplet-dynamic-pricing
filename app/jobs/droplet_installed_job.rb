@@ -68,7 +68,8 @@ private
         response = client.webhooks.create(webhook_attributes)
         if response && response["webhook"] && response["webhook"]["id"]
           Rails.logger.info(
-            "[DropletInstalledJob] Successfully registered subscription.#{webhook_config[:event]} webhook: #{response["webhook"]["id"]}"
+            "[DropletInstalledJob] Successfully registered subscription.#{webhook_config[:event]}
+            webhook: #{response["webhook"]["id"]}"
           )
         else
           Rails.logger.warn(

@@ -37,7 +37,8 @@ private
           )
         rescue => e
           Rails.logger.error(
-            "[DropletUninstalledJob] Failed to delete subscription.#{webhook["event"]} webhook #{webhook["id"]}: #{e.message}"
+            "[DropletUninstalledJob] Failed to delete subscription.#{webhook["event"]}
+            webhook #{webhook["id"]}: #{e.message}"
           )
         end
       end
