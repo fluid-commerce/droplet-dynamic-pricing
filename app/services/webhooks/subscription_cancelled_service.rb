@@ -15,7 +15,7 @@ class Webhooks::SubscriptionCancelledService < Webhooks::BaseService
       return { success: true, message: "Customer has other active subscriptions, no action taken" }
     end
 
-    update_customer_type(customer_id_value, "null")
+    update_customer_type(customer_id_value, "retail")
 
     { success: true, message: "Subscription cancelled webhook processed successfully" }
   rescue StandardError => e

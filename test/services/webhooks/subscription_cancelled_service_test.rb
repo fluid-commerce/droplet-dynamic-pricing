@@ -16,13 +16,13 @@ class Webhooks::SubscriptionCancelledServiceTest < ActiveSupport::TestCase
     }
   end
 
-  test "updates customer_type to null when no other active subscriptions" do
+  test "updates customer_type to retail when no other active subscriptions" do
     service = Webhooks::SubscriptionCancelledService.new(@webhook_params, @company)
 
     # Stub has_other_active_subscriptions? to return false
     service.stub :has_other_active_subscriptions?, ->(*args) { false } do
       # Stub update_customer_type
-      service.stub :update_customer_type, ->(*args) { nil } do
+      service.stub :update_customer_type, ->(*args) { } do
         result = service.call
 
         _(result[:success]).must_equal true
@@ -63,4 +63,3 @@ class Webhooks::SubscriptionCancelledServiceTest < ActiveSupport::TestCase
     end
   end
 end
-
