@@ -22,12 +22,4 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
 
     { success: true }
   end
-
-private
-
-  def extract_cart_token_and_items(cart)
-    cart_token = cart["cart_token"]
-    cart_items = cart["items"] || []
-    [ cart_token, cart_items ]
-  end
 end

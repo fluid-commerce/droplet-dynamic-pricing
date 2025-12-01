@@ -163,4 +163,10 @@ protected
     Rails.logger.error e.backtrace.join("\n")
     raise e
   end
+
+  def extract_cart_token_and_items(cart)
+    cart_token = cart["cart_token"]
+    cart_items = cart["items"] || []
+    [ cart_token, cart_items ]
+  end
 end
