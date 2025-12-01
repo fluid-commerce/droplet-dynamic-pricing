@@ -20,7 +20,7 @@ class Webhooks::SubscriptionStartedServiceTest < ActiveSupport::TestCase
     service = Webhooks::SubscriptionStartedService.new(@webhook_params, @company)
 
     # Stub update_customer_type
-    service.stub :update_customer_type, ->(*args) { nil } do
+    service.stub :update_customer_type, ->(*args) { } do
       result = service.call
 
       _(result[:success]).must_equal true
@@ -48,4 +48,3 @@ class Webhooks::SubscriptionStartedServiceTest < ActiveSupport::TestCase
     end
   end
 end
-
