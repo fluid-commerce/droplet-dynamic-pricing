@@ -48,11 +48,9 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
     service.stub(:find_company, @company) do
       service.stub(:update_cart_metadata, true) do
         service.stub(:update_cart_items_prices, true) do
-          service.stub(:update_cart_totals, true) do
-            result = service.call
+          result = service.call
 
-            assert_equal({ success: true }, result)
-          end
+          assert_equal({ success: true }, result)
         end
       end
     end
@@ -84,9 +82,7 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
         assert_equal expected_metadata, metadata
       }) do
         service.stub(:update_cart_items_prices, true) do
-          service.stub(:update_cart_totals, true) do
-            service.call
-          end
+          service.call
         end
       end
     end
@@ -97,28 +93,24 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
   test "updates items to subscription pricing" do
     service = Callbacks::SubscriptionAddedService.new(@callback_params)
     prices_called_count = 0
-    expected_calls = [
-      { cart_token: "ct_52blT6sVvSo4Ck2ygrKyW2", item_id: 674137, price: "72.0" },
-      { cart_token: "ct_52blT6sVvSo4Ck2ygrKyW2", item_id: 674138, price: "54.0" },
-    ]
 
     service.stub(:find_company, @company) do
       service.stub(:update_cart_metadata, true) do
         service.stub(:update_cart_items_prices, ->(cart_token, items_data) {
           prices_called_count += 1
-          expected_call = expected_calls[prices_called_count - 1]
-          assert_equal expected_call[:cart_token], cart_token
-          assert_equal 1, items_data.length
-          assert_equal expected_call[:item_id], items_data[0]["id"]
-          assert_equal expected_call[:price], items_data[0]["price"]
+          # Now expects all items in one call with subscription prices
+          assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
+          assert_equal 2, items_data.length
+          assert_equal 674137, items_data[0]["id"]
+          assert_equal "72.0", items_data[0]["price"]
+          assert_equal 674138, items_data[1]["id"]
+          assert_equal "54.0", items_data[1]["price"]
         }) do
-          service.stub(:update_cart_totals, true) do
-            service.call
-          end
+          service.call
         end
       end
     end
 
-    assert_equal 2, prices_called_count, "update_cart_items_prices should have been called twice (once per item)"
+    assert_equal 1, prices_called_count, "update_cart_items_prices should have been called once with all items"
   end
 end

@@ -6,6 +6,7 @@ class FluidClient
   include Fluid::CallbackRegistrations
   include Fluid::Customers
   include Fluid::Carts
+  include Fluid::Subscriptions
 
   base_uri Setting.fluid_api.base_url
   format :json
