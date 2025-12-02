@@ -41,8 +41,6 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
       end
 
       update_cart_items_prices(cart_token, all_items_data)
-
-      Rails.logger.info "[SubscriptionRemoved] Updating cart totals with use_subscription_prices: #{use_subscription_prices}"
     end
 
     { success: true }

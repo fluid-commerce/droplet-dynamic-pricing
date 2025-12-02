@@ -47,12 +47,14 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     service = Callbacks::SubscriptionRemovedService.new(@callback_params)
 
     service.stub(:find_company, @company) do
-      service.stub(:should_maintain_subscription_pricing?, false) do
-        service.stub(:update_cart_metadata, true) do
-          service.stub(:update_cart_items_prices, true) do
-            result = service.call
+      service.stub(:get_customer_id_by_email, 123) do
+        service.stub(:should_maintain_subscription_pricing?, false) do
+          service.stub(:update_cart_metadata, true) do
+            service.stub(:update_cart_items_prices, true) do
+              result = service.call
 
-            assert_equal({ success: true }, result)
+              assert_equal({ success: true }, result)
+            end
           end
         end
       end
@@ -79,14 +81,16 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     expected_metadata = { "price_type" => nil }
 
     service.stub(:find_company, @company) do
-      service.stub(:should_maintain_subscription_pricing?, false) do
-        service.stub(:update_cart_metadata, ->(cart_token, metadata) {
-          metadata_called = true
-          assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
-          assert_equal expected_metadata, metadata
-        }) do
-          service.stub(:update_cart_items_prices, true) do
-            service.call
+      service.stub(:get_customer_id_by_email, 123) do
+        service.stub(:should_maintain_subscription_pricing?, false) do
+          service.stub(:update_cart_metadata, ->(cart_token, metadata) {
+            metadata_called = true
+            assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
+            assert_equal expected_metadata, metadata
+          }) do
+            service.stub(:update_cart_items_prices, true) do
+              service.call
+            end
           end
         end
       end
@@ -101,14 +105,16 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     expected_metadata = { "price_type" => "preferred_customer" }
 
     service.stub(:find_company, @company) do
-      service.stub(:should_maintain_subscription_pricing?, true) do
-        service.stub(:update_cart_metadata, ->(cart_token, metadata) {
-          metadata_called = true
-          assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
-          assert_equal expected_metadata, metadata
-        }) do
-          service.stub(:update_cart_items_prices, true) do
-            service.call
+      service.stub(:get_customer_id_by_email, 123) do
+        service.stub(:should_maintain_subscription_pricing?, true) do
+          service.stub(:update_cart_metadata, ->(cart_token, metadata) {
+            metadata_called = true
+            assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
+            assert_equal expected_metadata, metadata
+          }) do
+            service.stub(:update_cart_items_prices, true) do
+              service.call
+            end
           end
         end
       end
@@ -122,19 +128,21 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     prices_called_count = 0
 
     service.stub(:find_company, @company) do
-      service.stub(:should_maintain_subscription_pricing?, false) do
-        service.stub(:update_cart_metadata, true) do
-          service.stub(:update_cart_items_prices, ->(cart_token, items_data) {
-            prices_called_count += 1
-            # Now expects all items in one call
-            assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
-            assert_equal 2, items_data.length
-            assert_equal 674137, items_data[0]["id"]
-            assert_equal "80.0", items_data[0]["price"]
-            assert_equal 674138, items_data[1]["id"]
-            assert_equal "60.0", items_data[1]["price"]
-          }) do
-            service.call
+      service.stub(:get_customer_id_by_email, 123) do
+        service.stub(:should_maintain_subscription_pricing?, false) do
+          service.stub(:update_cart_metadata, true) do
+            service.stub(:update_cart_items_prices, ->(cart_token, items_data) {
+              prices_called_count += 1
+              # Now expects all items in one call
+              assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
+              assert_equal 2, items_data.length
+              assert_equal 674137, items_data[0]["id"]
+              assert_equal "80.0", items_data[0]["price"]
+              assert_equal 674138, items_data[1]["id"]
+              assert_equal "60.0", items_data[1]["price"]
+            }) do
+              service.call
+            end
           end
         end
       end
@@ -148,19 +156,21 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     prices_called_count = 0
 
     service.stub(:find_company, @company) do
-      service.stub(:should_maintain_subscription_pricing?, true) do
-        service.stub(:update_cart_metadata, true) do
-          service.stub(:update_cart_items_prices, ->(cart_token, items_data) {
-            prices_called_count += 1
-            # Now expects all items in one call with subscription prices
-            assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
-            assert_equal 2, items_data.length
-            assert_equal 674137, items_data[0]["id"]
-            assert_equal "72.0", items_data[0]["price"]
-            assert_equal 674138, items_data[1]["id"]
-            assert_equal "54.0", items_data[1]["price"]
-          }) do
-            service.call
+      service.stub(:get_customer_id_by_email, 123) do
+        service.stub(:should_maintain_subscription_pricing?, true) do
+          service.stub(:update_cart_metadata, true) do
+            service.stub(:update_cart_items_prices, ->(cart_token, items_data) {
+              prices_called_count += 1
+              # Now expects all items in one call with subscription prices
+              assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
+              assert_equal 2, items_data.length
+              assert_equal 674137, items_data[0]["id"]
+              assert_equal "72.0", items_data[0]["price"]
+              assert_equal 674138, items_data[1]["id"]
+              assert_equal "54.0", items_data[1]["price"]
+            }) do
+              service.call
+            end
           end
         end
       end
