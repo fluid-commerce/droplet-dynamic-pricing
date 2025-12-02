@@ -1,9 +1,8 @@
 <div class="mb-6 border-b border-gray-200">
   <nav class="-mb-px flex space-x-8" aria-label="Tabs">
-    <% dri_value = params[:dri] %>
     <% tabs = [
-      { name: "Price Types", path: price_types_path(dri: dri_value), controller: "price_types" },
-      { name: "Customers", path: customers_path(dri: dri_value), controller: "customers" }
+      { name: "Price Types", path: price_types_path(dri: @dri), controller: "price_types" },
+      { name: "Customers", path: customers_path(dri: @dri), controller: "customers" }
     ] %>
 
     <% tabs.each do |tab| %>
