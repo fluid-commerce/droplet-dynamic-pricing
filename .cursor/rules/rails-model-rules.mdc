@@ -1,0 +1,665 @@
+---
+globs: **/app/models/**/*.rb
+alwaysApply: false
+---
+# Rails Model Design and Implementation Rules
+
+## 🔴 Critical Rules - Apply First
+
+### NEVER Do These
+- ❌ NO business logic in models - use services
+- ❌ NO callbacks (except `normalizes`) - make side effects explicit in services
+- ❌ NO polymorphic associations - use explicit foreign keys with constraints
+- ❌ NO Single Table Inheritance (STI) - use composition
+- ❌ NO state machine gems - handle transitions in services
+- ❌ NO transactions for single operations - Rails handles atomicity
+- ❌ NO external API calls in transactions - holds DB connections
+- ❌ NO N+1 queries - always use `includes`/`preload`/`eager_load`
+
+### ALWAYS Do These
+- ✅ Mirror ALL database constraints with validations
+- ✅ Use string enums: `enum status: { draft: 'draft', published: 'published' }`
+- ✅ Add `lock_version` to all models (except append-only logs)
+- ✅ Add `touch: true` to all `belongs_to` associations (for caching)
+- ✅ Use CITEXT for case-insensitive text (emails, usernames)
+- ✅ Add foreign key constraints at database level
+- ✅ Use parameterized queries: `where('name = ?', name)` not `where("name = '#{name}'")`
+- ✅ Define associations only when actually queried (not for "completeness")
+
+---
+
+## Model Responsibilities
+
+**Models handle:**
+- Persistence (save, update, query)
+- Validation (data integrity)
+- Simple scopes
+- Simple computed attributes
+- Simple state queries
+
+**Services handle:**
+- Business logic
+- Multi-step workflows
+- External API calls
+- Side effects (emails, jobs)
+- Complex state transitions
+
+---
+
+## Validations
+
+### Mirror Database Constraints
+```ruby
+# Migration
+t.string :email, null: false
+t.index :email, unique: true
+
+# Model - MUST mirror constraints
+validates :email, presence: true, uniqueness: true
+```
+
+### Use Context Validations
+```ruby
+validates :name, presence: true, on: :publish
+validates :description, length: { minimum: 50 }, on: :publish
+```
+
+### Cross-Model Validations → Services
+```ruby
+# ❌ Bad - in model
+validate :customer_credit_limit_not_exceeded
+
+# ✅ Good - in service
+class OrderValidator
+  def validate_credit_limit(order, customer)
+    # validation logic
+  end
+end
+```
+
+---
+
+## Associations
+
+### Unidirectional by Default
+```ruby
+# ✅ Define only what you query
+class Widget
+  belongs_to :company  # We need widget.company
+end
+
+class Company
+  # DON'T define has_many :widgets unless you query company.widgets
+  # Query as: Widget.where(company_id: id) instead
+end
+```
+
+### Always Add Options
+```ruby
+class Company
+  has_many :widgets, dependent: :destroy
+  has_many :audit_logs, dependent: :nullify
+  has_many :subscriptions, dependent: :restrict_with_error
+end
+
+class Widget
+  belongs_to :company
+  belongs_to :category, optional: true
+  belongs_to :user, touch: true  # For caching
+end
+```
+
+### Rarely Use Polymorphic
+```ruby
+# ❌ Bad - polymorphic
+belongs_to :commentable, polymorphic: true
+
+# ✅ Good - explicit foreign keys
+belongs_to :article, optional: true
+belongs_to :photo, optional: true
+validate :has_one_parent
+
+# Migration with constraint
+t.check_constraint "num_nonnulls(article_id, photo_id) = 1"
+```
+
+---
+
+## N+1 Query Prevention
+
+### Controller + Blueprint Pattern
+```ruby
+# Blueprint defines associations
+class CompanyBlueprint
+  association :users, blueprint: UserBlueprint
+  association :orders, blueprint: OrderBlueprint
+
+  field :users_count { |c| c.users.count }  # Needs :users loaded!
+end
+
+# ✅ Controller MUST eager load
+@companies = Company.includes(:users, :orders)
+
+# ✅ Catch issues in development
+@companies = Company.includes(:users, :orders).strict_loading
+```
+
+### Instance Methods Are N+1 Traps
+```ruby
+# ❌ Bad - causes N+1
+class User
+  def contacts_count
+    contacts.count  # N+1 if called on collection
+  end
+end
+users.each { |u| u.contacts_count }  # N+1!
+
+# ✅ Good - provide scope
+class User
+  scope :with_contacts_count, -> {
+    left_joins(:contacts)
+      .group('users.id')
+      .select('users.*, COUNT(contacts.id) as contacts_count')
+  }
+end
+```
+
+### Common N+1 Locations
+- View templates accessing associations in loops
+- Service objects iterating collections
+- Background jobs processing records
+- CSV/report generation
+- Instance methods called on collections
+
+---
+
+## Transactions
+
+### When to Use
+**ONLY for multiple database writes that must be atomic:**
+```ruby
+# ✅ Good - multiple writes
+ActiveRecord::Base.transaction do
+  order.save!              # Write 1
+  OrderItem.create!(...)   # Write 2
+  inventory.decrement!(1)  # Write 3
+end
+```
+
+### When NOT to Use
+```ruby
+# ❌ Bad - single operation
+User.transaction do
+  user.save!  # Already atomic!
+end
+
+# ❌ Bad - external call in transaction
+User.transaction do
+  user.save!
+  ExternalAPI.notify(user)  # Holds DB connection!
+end
+
+# ✅ Good - separate concerns
+user.save!
+NotificationJob.perform_later(user.id)
+```
+
+### Decision Tree
+1. Multiple DB writes? No → Don't use transaction
+2. Must all succeed/fail together? No → Don't use transaction
+3. Consistency required? Yes → Use transaction
+
+---
+
+## Enums - Always Strings
+
+```ruby
+# ✅ Good - strings
+enum status: { draft: 'draft', published: 'published' }, _prefix: true
+
+# Migration
+t.string :status, null: false, default: 'draft'
+
+# ❌ Bad - integers (not readable in DB)
+enum status: { draft: 0, published: 1 }
+```
+
+---
+
+## Optimistic Locking
+
+```ruby
+# Migration - add to ALL models
+t.integer :lock_version, default: 0, null: false
+
+# Model - Rails detects automatically
+class Widget < ApplicationRecord
+  validates :name, presence: true
+end
+
+# Handling conflicts in services
+begin
+  widget.update!(attributes)
+rescue ActiveRecord::StaleObjectError
+  widget.reload
+  retry
+end
+```
+
+**Skip lock_version only if:**
+- Read-only/append-only
+- Single writer
+- Non-critical data
+
+---
+
+## View Caching
+
+```ruby
+# Migration - always include
+t.timestamps  # Required for cache keys
+
+# Model
+class Product
+  belongs_to :category, touch: true  # Invalidates parent cache
+end
+
+class Review
+  belongs_to :product, touch: true   # Propagates up to category
+end
+
+# View
+<%= cache product do %>
+  <%= product.name %>
+<% end %>
+# Cache key: products/123-20250115123045678900
+```
+
+---
+
+## CITEXT for Case-Insensitive Text
+
+```ruby
+# Migration
+enable_extension 'citext'
+t.citext :email, null: false
+t.citext :username, null: false
+
+# Model
+normalizes :email, with: -> { _1.squish.downcase }
+validates :email, presence: true, uniqueness: true
+
+# Queries are case-insensitive automatically
+User.find_by(email: 'JOHN@EXAMPLE.COM')  # Finds john@example.com
+```
+
+---
+
+## JSONB for Complex Data
+
+```ruby
+# Migration
+t.jsonb :configuration, null: false, default: {}
+t.index :configuration, using: :gin
+
+# StoreModel
+class ProductConfiguration
+  include StoreModel::Model
+  attribute :color, :string
+  validates :color, presence: true
+end
+
+# Model
+class Product
+  attribute :configuration, ProductConfiguration.to_type
+  validates :configuration, store_model: true
+end
+```
+
+### JSONB for Translations
+```ruby
+# Use mobility gem with JSONB backend (NEVER table backend)
+class Product
+  extend Mobility
+  translates :name, :description, backend: :jsonb  # Always specify!
+
+  validates :name, presence: true, locale: :en
+end
+```
+
+---
+
+## Callbacks - Don't Use Them
+
+```ruby
+# ❌ Bad - hidden side effects
+class Widget
+  after_create :send_notification
+  after_save :update_inventory
+end
+
+# ✅ Good - explicit in service
+class WidgetCreator
+  def persist(name:, price_cents:)
+    widget = Widget.create!(name: name, price_cents: price_cents)
+
+    # Explicit side effects
+    WidgetMailer.created(widget).deliver_later
+    InventoryAdjuster.adjust_for_new_widget(widget)
+
+    widget
+  end
+end
+```
+
+**Exception:** Use `normalizes` for attribute normalization
+```ruby
+normalizes :email, with: -> { _1.squish.downcase }
+normalizes :slug, with: -> { _1.parameterize }
+```
+
+---
+
+## Scopes - Keep Simple
+
+```ruby
+# ✅ Good - simple, chainable
+scope :active, -> { where(status: 'active') }
+scope :recent, -> { where('created_at > ?', 30.days.ago) }
+scope :by_name, -> { order(:name) }
+
+# ✅ Good - simple class method
+def self.find_by_identifier(identifier)
+  find_by(user_facing_identifier: identifier) || find_by(slug: identifier)
+end
+
+# ❌ Bad - complex logic in model
+def self.with_complex_calculations
+  # Move to service/query object
+end
+```
+
+---
+
+## Computed Attributes - Simple Only
+
+```ruby
+# ✅ Good - simple computation
+def full_name
+  "#{first_name} #{last_name}".strip
+end
+
+def display_price
+  "$#{format('%.2f', price_cents / 100.0)}"
+end
+
+# ✅ Good - simple state query
+def published?
+  status_published? && published_at.present?
+end
+
+# ❌ Bad - complex logic
+def calculate_tiered_pricing
+  # Move to service
+end
+```
+
+---
+
+## God Object Anti-Pattern
+
+### Warning Signs
+- 20+ associations
+- 50+ methods
+- 500+ lines
+- Central to every workflow
+- Impossible to change without breaking things
+
+### Solutions
+```ruby
+# Extract related models
+class User
+  has_one :contact_information
+  delegate :primary_address, :primary_phone, to: :contact_information
+end
+
+# Use composition
+class Company
+  has_one :inventory_context
+  has_one :billing_context
+end
+
+# Don't define unused associations
+class Company
+  has_many :orders  # Actually queried
+  # Don't define has_many :order_items unless you query company.order_items
+end
+```
+
+---
+
+## Security
+
+```ruby
+# ✅ Parameterized queries
+User.where('name = ?', params[:name])
+
+# ❌ SQL injection
+User.where("name = '#{params[:name]}'")
+
+# ✅ Encrypted attributes
+encrypts :ssn, :credit_card
+```
+
+---
+
+## Database Constraints
+
+```ruby
+# Foreign keys
+add_foreign_key :orders, :users
+
+# Check constraints
+t.check_constraint "num_nonnulls(article_id, photo_id) = 1"
+t.check_constraint "price_cents > 0"
+
+# NOT NULL
+t.string :email, null: false
+
+# UNIQUE
+t.index :email, unique: true
+```
+
+---
+
+## Migrations
+
+```ruby
+# ✅ Backward compatible
+add_column :users, :bio, :text  # Nullable initially
+
+# ✅ Concurrent indexes in production
+add_index :users, :email, algorithm: :concurrently
+
+# ✅ Safe constraint addition
+add_check_constraint :products, 'price > 0', validate: false
+validate_check_constraint :products, name: 'price_check'
+
+# ❌ Don't rename without strategy
+rename_column :users, :name, :full_name  # Breaks running app
+```
+
+---
+
+## Performance Monitoring
+
+```ruby
+# Development - catch N+1 early
+config.active_record.strict_loading_by_default = true
+
+# In queries
+companies = Company.includes(:users).strict_loading
+# Raises error if missing association accessed
+
+# Production - monitor
+# - Slow query log
+# - Connection pool usage
+# - Query execution plans (EXPLAIN)
+```
+
+---
+
+## Testing
+
+```ruby
+RSpec.describe Widget do
+  fixtures :all
+
+  it 'validates name presence' do
+    widget = Widget.new(company: companies(:acme), price_cents: 1000)
+    expect(widget).not_to be_valid
+    expect(widget.errors[:name]).to be_present
+  end
+
+  it 'enforces database constraints' do
+    widget = Widget.new(price_cents: 1000)
+    expect { widget.save(validate: false) }
+      .to raise_error(ActiveRecord::NotNullViolation)
+  end
+end
+```
+
+---
+
+## Complete Model Example
+
+```ruby
+# == Schema Information
+# Table: widgets
+#  id          :bigint    not null, primary key
+#  name        :string    not null
+#  price_cents :integer   not null
+#  status      :string    default("draft"), not null
+#  company_id  :bigint    not null
+#  lock_version :integer  default(0), not null
+#  created_at  :datetime  not null
+#  updated_at  :datetime  not null
+#
+# Indexes
+#  index_widgets_on_company_id  (company_id)
+#  index_widgets_on_status      (status)
+#
+# Foreign Keys
+#  fk_rails_...  (company_id => companies.id)
+#
+
+class Widget < ApplicationRecord
+  # Associations
+  belongs_to :company, touch: true
+
+  # Normalization
+  normalizes :name, with: -> { _1.squish }
+
+  # Enums
+  enum status: { draft: 'draft', published: 'published' }, _prefix: true
+
+  # Validations - mirror DB constraints
+  validates :name, presence: true, length: { minimum: 3, maximum: 255 }
+  validates :price_cents, presence: true,
+            numericality: { only_integer: true, greater_than: 0 }
+  validates :status, inclusion: { in: statuses.keys }
+
+  # Context validations
+  validates :description, presence: true, length: { minimum: 50 }, on: :publish
+
+  # Custom validation
+  validate :price_within_limits, if: -> { company.legacy? }
+
+  # Simple scopes
+  scope :active, -> { where(status: ['draft', 'published']) }
+  scope :recent, -> { where('created_at > ?', 30.days.ago) }
+
+  # Computed attributes
+  def display_price
+    "$#{format('%.2f', price_cents / 100.0)}"
+  end
+
+  # State queries
+  def published?
+    status_published?
+  end
+
+  def editable?
+    status_draft? || status_published?
+  end
+
+  private
+
+  def price_within_limits
+    return unless price_cents < 100_00
+    errors.add(:price_cents, "must be at least $100 for legacy accounts")
+  end
+end
+```
+
+---
+
+## Quick Reference Checklist
+
+**Model Setup:**
+- [ ] Has `lock_version` column
+- [ ] Has `timestamps` (created_at, updated_at)
+- [ ] All `belongs_to` have `touch: true`
+- [ ] Enums use strings, not integers
+- [ ] No callbacks (except `normalizes`)
+- [ ] No business logic
+
+**Data Integrity:**
+- [ ] All DB constraints mirrored in validations
+- [ ] Foreign key constraints at DB level
+- [ ] Use CITEXT for case-insensitive text
+- [ ] Parameterized queries only
+
+**Associations:**
+- [ ] Defined only when actually queried
+- [ ] Have `dependent:` option
+- [ ] No polymorphic associations
+- [ ] No STI
+
+**Performance:**
+- [ ] No N+1 queries (use `includes`)
+- [ ] Blueprint serializers have matching includes
+- [ ] Indexes on foreign keys and WHERE columns
+- [ ] Use `strict_loading` in development
+
+**Transactions:**
+- [ ] Only for multiple writes that must be atomic
+- [ ] Never for single operations
+- [ ] No external API calls inside
+
+**Testing:**
+- [ ] Validation tests
+- [ ] Database constraint tests
+- [ ] Association tests
+- [ ] Scope tests
+
+---
+
+## Enforcement
+
+**Code review failures:**
+- Any N+1 query without `includes`
+- Business logic in models
+- Callbacks for side effects
+- Polymorphic associations
+- Transactions for single operations
+- External API calls in transactions
+- Missing foreign key constraints
+- Integer enums
+- SQL injection vulnerabilities
+
+**No exceptions without architectural approval.**
+
+---
+
+*This guide prioritizes the most critical and frequently-used patterns for efficient AI parsing and developer reference.*
