@@ -18,7 +18,7 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     @cart_token = "ct_52blT6sVvSo4Ck2ygrKyW2"
   end
 
-  test "call returns success when email is blank" do
+  test "call returns failure when email is blank" do
     service = Callbacks::VerifyEmailSuccessService.new({
       email: nil,
       cart_token: @cart_token,
@@ -26,10 +26,11 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     })
     result = service.call
 
-    assert_equal({ success: true }, result)
+    assert_equal false, result[:success]
+    assert_equal "Missing email or cart_token", result[:message]
   end
 
-  test "call returns success when cart_token is blank" do
+  test "call returns failure when cart_token is blank" do
     service = Callbacks::VerifyEmailSuccessService.new({
       email: @email,
       cart_token: nil,
@@ -37,7 +38,8 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     })
     result = service.call
 
-    assert_equal({ success: true }, result)
+    assert_equal false, result[:success]
+    assert_equal "Missing email or cart_token", result[:message]
   end
 
   test "call returns success when customer is not found" do
@@ -50,7 +52,8 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     service.stub(:get_customer_by_email, nil) do
       result = service.call
 
-      assert_equal({ success: true }, result)
+      assert_equal true, result[:success]
+      assert_equal "Customer not found for email #{@email}", result[:message]
     end
   end
 
@@ -70,7 +73,8 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     service.stub(:get_customer_by_email, customer) do
       result = service.call
 
-      assert_equal({ success: true, message: "Customer type is not set" }, result)
+      assert_equal true, result[:success]
+      assert_equal "Customer type is not set", result[:message]
     end
   end
 
@@ -79,7 +83,7 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
       "id" => 123,
       "email" => @email,
       "metadata" => {
-        "customer_type" => "preferred_customer",
+        "customer_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE,
       },
     }
 
@@ -90,7 +94,7 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     })
 
     metadata_called = false
-    expected_metadata = { "price_type" => "preferred_customer" }
+    expected_metadata = { "price_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE }
 
     service.stub(:find_company, @company) do
       service.stub(:get_customer_by_email, customer) do
@@ -101,7 +105,8 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
         }) do
           result = service.call
 
-          assert_equal({ success: true }, result)
+          assert_equal true, result[:success]
+          assert_includes result[:message], "Email verification successful"
         end
       end
     end
@@ -132,7 +137,8 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
       }) do
         result = service.call
 
-        assert_equal({ success: true }, result)
+        assert_equal true, result[:success]
+        assert_includes result[:message], "Email verification successful"
       end
     end
 
@@ -144,7 +150,7 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
       "id" => 123,
       "email" => @email,
       "metadata" => {
-        "customer_type" => "preferred_customer",
+        "customer_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE,
       },
     }
 
@@ -164,7 +170,8 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
         }) do
           result = service.call
 
-          assert_equal({ success: true }, result)
+          assert_equal true, result[:success]
+          assert_includes result[:message], "Email verification successful"
         end
       end
     end
@@ -177,7 +184,7 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
       "id" => 123,
       "email" => @email,
       "metadata" => {
-        "customer_type" => "preferred_customer",
+        "customer_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE,
       },
     }
 
@@ -197,7 +204,86 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
         }) do
           result = service.call
 
-          assert_equal({ success: true }, result)
+          assert_equal true, result[:success]
+          assert_includes result[:message], "Email verification successful"
+        end
+      end
+    end
+
+    assert metadata_called, "update_cart_metadata should have been called"
+  end
+
+  test "returns error when customer lookup fails" do
+    service = Callbacks::VerifyEmailSuccessService.new({
+      email: @email,
+      cart_token: @cart_token,
+      cart: @cart_data,
+    })
+
+    # Simulate API error
+    service.stub(:get_customer_by_email, -> { raise StandardError.new("API timeout") }) do
+      result = service.call
+
+      assert_equal false, result[:success]
+      assert_equal "customer_lookup_failed", result[:error]
+      assert_equal "Unable to fetch customer data", result[:message]
+    end
+  end
+
+  test "returns error when cart metadata update fails" do
+    customer = {
+      "id" => 123,
+      "email" => @email,
+      "metadata" => {
+        "customer_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE,
+      },
+    }
+
+    service = Callbacks::VerifyEmailSuccessService.new({
+      email: @email,
+      cart_token: @cart_token,
+      cart: @cart_data,
+    })
+
+    service.stub(:find_company, @company) do
+      service.stub(:get_customer_by_email, customer) do
+        service.stub(:update_cart_metadata, -> { raise StandardError.new("API error") }) do
+          result = service.call
+
+          assert_equal false, result[:success]
+          assert_equal "cart_metadata_update_failed", result[:error]
+          assert_equal "Unable to update cart metadata", result[:message]
+        end
+      end
+    end
+  end
+
+  test "handles customer with symbol keys in metadata" do
+    customer = {
+      "id" => 123,
+      "email" => @email,
+      metadata: {
+        customer_type: Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE,
+      },
+    }
+
+    service = Callbacks::VerifyEmailSuccessService.new({
+      email: @email,
+      cart_token: @cart_token,
+      cart: @cart_data,
+    })
+
+    metadata_called = false
+
+    service.stub(:find_company, @company) do
+      service.stub(:get_customer_by_email, customer) do
+        service.stub(:update_cart_metadata, ->(cart_token, metadata) {
+          metadata_called = true
+        }) do
+          result = service.call
+
+          assert_equal true, result[:success]
+          assert_includes result[:message], "Email verification successful"
         end
       end
     end
