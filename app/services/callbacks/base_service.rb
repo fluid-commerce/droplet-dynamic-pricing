@@ -1,4 +1,6 @@
 class Callbacks::BaseService
+  PREFERRED_CUSTOMER_TYPE = "preferred_customer"
+
   def initialize(callback_params)
     @callback_params = callback_params
   end
@@ -12,6 +14,14 @@ class Callbacks::BaseService
   end
 
 protected
+
+  def log_and_return(log_message, success: true, message: nil, error: nil)
+    result = { success: success }
+    result[:message] = message || log_message
+    result[:error] = error if error
+
+    result
+  end
 
   def find_company
     company_data = @callback_params.dig("cart", "company") || @callback_params.dig(:cart, :company)

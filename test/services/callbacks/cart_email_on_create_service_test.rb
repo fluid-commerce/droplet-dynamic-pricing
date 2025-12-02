@@ -20,11 +20,12 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
     }
   end
 
-  test "call returns success when cart is blank" do
+  test "call returns failure when cart is blank" do
     service = Callbacks::CartEmailOnCreateService.new({ cart: nil })
     result = service.call
 
-    assert_equal({ success: true }, result)
+    assert_equal false, result[:success]
+    assert_equal "Cart data is missing", result[:message]
   end
 
   test "call returns success when email and customer_id are blank" do
@@ -38,80 +39,101 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
     service = Callbacks::CartEmailOnCreateService.new({ cart: cart_without_email_or_customer })
     result = service.call
 
-    assert_equal({ success: true }, result)
+    assert_equal true, result[:success]
+    assert_equal "Both email and customer_id are missing", result[:message]
   end
 
-  test "returns metadata when customer_type is preferred_customer" do
-    metafields_response = {
-      "metafields" => [
-        {
-          "key" => "customer_type",
-          "value" => {
-            "customer_type" => "preferred_customer",
-          },
-        },
-      ],
-    }
-
+  test "updates cart metadata when customer_type is preferred_customer" do
     service = Callbacks::CartEmailOnCreateService.new({ cart: @cart_data })
+    metadata_called = false
 
     service.stub(:find_company, @company) do
-      service.stub(:get_customer_type_from_metafields, "preferred_customer") do
-        result = service.call
+      service.stub(:get_customer_type_from_metafields,
+{ success: true, data: Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE }) do
+        service.stub(:update_cart_metadata, ->(cart_token, metadata) {
+          metadata_called = true
+          assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
+          assert_equal({ "price_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE }, metadata)
+        }) do
+          result = service.call
 
-        assert_equal({ success: true, metadata: { "price_type" => "preferred_customer" } }, result)
+          assert_equal true, result[:success]
+          assert_includes result[:message], "cart metadata updated"
+        end
       end
     end
+
+    assert metadata_called, "update_cart_metadata should have been called"
   end
 
   test "returns success without metadata when customer_type is not preferred_customer" do
     service = Callbacks::CartEmailOnCreateService.new({ cart: @cart_data })
 
     service.stub(:find_company, @company) do
-      service.stub(:get_customer_type_from_metafields, "regular_customer") do
+      service.stub(:get_customer_type_from_metafields, { success: true, data: "regular_customer" }) do
         result = service.call
 
-        assert_equal({ success: true }, result)
+        assert_equal true, result[:success]
+        assert_includes result[:message], "no special pricing needed"
       end
     end
   end
 
-  test "returns success without metadata when customer_type is nil" do
+  test "returns success when customer_type is not found" do
     service = Callbacks::CartEmailOnCreateService.new({ cart: @cart_data })
 
     service.stub(:find_company, @company) do
-      service.stub(:get_customer_type_from_metafields, nil) do
+      service.stub(:get_customer_type_from_metafields, { success: true, data: nil }) do
         result = service.call
 
-        assert_equal({ success: true }, result)
+        assert_equal true, result[:success]
+        assert_includes result[:message], "Customer type not found"
       end
     end
   end
 
-  test "get_customer_id_by_email returns customer id when customer is found" do
+  test "returns error when company is not found" do
     service = Callbacks::CartEmailOnCreateService.new({ cart: @cart_data })
 
-    customer_data = { "id" => 123, "email" => "test@example.com" }
+    service.stub(:find_company, nil) do
+      result = service.call
+
+      assert_equal false, result[:success]
+      assert_equal "company_not_found", result[:error]
+    end
+  end
+
+  test "returns error when metafields lookup fails" do
+    service = Callbacks::CartEmailOnCreateService.new({ cart: @cart_data })
 
     service.stub(:find_company, @company) do
-      service.stub(:get_customer_by_email, customer_data) do
-        customer_id = service.send(:get_customer_id_by_email, @email)
+      service.stub(:get_customer_type_from_metafields, { success: false, error: "metafields_lookup_failed" }) do
+        result = service.call
 
-        assert_equal 123, customer_id
+        assert_equal false, result[:success]
+        assert_equal "metafields_lookup_failed", result[:error]
       end
     end
   end
 
-  test "get_customer_id_by_email returns nil when customer is not found" do
-    service = Callbacks::CartEmailOnCreateService.new({ cart: @cart_data })
+  test "handles cart_token extraction correctly" do
+    cart_data_with_different_token = @cart_data.merge("cart_token" => "different_token")
+    service = Callbacks::CartEmailOnCreateService.new({ cart: cart_data_with_different_token })
+    metadata_called = false
 
     service.stub(:find_company, @company) do
-      service.stub(:get_customer_by_email, nil) do
-        customer_id = service.send(:get_customer_id_by_email, @email)
-
-        assert_nil customer_id
+      service.stub(:get_customer_type_from_metafields,
+{ success: true, data: Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE }) do
+        service.stub(:update_cart_metadata, ->(cart_token, metadata) {
+          metadata_called = true
+          assert_equal "different_token", cart_token
+        }) do
+          service.call
+        end
       end
     end
+
+    assert metadata_called, "update_cart_metadata should have been called with correct cart_token"
   end
 
   test "class method call works" do
