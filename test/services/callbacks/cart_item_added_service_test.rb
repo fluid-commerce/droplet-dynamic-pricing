@@ -9,7 +9,7 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
       "id" => 265327,
       "cart_token" => "ct_52blT6sVvSo4Ck2ygrKyW2",
       "metadata" => {
-        "price_type" => "preferred_customer",
+        "price_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE,
       },
       "company" => {
         "id" => @company.fluid_company_id,
@@ -40,18 +40,20 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     }
   end
 
-  test "call returns success when cart is blank" do
+  test "call returns failure when cart is blank" do
     service = Callbacks::CartItemAddedService.new({ cart: nil, cart_item: @cart_item })
     result = service.call
 
-    assert_equal({ success: true }, result)
+    assert_equal false, result[:success]
+    assert_equal "Cart or cart_item data is missing", result[:message]
   end
 
-  test "call returns success when cart_item is blank" do
+  test "call returns failure when cart_item is blank" do
     service = Callbacks::CartItemAddedService.new({ cart: @cart_data, cart_item: nil })
     result = service.call
 
-    assert_equal({ success: true }, result)
+    assert_equal false, result[:success]
+    assert_equal "Cart or cart_item data is missing", result[:message]
   end
 
   test "call returns success when price_type is not preferred_customer" do
@@ -64,7 +66,8 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     })
     result = service.call
 
-    assert_equal({ success: true }, result)
+    assert_equal true, result[:success]
+    assert_equal "Cart does not have preferred_customer pricing", result[:message]
   end
 
   test "call returns success when price_type is not set" do
@@ -77,7 +80,8 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     })
     result = service.call
 
-    assert_equal({ success: true }, result)
+    assert_equal true, result[:success]
+    assert_equal "Cart does not have preferred_customer pricing", result[:message]
   end
 
   test "call processes cart_item_added successfully when price_type is preferred_customer" do
@@ -88,7 +92,8 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
         service.stub(:update_cart_totals, true) do
           result = service.call
 
-          assert_equal({ success: true }, result)
+          assert_equal true, result[:success]
+          assert_includes result[:message], "Cart item updated to subscription price successfully"
         end
       end
     end
@@ -170,6 +175,83 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     end
 
     assert totals_called, "update_cart_totals should have been called"
+  end
+
+  test "call returns failure when cart_token is missing" do
+    cart_without_token = @cart_data.dup
+    cart_without_token.delete("cart_token")
+
+    service = Callbacks::CartItemAddedService.new({
+      cart: cart_without_token,
+      cart_item: @cart_item,
+    })
+    result = service.call
+
+    assert_equal false, result[:success]
+    assert_equal "Cart token is missing", result[:message]
+  end
+
+  test "processes cart item successfully with normalized parameters" do
+    service = Callbacks::CartItemAddedService.new(@callback_params)
+
+    service.stub(:find_company, @company) do
+      service.stub(:update_cart_items_prices, true) do
+        service.stub(:update_cart_totals, true) do
+          result = service.call
+
+          assert_equal true, result[:success]
+          assert_includes result[:message], "Cart item updated to subscription price successfully"
+        end
+      end
+    end
+  end
+
+  test "handles mixed key types with indifferent access" do
+    # Test with symbol keys at top level and string keys nested
+    mixed_params = {
+      "cart" => @cart_data,
+      :cart_item => @cart_item,
+    }
+
+    service = Callbacks::CartItemAddedService.new(mixed_params)
+
+    service.stub(:find_company, @company) do
+      service.stub(:update_cart_items_prices, true) do
+        service.stub(:update_cart_totals, true) do
+          result = service.call
+
+          assert_equal true, result[:success]
+        end
+      end
+    end
+  end
+
+  test "returns error when item price update fails" do
+    service = Callbacks::CartItemAddedService.new(@callback_params)
+
+    service.stub(:find_company, @company) do
+      service.stub(:update_cart_items_prices, -> { raise StandardError.new("API error") }) do
+        result = service.call
+
+        assert_equal false, result[:success]
+        assert_equal "item_price_update_failed", result[:error]
+      end
+    end
+  end
+
+  test "returns error when cart totals update fails" do
+    service = Callbacks::CartItemAddedService.new(@callback_params)
+
+    service.stub(:find_company, @company) do
+      service.stub(:update_cart_items_prices, true) do
+        service.stub(:update_cart_totals, -> { raise StandardError.new("API error") }) do
+          result = service.call
+
+          assert_equal false, result[:success]
+          assert_equal "cart_totals_update_failed", result[:error]
+        end
+      end
+    end
   end
 
   test "class method call works" do
