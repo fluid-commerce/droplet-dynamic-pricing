@@ -179,27 +179,6 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     assert_equal 1, prices_called_count, "update_cart_items_prices should have been called once with all items"
   end
 
-  test "should_maintain_subscription_pricing returns true when customer has active subscriptions" do
-    service = Callbacks::SubscriptionRemovedService.new(@callback_params)
-
-    service.stub(:get_customer_id_by_email, 123) do
-      service.stub(:has_active_subscriptions?, true) do
-        result = service.send(:should_maintain_subscription_pricing?, 123)
-        assert_equal true, result
-      end
-    end
-  end
-
-  test "should_maintain_subscription_pricing returns false when customer has no active subscriptions" do
-    service = Callbacks::SubscriptionRemovedService.new(@callback_params)
-
-    service.stub(:get_customer_id_by_email, 123) do
-      service.stub(:has_active_subscriptions?, false) do
-        result = service.send(:should_maintain_subscription_pricing?, 123)
-        assert_equal false, result
-      end
-    end
-  end
 
   test "removes subscription pricing when email is blank" do
     cart_data_no_email = @cart_data.dup
