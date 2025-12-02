@@ -47,7 +47,9 @@ private
     final_price = subscription_price || regular_price
 
     if final_price.blank?
-      Rails.logger.error "Cannot update item price: no price available for item #{item_id} in cart #{cart_token}. Item: #{cart_item.inspect}"
+      Rails.logger.error "Cannot update item price: no price available for item #{item_id}
+                                        in cart #{cart_token}. Item: #{cart_item.inspect}"
+
       return { success: false, error: "missing_item_price", message: "Item price is required" }
     end
 
@@ -57,6 +59,7 @@ private
     } ]
 
     update_cart_items_prices(cart_token, item_data)
+
     { success: true }
   rescue StandardError => e
     Rails.logger.error "Failed to update item prices for cart #{cart_token}: #{e.message}"
@@ -73,16 +76,20 @@ private
     end
 
     unless cart_items.is_a?(Array)
-      Rails.logger.error "Invalid cart items format: expected Array, got #{cart_items.class} for cart #{cart_token}. Value: #{cart_items.inspect}"
+      Rails.logger.error "Invalid cart items format: expected Array, got #{cart_items.class} for cart #{cart_token}.
+                                                                                        Value: #{cart_items.inspect}"
+
       return { success: false, error: "invalid_cart_items_format", message: "Cart items must be an Array" }
     end
 
     if cart_items.empty?
       Rails.logger.debug "Skipping cart totals update: no items in cart #{cart_token}"
+
       return { success: true }
     end
 
     update_cart_totals(cart_token, cart_items, use_subscription_prices: true)
+
     { success: true }
   rescue StandardError => e
     Rails.logger.error "Failed to update cart totals for cart #{cart_token}: #{e.message}"
