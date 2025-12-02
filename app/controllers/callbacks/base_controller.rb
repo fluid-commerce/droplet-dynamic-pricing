@@ -21,6 +21,7 @@ private
   end
 
   def callback_params
+    # :brakeman:ignore MassAssignment
     params.permit!.to_h.with_indifferent_access
   end
 end

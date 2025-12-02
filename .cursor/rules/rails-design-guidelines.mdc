@@ -1,0 +1,174 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+# Rails Best Practices & Architecture Rules
+# Based on Sustainable Rails principles
+
+## Core Philosophy
+- Focus on sustainability: changes made tomorrow should be as easy as changes made today
+- Minimize carrying costs (ongoing costs) by strategically investing in opportunity costs (one-time costs)
+- Consistency over perfection - use one "good enough" approach rather than multiple "perfect" approaches
+- Make technical decisions based on business context and team capabilities
+
+## Routes & URLs
+- Always use `resources` with `only:` parameter to avoid creating unused routes
+- Never configure routes that aren't being used - this creates confusion
+- Use `only:` instead of `except:` - positive logic is easier to understand
+- Vanity URLs should redirect to canonical routes using `redirect()`
+- Be resource-focused, not action-focused - create more resources instead of custom actions
+- Document custom routes with comments explaining why they're needed
+
+## Controllers
+- Keep controllers thin - they should only coordinate between models and views
+- Use strong parameters consistently
+- Avoid business logic in controllers
+- Ideally expose one instance variable per action, named for the resource
+- Three exceptions for multiple instance variables: reference data, global context (current_user), UI state
+- Avoid multiple instance variables that collectively represent a resource
+- Name instance variables after the resource (e.g., @widget, @widgets)
+
+## Models & Database Design
+- Use `null: false` for required fields (use `null: true` explicitly for nullable fields)
+- Add database constraints for data integrity (unique indexes, foreign keys, check constraints)
+- Use `foreign_key: true` when creating references - Rails defaults to skipping foreign key constraints
+- Add indexes to foreign keys for performance
+- Document everything with `comment:` - even obvious things aren't obvious later
+- Work iteratively on migrations - create, test, rollback if needed, fix, repeat
+- Use proper data types (TIMESTAMP for timestamps)
+- Create unique indexes to enforce business rules
+- Use `add_check_constraint` for complex validation rules
+- Give constraints descriptive names for better error messages
+- Keep models focused on database access - don't put business logic in models
+- Only add validations when there's a specific reason - database constraints handle most validation
+- Test database constraints using `update_column` to bypass validations
+
+## Views & Templates
+- Use semantic HTML - start with proper semantic tags
+- Add `<div>` tags only for styling - this makes it clear what's for presentation vs. content
+- Use `<span>` for inline styling, not `<code>` unless it's actually code
+- Avoid inline styles - use CSS classes instead
+- Reference only locals in partials - don't rely on instance variables
+- Use strict locals (Rails 7.1+) to declare required parameters
+- Make partials reusable components by passing data as parameters
+- Use View Components for complex view logic instead of helpers
+- Expose data as methods, not instance variables in components
+- Follow the "rule of three" - extract when you see repetition
+- Helpers are best for global UI state and generating markup
+- Distinguish between domain concepts and view concerns
+- Domain concepts belong in models, not helpers (e.g., formatted IDs)
+
+## CSS & Styling
+- Prefer functional CSS (Tachyons/Tailwind) over OOCSS for most cases
+- Use small, single-purpose classes combined for styling
+- Create a living style guide to document your design system
+- Use CSS custom properties for consistent values
+- Document components with examples and markup
+- Avoid deep nesting and complex selectors
+- Don't underestimate CSS complexity - it's harder to manage than you think
+
+## Business Logic & Service Layer
+- Keep business logic out of Active Records
+- Create service objects for complex business operations
+- Use result objects to return success/failure states
+- Service objects should be focused and single-purpose
+- Example: `WidgetCreator.new.create_widget(widget_params)`
+
+## Background Jobs
+- Keep job classes thin - delegate to service objects
+- Don't inherit from ActiveJob if using Sidekiq - create custom base class
+- Jobs must be idempotent - can be executed multiple times safely
+- Consider retry scenarios when designing job logic
+- Analyze each line of code for retry scenarios
+- Consider what happens if job runs much later (data might have changed)
+- Split complex jobs into smaller, more focused jobs
+- Pass original values to jobs to avoid issues with changed data
+
+## Testing
+- Test business logic, not implementation details
+- Use factories for test data
+- Focus on testing behavior, not internal structure
+- Write tests for database constraints using `update_column`
+- Test authentication separately from business logic
+- Test content negotiation separately
+- Use proper headers in tests (Accept, Authorization)
+- Test error cases (401, 406, etc.)
+- Separate test files for different concerns
+
+## Development Environment
+- Create consistent scripts (`bin/setup`, `bin/dev`, `bin/ci`)
+- Use environment variables for configuration
+- Automate repetitive tasks
+- Provide help text for all scripts
+- Create helper scripts for common database operations
+- Use consistent connection information
+- Document database setup in scripts
+
+## API Design
+- Use namespacing (`Api::V202506::WidgetsController`)
+- Implement proper authentication (API keys, token-based)
+- Use content negotiation (Accept headers)
+- Return proper HTTP status codes
+- Test authentication separately from business logic
+- Test content negotiation separately
+- Use proper headers in tests
+- Test error scenarios (401, 406, etc.)
+
+## Security & Configuration
+- Use environment variables for configuration
+- Balance security vs. complexity - don't over-engineer
+- Consider your team's capabilities when choosing solutions
+- Document security decisions and trade-offs
+- Use Brakeman for security analysis
+- Use `bundle audit` for dependency vulnerabilities
+- Keep dependencies updated
+- Run security checks in CI
+
+## Continuous Integration
+- Use explicit CI configuration - don't rely on auto-detection
+- Base CI on `bin/setup` and `bin/ci` scripts
+- Run tests in parallel when possible
+- Never disable tests to speed up deploys
+- Make CI configuration explicit and managed
+- Use environment variables to customize CI behavior
+- Split tests into parallel jobs (unit tests, system tests, security audits)
+- Document CI setup thoroughly
+
+## Deployment & Infrastructure
+- Consider your team's capabilities when choosing deployment tools
+- Use Docker-based deployments when managing your own infrastructure
+- Understand trade-offs between PAAS and self-managed infrastructure
+- Implement proper logging and monitoring
+
+## Code Quality Standards
+- Always generate code following programming best practices: maintainable, readable, scalable, and efficient
+- Follow Ruby and Rails conventions
+- Use semantic and descriptive naming
+- Keep methods focused and single-purpose
+- Document complex business logic
+- Ensure proper error handling and logging
+- Maintain scalable, maintainable, and readable implementations
+
+## When Implementing Features
+- Start with semantic HTML/ERB
+- Add styling with functional CSS classes
+- Extract reusable components when you see repetition (rule of three)
+- Test behavior, not implementation details
+- Use database constraints for data integrity
+- Keep business logic in service objects, not models or controllers
+- Make everything explicit and well-documented
+- Consider the carrying cost of each decision
+
+## Key Principles
+1. Sustainability is an investment - it pays off over time but requires upfront work
+2. Consistency reduces cognitive load - fewer decisions = easier maintenance
+3. Context matters - technical decisions should align with business goals
+4. Start simple - don't over-engineer, but don't ignore obvious future needs
+5. Focus on carrying costs - these are what make software unsustainable over time
+6. Database constraints are your friend - use them liberally for data integrity
+7. Test behavior, not implementation - focus on what the code does, not how it does it
+8. Make everything explicit - configuration, CI, deployment should all be clearly documented
+9. Use the right tool for the job - don't force everything into one pattern
+10. Plan for change - build systems that can evolve over time
