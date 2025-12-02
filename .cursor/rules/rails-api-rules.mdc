@@ -1,0 +1,1023 @@
+---
+globs: **/app/**/api/**/*.rb
+alwaysApply: false
+---
+# Rails API Implementation and Testing Rules
+
+## 🔴 Critical Rules - Apply First
+
+### NEVER Do These
+- ❌ NO business logic in controllers - delegate to ControllerActions
+- ❌ NO business logic in ControllerActions - delegate to services
+- ❌ NO direct ActiveRecord calls in ControllerActions (use services)
+- ❌ NO passing controller object to actions
+- ❌ NO default/latest version routes (clients must specify version)
+- ❌ NO mocking/stubbing in request specs (integration tests)
+- ❌ NO testing implementation details - test behavior only
+- ❌ NO `let`, `let!`, `before`, `after`, `subject`, `context` in tests
+
+### ALWAYS Do These
+- ✅ Date-based API versioning: `v2025-06`, `v2025-12`
+- ✅ Controllers delegate to ControllerActions via `.call()`
+- ✅ ControllerActions validate with JSON Schema
+- ✅ ControllerActions delegate business logic to services
+- ✅ Services perform business operations
+- ✅ Use Blueprinter for serialization
+- ✅ Return standardized response structure
+- ✅ Test at request level (integration tests)
+- ✅ Arrange-Act-Assert structure in every test
+- ✅ Explicit setup in test body (all data visible)
+- ✅ Use fixtures over factories
+
+---
+
+## Architecture Layers
+
+```
+Controller (config) → ControllerAction (orchestration) → Service (business logic)
+                                ↓
+                          Blueprinter (serialization)
+```
+
+**Each layer's responsibility:**
+- **Controller**: Authentication, authorization, routing to ControllerAction
+- **ControllerAction**: Validation, orchestration, serialization, response building
+- **Service**: Business logic, domain operations
+- **Blueprinter**: JSON serialization
+
+**Never cross layers:** Controllers don't call services directly. ControllerActions don't contain business logic.
+
+**ActiveRecord is a PRIVATE API:**
+- ✅ Only services call ActiveRecord methods directly
+- ✅ Services use different method names: `insert`/`modify`/`remove`/`fetch`
+- ❌ Controllers and ControllerActions should NOT call ActiveRecord (create/update/find)
+- ❌ Don't expose ActiveRecord methods through service API
+
+---
+
+## ActiveRecord as Private API
+
+### Core Principle
+
+**ActiveRecord is a PRIVATE implementation detail accessed only by services.**
+
+| Layer | Can Call ActiveRecord? | Calls Services? |
+|-------|----------------------|-----------------|
+| Controller | ❌ NO | ❌ NO (calls ControllerActions) |
+| ControllerAction | ❌ NO | ✅ YES |
+| Service | ✅ YES | ✅ YES (other services) |
+
+### Service Method Naming
+
+Services use **different method names** than ActiveRecord:
+
+| Service Method | ActiveRecord | Purpose |
+|---------------|--------------|---------|
+| `insert` | `create` | Create new record |
+| `modify` | `update` | Update existing record |
+| `remove` | `destroy/discard` | Delete/soft-delete record |
+| `fetch` | `find/find_by` | Retrieve record(s) |
+
+**Example:**
+```ruby
+# ✅ ControllerAction calls service
+def execute
+  service = WidgetService.new(company: @company, created_by: @user)
+  widget = service.insert(name: params[:name], price_cents: params[:price_cents])
+
+  if widget.persisted?
+    success_response(widget)
+  else
+    error_response(widget)
+  end
+end
+
+# ❌ Don't call ActiveRecord directly from ControllerAction
+def execute
+  widget = Widget.create(name: params[:name], price_cents: params[:price_cents])
+  # ...
+end
+```
+
+---
+
+## API Versioning
+
+```ruby
+# ✅ Good - date-based versioning
+namespace :api, defaults: { format: :json } do
+  namespace :v202506, path: "v2025-06" do
+    resources :widgets, only: [:index, :show, :create, :update, :destroy]
+  end
+end
+
+# ❌ Bad - no version requirement
+namespace :api do
+  resources :widgets
+end
+```
+
+**Directory structure:**
+```
+app/
+├── controllers/api/v202506/
+│   ├── base_controller.rb
+│   └── widgets_controller.rb
+├── services/api/v202506/
+│   ├── controller_action.rb (base class)
+│   ├── widget_blueprint.rb
+│   ├── create_widget_action.rb
+│   └── widget_service.rb
+spec/requests/api/v202506/
+    └── widgets_spec.rb
+```
+
+---
+
+## Controllers
+
+### Keep Minimal
+```ruby
+# ✅ Good - thin controller
+module Api::V202506
+  class WidgetsController < BaseController
+    def index
+      render Api::V202506::ListWidgetsAction.call(
+        params: params,
+        company: current_company,
+        user: current_user
+      )
+    end
+
+    def create
+      render Api::V202506::CreateWidgetAction.call(
+        params: params,
+        company: current_company,
+        user: current_user
+      )
+    end
+  end
+end
+
+# ❌ Bad - business logic in controller
+def create
+  widget = Widget.new(widget_params)
+  if widget.save
+    render json: { widget: widget }, status: :created
+  else
+    render json: { errors: widget.errors }, status: :unprocessable_entity
+  end
+end
+```
+
+**BaseController handles:**
+- Authentication (`before_action :authenticate_api_request`)
+- Common error handling (`rescue_from`)
+- Shared helpers (`current_user`, `current_company`)
+
+---
+
+## ControllerActions
+
+### Structure
+```ruby
+module Api::V202506
+  class CreateWidgetAction < ControllerAction
+    # 1. Validate parameters
+    schema do
+      required(:widget).hash do
+        required(:name).filled(:string)
+        required(:price_cents).filled(:integer)
+        optional(:description).maybe(:string)
+      end
+    end
+
+    # 2. Orchestrate business logic
+    def execute
+      return validation_error_response if validation_errors?
+
+      service = WidgetService.new(company: @company, created_by: @user)
+      widget = service.insert(
+        name: params[:widget][:name],
+        price_cents: params[:widget][:price_cents],
+        description: params[:widget][:description]
+      )
+
+      if widget.persisted?
+        success_response(widget)
+      else
+        error_response(widget)
+      end
+    end
+
+    private
+
+    # 3. Serialize and build response
+    def success_response(widget)
+      {
+        status: :created,
+        json: {
+          widget: WidgetBlueprint.render_as_hash(widget),
+          meta: meta_data
+        }
+      }
+    end
+
+    def error_response(widget)
+      {
+        status: :unprocessable_entity,
+        json: {
+          error_message: "Failed to create widget",
+          errors: widget.errors.as_json,
+          meta: meta_data
+        }
+      }
+    end
+  end
+end
+```
+
+### Return Structure
+**Must return hash with:**
+```ruby
+{
+  status: :ok,  # or :created, :unprocessable_entity, :not_found
+  json: {
+    resource_name: { ... },  # serialized data
+    meta: {
+      request_id: "uuid",
+      timestamp: "ISO8601",
+      pagination: { ... }  # for list endpoints
+    }
+  }
+}
+```
+
+### ControllerAction Rules
+- ✅ Validate parameters with JSON Schema
+- ✅ Delegate all business logic to services
+- ✅ Use Blueprinter for serialization
+- ✅ Return standardized response hash
+- ❌ No direct ActiveRecord calls (`Widget.create`, `widget.save`)
+- ❌ No business logic (calculations, complex conditionals)
+- ❌ No accessing controller object
+
+---
+
+## Services
+
+### Service Responsibilities
+```ruby
+# ✅ Good - service handles business logic
+class WidgetService
+  def initialize(company:, created_by:)
+    raise ArgumentError, "company must be a Company" unless company.is_a?(Company)
+    raise ArgumentError, "created_by must be a User" unless created_by.is_a?(User)
+
+    @company = company
+    @created_by = created_by
+  end
+
+  # Public: Insert new widget with business logic side effects.
+  #
+  # name        - The String widget name
+  # price_cents - The Integer price in cents
+  # description - The String description (optional)
+  #
+  # Returns Widget object (persisted if valid, unpersisted with errors if invalid).
+  #
+  # Examples
+  #
+  #   service = WidgetService.new(company: company, created_by: user)
+  #   widget = service.insert(name: "Test", price_cents: 1000)
+  #   # => #<Widget id: 123, name: "Test", ...>
+  #
+  def insert(name:, price_cents:, description: nil)
+    widget = @company.widgets.build(
+      name: name,
+      price_cents: price_cents,
+      description: description,
+      created_by: @created_by
+    )
+
+    if widget.save
+      WidgetNotifier.notify_created(widget)
+      InventoryAdjuster.adjust_for_new_widget(widget)
+    end
+
+    widget
+  end
+
+  def modify(widget:, attributes:)
+    old_price = widget.price_cents
+
+    widget.assign_attributes(attributes)
+
+    if widget.save
+      PriceChangeNotifier.notify(widget) if widget.price_cents != old_price
+    end
+
+    widget
+  end
+end
+
+# ❌ Bad - business logic in ControllerAction
+class CreateWidgetAction < ControllerAction
+  def execute
+    widget = @company.widgets.build(params[:widget])
+
+    if widget.save
+      WidgetNotifier.notify_created(widget)  # Business logic!
+      InventoryService.adjust_for_new_widget(widget)  # Business logic!
+      success_response(widget)
+    else
+      error_response(widget)
+    end
+  end
+end
+```
+
+**Services contain:**
+- Domain logic and calculations
+- Multi-step business operations
+- Side effects (notifications, jobs)
+- Complex validations
+- Third-party integrations
+
+---
+
+## Service Return Patterns
+
+### Services Return Objects, ControllerActions Check State
+
+**Services return domain objects (persisted or unpersisted):**
+
+```ruby
+# Service - returns object
+class WidgetService
+  def initialize(company:, created_by:)
+    @company = company
+    @created_by = created_by
+  end
+
+  def insert(name:, price_cents:)
+    widget = @company.widgets.build(name: name, price_cents: price_cents)
+    widget.save  # Don't use save! - let caller handle validation
+    widget       # Always return object
+  end
+end
+```
+
+**ControllerActions check state:**
+
+```ruby
+# ControllerAction - checks state
+def execute
+  service = WidgetService.new(company: @company, created_by: @user)
+  widget = service.insert(
+    name: params[:widget][:name],
+    price_cents: params[:widget][:price_cents]
+  )
+
+  if widget.persisted?
+    success_response(widget)
+  else
+    error_response(widget)  # widget.errors available
+  end
+end
+```
+
+**Why this pattern:**
+- ✅ Services focus on business logic, not HTTP responses
+- ✅ ControllerActions handle API concerns (status codes, response format)
+- ✅ Caller can check `.persisted?`, `.errors`, or other state
+- ✅ Services are reusable outside API context
+
+**Use `save` not `save!` in services:**
+```ruby
+# ✅ Good - returns object, caller checks state
+def insert(name:)
+  widget = @company.widgets.build(name: name)
+  widget.save  # Returns boolean, but we return object
+  widget
+end
+
+# ❌ Bad - raises exception, can't return validation errors
+def insert(name:)
+  widget = @company.widgets.build(name: name)
+  widget.save!  # Raises if validation fails
+  widget
+end
+```
+
+---
+
+## Serialization with Blueprinter
+
+```ruby
+class WidgetBlueprint < Blueprinter::Base
+  identifier :id
+
+  fields :name, :price_cents, :status, :created_at
+
+  field :price_dollars do |widget|
+    widget.price_cents / 100.0
+  end
+
+  association :company, blueprint: CompanyBlueprint, view: :basic
+
+  view :detailed do
+    fields :description, :manufacturer
+    association :components, blueprint: ComponentBlueprint
+  end
+end
+
+# Usage in ControllerAction
+WidgetBlueprint.render_as_hash(widget)
+WidgetBlueprint.render_as_hash(widget, view: :detailed)
+WidgetBlueprint.render_as_hash(widgets)  # collection
+```
+
+**Blueprint rules:**
+- ✅ One blueprint per resource
+- ✅ Use `view:` for different detail levels
+- ✅ Render as hash in ControllerActions: `render_as_hash`
+- ❌ No business logic in blueprints
+- ❌ No N+1 queries (eager load in ControllerAction)
+
+---
+
+## Error Handling
+
+### Standard Error Response
+```ruby
+{
+  status: :unprocessable_entity,
+  json: {
+    error_message: "Human readable message",
+    errors: {
+      name: ["can't be blank"],
+      price_cents: ["must be greater than 0"]
+    },
+    meta: meta_data
+  }
+}
+```
+
+### Exception Handling
+```ruby
+# In BaseController
+rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
+rescue_from Pundit::NotAuthorizedError, with: :render_forbidden
+rescue_from ActionController::ParameterMissing, with: :render_bad_request
+
+private
+
+def render_not_found(exception)
+  render status: :not_found, json: {
+    error_message: "Resource not found",
+    errors: {},
+    meta: { request_id: request.uuid, timestamp: Time.current.iso8601 }
+  }
+end
+```
+
+**Error status codes:**
+- `400` - Bad Request (invalid parameters)
+- `401` - Unauthorized (not authenticated)
+- `403` - Forbidden (not authorized)
+- `404` - Not Found
+- `422` - Unprocessable Entity (validation errors)
+- `500` - Internal Server Error
+
+---
+
+## Authentication
+
+### JWT Token Pattern
+```ruby
+# BaseController
+class BaseController < ApplicationController
+  before_action :authenticate_api_request
+
+  private
+
+  def authenticate_api_request
+    token = extract_token_from_header
+    payload = JsonWebToken.decode(token)
+    @current_user = User.find(payload['user_id'])
+  rescue JWT::DecodeError, ActiveRecord::RecordNotFound
+    render_unauthorized
+  end
+
+  def extract_token_from_header
+    auth_header = request.headers['Authorization']
+    auth_header&.split(' ')&.last
+  end
+
+  attr_reader :current_user
+end
+```
+
+---
+
+## Pagination
+
+### Cursor-Based Pagination
+```ruby
+class ListWidgetsAction < ControllerAction
+  def execute
+    widgets = WidgetSearcher.search(
+      company: @company,
+      filters: params[:filters],
+      cursor: params[:cursor],
+      limit: params[:limit] || 25
+    )
+
+    {
+      status: :ok,
+      json: {
+        widgets: WidgetBlueprint.render_as_hash(widgets),
+        meta: meta_data.merge(
+          pagination: {
+            cursor: widgets.cursor,
+            limit: widgets.limit,
+            prev_cursor: widgets.prev_cursor,
+            next_cursor: widgets.next_cursor,
+            total_count: widgets.total_count
+          }
+        )
+      }
+    }
+  end
+end
+```
+
+---
+
+## Testing
+
+### Request Specs (Integration Tests)
+
+**Test behavior, not implementation:**
+```ruby
+# ✅ Good - tests behavior with explicit setup
+RSpec.describe "GET /api/v2025-06/widgets", type: :request do
+  fixtures :all
+
+  it "returns list of widgets" do
+    # Arrange - explicit fixture usage
+    user = users(:admin)
+    auth_headers = { "Authorization" => "Bearer #{jwt_token(user)}" }
+
+    # Act
+    get "/api/v2025-06/widgets", headers: auth_headers
+
+    # Assert
+    expect(response).to have_http_status(:ok)
+    expect(json_body[:widgets]).to be_an(Array)
+    expect(json_body[:widgets].first).to include(
+      id: an_instance_of(Integer),
+      name: an_instance_of(String),
+      price_cents: an_instance_of(Integer)
+    )
+    expect(json_body[:meta]).to include(:request_id, :timestamp)
+  end
+
+  it "filters widgets by status" do
+    # Arrange
+    user = users(:admin)
+    auth_headers = { "Authorization" => "Bearer #{jwt_token(user)}" }
+
+    # Act
+    get "/api/v2025-06/widgets?status=active", headers: auth_headers
+
+    # Assert
+    expect(response).to have_http_status(:ok)
+    expect(json_body[:widgets].all? { |w| w[:status] == "active" }).to be true
+  end
+end
+
+# ❌ Bad - tests implementation
+it "calls WidgetService#create" do
+  service = instance_double(WidgetService)
+  expect(WidgetService).to receive(:new).and_return(service)
+  expect(service).to receive(:create).and_return(widget)
+  post "/api/v2025-06/widgets", params: valid_params, headers: auth_headers
+end
+
+# ❌ Bad - unnecessary stubs
+it "returns widget" do
+  allow(Widget).to receive(:find).and_return(widget)
+  get "/api/v2025-06/widgets/#{widget.id}", headers: auth_headers
+end
+```
+
+### Testing Principles
+
+**DO:**
+- ✅ Test at request level (full integration)
+- ✅ Use fixtures for test data
+- ✅ Arrange-Act-Assert structure in every test
+- ✅ Explicit setup in test body (all data visible)
+- ✅ Test happy path and error cases
+- ✅ Test authentication and authorization
+- ✅ Test all status codes
+- ✅ Test response structure and specific values
+- ✅ Use descriptive test names
+
+**DON'T:**
+- ❌ NO `let`, `let!`, `before`, `after`, `subject`, `described_class`
+- ❌ NO `context` blocks (use descriptive test names instead)
+- ❌ NO mocking/stubbing in request specs
+- ❌ NO testing internal implementation
+- ❌ NO factories (prefer fixtures)
+- ❌ NO hidden dependencies or implicit setup
+- ❌ NO testing just types (use specific values)
+
+### Test Structure
+```ruby
+RSpec.describe "POST /api/v2025-06/widgets", type: :request do
+  fixtures :all
+
+  it "creates widget and returns 201 with valid parameters" do
+    # Arrange
+    user = users(:admin)
+    auth_headers = { "Authorization" => "Bearer #{jwt_token(user)}" }
+    widget_params = {
+      widget: {
+        name: "New Widget",
+        price_cents: 1000,
+        description: "A great widget"
+      }
+    }
+
+    # Act
+    expect {
+      post "/api/v2025-06/widgets",
+           params: widget_params,
+           headers: auth_headers,
+           as: :json
+    }.to change(Widget, :count).by(1)
+
+    # Assert
+    expect(response).to have_http_status(:created)
+    expect(json_body[:widget]).to include(
+      name: "New Widget",
+      price_cents: 1000
+    )
+    expect(json_body[:meta]).to include(:request_id, :timestamp)
+  end
+
+  it "returns 422 with errors for invalid parameters" do
+    # Arrange
+    user = users(:admin)
+    auth_headers = { "Authorization" => "Bearer #{jwt_token(user)}" }
+    invalid_params = { widget: { name: "", price_cents: -100 } }
+
+    # Act
+    post "/api/v2025-06/widgets",
+         params: invalid_params,
+         headers: auth_headers,
+         as: :json
+
+    # Assert
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json_body[:errors]).to include(:name, :price_cents)
+  end
+
+  it "returns 401 without authentication" do
+    # Arrange
+    widget_params = {
+      widget: { name: "Test Widget", price_cents: 1000 }
+    }
+
+    # Act
+    post "/api/v2025-06/widgets",
+         params: widget_params,
+         as: :json
+
+    # Assert
+    expect(response).to have_http_status(:unauthorized)
+  end
+end
+```
+
+### Helper Methods
+```ruby
+# spec/support/api_helpers.rb
+module ApiHelpers
+  def json_body
+    JSON.parse(response.body, symbolize_names: true)
+  end
+
+  def auth_headers(user)
+    { "Authorization" => "Bearer #{jwt_token(user)}" }
+  end
+
+  def jwt_token(user)
+    JsonWebToken.encode(user_id: user.id)
+  end
+end
+
+RSpec.configure do |config|
+  config.include ApiHelpers, type: :request
+end
+```
+
+---
+
+## Complete Example
+
+### Controller
+```ruby
+module Api::V202506
+  class WidgetsController < BaseController
+    def index
+      render Api::V202506::ListWidgetsAction.call(
+        params: params,
+        company: current_company,
+        user: current_user
+      )
+    end
+
+    def show
+      render Api::V202506::ShowWidgetAction.call(
+        params: params,
+        company: current_company
+      )
+    end
+
+    def create
+      render Api::V202506::CreateWidgetAction.call(
+        params: params,
+        company: current_company,
+        user: current_user
+      )
+    end
+
+    def update
+      render Api::V202506::UpdateWidgetAction.call(
+        params: params,
+        company: current_company,
+        user: current_user
+      )
+    end
+
+    def destroy
+      render Api::V202506::DestroyWidgetAction.call(
+        params: params,
+        company: current_company
+      )
+    end
+  end
+end
+```
+
+### ControllerAction
+```ruby
+module Api::V202506
+  class CreateWidgetAction < ControllerAction
+    schema do
+      required(:widget).hash do
+        required(:name).filled(:string)
+        required(:price_cents).filled(:integer)
+        optional(:description).maybe(:string)
+      end
+    end
+
+    def execute
+      return validation_error_response if validation_errors?
+
+      service = WidgetService.new(company: @company, created_by: @user)
+      widget = service.insert(
+        name: params[:widget][:name],
+        price_cents: params[:widget][:price_cents],
+        description: params[:widget][:description]
+      )
+
+      if widget.persisted?
+        success_response(widget)
+      else
+        error_response(widget)
+      end
+    end
+
+    private
+
+    def success_response(widget)
+      {
+        status: :created,
+        json: {
+          widget: WidgetBlueprint.render_as_hash(widget, view: :detailed),
+          meta: meta_data
+        }
+      }
+    end
+
+    def error_response(widget)
+      {
+        status: :unprocessable_entity,
+        json: {
+          error_message: "Failed to insert widget",
+          errors: widget.errors.as_json,
+          meta: meta_data
+        }
+      }
+    end
+  end
+end
+```
+
+### Service
+```ruby
+class WidgetService
+  def initialize(company:, created_by:)
+    raise ArgumentError, "company must be a Company" unless company.is_a?(Company)
+    raise ArgumentError, "created_by must be a User" unless created_by.is_a?(User)
+
+    @company = company
+    @created_by = created_by
+  end
+
+  # Public: Insert new widget with all business logic side effects.
+  #
+  # name        - The String widget name
+  # price_cents - The Integer price in cents
+  # description - The String description (optional)
+  #
+  # Returns Widget object (persisted if valid, unpersisted with errors if invalid).
+  #
+  def insert(name:, price_cents:, description: nil)
+    widget = @company.widgets.build(
+      name: name,
+      price_cents: price_cents,
+      description: description,
+      created_by: @created_by
+    )
+
+    if widget.save
+      WidgetNotifier.notify_team(widget)
+      InventoryAdjuster.adjust_for_new_widget(widget)
+      AuditLogger.log_widget_creation(widget, @created_by)
+    end
+
+    widget
+  end
+end
+```
+
+### Blueprint
+```ruby
+class WidgetBlueprint < Blueprinter::Base
+  identifier :id
+
+  fields :name, :price_cents, :status, :created_at, :updated_at
+
+  field :price_dollars do |widget|
+    widget.price_cents / 100.0
+  end
+
+  association :company, blueprint: CompanyBlueprint, view: :basic
+
+  view :detailed do
+    fields :description, :manufacturer_name
+    association :components, blueprint: ComponentBlueprint
+    association :created_by, blueprint: UserBlueprint, view: :basic
+  end
+end
+```
+
+### Request Spec
+```ruby
+RSpec.describe "POST /api/v2025-06/widgets", type: :request do
+  fixtures :all
+
+  it "creates widget with valid parameters" do
+    # Arrange
+    user = users(:admin)
+    auth_headers = { "Authorization" => "Bearer #{jwt_token(user)}" }
+    widget_params = { widget: { name: "Test Widget", price_cents: 1000 } }
+
+    # Act
+    expect {
+      post "/api/v2025-06/widgets",
+           params: widget_params,
+           headers: auth_headers,
+           as: :json
+    }.to change(Widget, :count).by(1)
+
+    # Assert
+    expect(response).to have_http_status(:created)
+    expect(json_body[:widget]).to include(
+      name: "Test Widget",
+      price_cents: 1000
+    )
+    expect(json_body[:meta]).to include(:request_id, :timestamp)
+  end
+
+  it "returns validation errors with invalid parameters" do
+    # Arrange
+    user = users(:admin)
+    auth_headers = { "Authorization" => "Bearer #{jwt_token(user)}" }
+    invalid_params = { widget: { name: "", price_cents: -100 } }
+
+    # Act
+    post "/api/v2025-06/widgets",
+         params: invalid_params,
+         headers: auth_headers,
+         as: :json
+
+    # Assert
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(json_body[:errors]).to include(:name, :price_cents)
+  end
+end
+```
+
+---
+
+## Quick Reference Checklist
+
+**Architecture:**
+- [ ] Controllers delegate to ControllerActions only
+- [ ] ControllerActions validate and orchestrate only
+- [ ] Services contain business logic
+- [ ] Blueprints handle serialization
+- [ ] No layer violations
+- [ ] ActiveRecord only called by services
+
+**ActiveRecord as Private API:**
+- [ ] Only services call ActiveRecord methods
+- [ ] Services use `insert` not `create`
+- [ ] Services use `modify` not `update`
+- [ ] Services use `remove` not `destroy/discard`
+- [ ] Services use `fetch` not `find/find_by`
+- [ ] ControllerActions call service methods
+
+**Versioning:**
+- [ ] Date-based versions (v2025-06)
+- [ ] No default version routes
+- [ ] Version-specific BaseController
+- [ ] Namespaced directory structure
+
+**ControllerActions:**
+- [ ] Validate with JSON Schema
+- [ ] Delegate to services
+- [ ] Return standardized hash structure
+- [ ] Use Blueprinter for serialization
+- [ ] Include meta data (request_id, timestamp)
+
+**Services:**
+- [ ] Contain all business logic
+- [ ] Handle side effects
+- [ ] Return models (not responses)
+- [ ] Can be used outside API context
+
+**Testing:**
+- [ ] Request specs (integration level)
+- [ ] Arrange-Act-Assert structure
+- [ ] Explicit setup in test body
+- [ ] No `let`, `let!`, `before`, `after`, `subject`, `context`
+- [ ] No mocking/stubbing
+- [ ] Use fixtures for test data
+- [ ] Test behavior, not implementation
+- [ ] Test authentication
+- [ ] Test all status codes
+- [ ] Test specific values, not just types
+
+**Error Handling:**
+- [ ] rescue_from in BaseController
+- [ ] Standardized error responses
+- [ ] Appropriate HTTP status codes
+- [ ] Validation errors included
+
+**Security:**
+- [ ] JWT authentication
+- [ ] Authorization checks
+- [ ] Parameter validation
+- [ ] No sensitive data in responses
+
+---
+
+## Enforcement
+
+**Code review failures:**
+- Business logic in controllers
+- Business logic in ControllerActions
+- Direct ActiveRecord calls in ControllerActions
+- Missing parameter validation
+- Non-standard response format
+- Mocking/stubbing in request specs
+- Use of `let`, `let!`, `before`, `after`, `subject`, `context` in tests
+- Hidden dependencies or implicit setup in tests
+- Testing implementation details
+- Missing authentication tests
+- Missing error case tests
+- Tests without Arrange-Act-Assert structure
+
+**No exceptions without architectural approval.**
+
+---
+
+*This guide prioritizes critical API patterns for efficient AI parsing and consistent implementation.*

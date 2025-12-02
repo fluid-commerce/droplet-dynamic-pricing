@@ -1,0 +1,497 @@
+---
+globs: *.rb
+alwaysApply: false
+---
+# Ruby Coding Standards
+
+## 🔴 Critical Rules - Apply First
+
+### Variable Naming
+- ✅ Use descriptive names indicating state: `validated_input`, `calculated_total`, `current_state`
+- ✅ Use prefixes when data flows through transformations
+- ✅ Self-documenting names over brevity
+- ❌ NO generic names: `data`, `result`, `value`, `temp`, `tmp`, `x`, `y`
+- ❌ NO numbered variables: `data1`, `data2`
+
+### Documentation Format (TomDoc)
+- ✅ Use TomDoc format (human-readable)
+- ✅ Start with visibility: `Public:`, `Internal:`, `Deprecated:`
+- ✅ Document: public methods, complex logic, exceptions, side effects
+- ❌ NO YARD format (`@param`, `@return`, `@raise`)
+- ❌ NO RDoc format
+- ❌ NO obvious method documentation
+
+### Verify Before Implementing
+- ✅ Check `db/schema.rb` before using fields
+- ✅ Verify API structure in tests/docs
+- ✅ Understand business rule before coding
+- ✅ Keep simple logic simple (1-2 lines)
+- ❌ NO assumptions about field existence
+- ❌ NO complex conditionals for simple rules
+- ❌ NO coding based on "what makes sense"
+
+---
+
+## Variable Naming Patterns
+
+### Ask These Questions
+
+**1. What state does this data represent?**
+```ruby
+current_state     # Current system state
+captured_data     # Snapshot at point in time
+calculated_total  # Result of calculation
+```
+
+**2. Has data been transformed?**
+```ruby
+raw_input        # Unprocessed input
+validated_input  # After validation
+normalized_input # After normalization
+```
+
+**3. Multiple states in method?**
+```ruby
+# ✅ Yes - Use descriptive prefixes
+def process(raw_data)
+  validated_data = validate(raw_data)
+  transformed_data = transform(validated_data)
+  final_result = calculate(transformed_data)
+end
+
+# ✅ No - Simple name OK
+def calculate_tax(subtotal)
+  subtotal * 0.08
+end
+```
+
+**4. Is context obvious?**
+```ruby
+# ✅ Short, single-purpose method
+def total(amount)
+  amount * 1.08
+end
+
+# ✅ Complex method needs descriptive names
+def sync_data
+  backend_state = fetch_backend_state
+  local_state = fetch_local_state
+  calculated_changes = calculate_changes(backend_state, local_state)
+  apply_changes(calculated_changes)
+end
+```
+
+### Anti-Patterns
+
+```ruby
+# ❌ Generic names
+data = fetch_data()
+result = process(data)
+value = calculate(result)
+
+# ✅ Descriptive names
+user_profile = fetch_user_profile()
+validated_profile = validate(user_profile)
+display_data = format_for_display(validated_profile)
+```
+
+### When "result" is Acceptable
+
+**In single-purpose methods with obvious context:**
+
+```ruby
+# ✅ OK - single transformation, obvious what result contains
+def calculate_tax(subtotal)
+  tax_rate = 0.08
+  result = subtotal * tax_rate
+  result
+end
+
+# ✅ OK - single operation, clear from context
+def fetch_user_data
+  result = api_client.get("/user")
+  result
+end
+
+# ✅ OK - simple return value
+def total_with_tax
+  result = subtotal + calculate_tax(subtotal)
+  result
+end
+```
+
+**In complex methods, use descriptive names:**
+
+```ruby
+# ❌ Bad - multiple transformations, unclear what result contains
+def process_order
+  result = validate(order)
+  result = transform(result)
+  result = calculate(result)
+  result
+end
+
+# ✅ Good - descriptive names for each state
+def process_order
+  validated_order = validate(order)
+  transformed_data = transform(validated_order)
+  calculated_total = calculate(transformed_data)
+  calculated_total
+end
+
+# ❌ Bad - unclear what result represents
+def synchronize_data
+  result = fetch_external_state
+  result = compare_with_local(result)
+  apply_changes(result)
+end
+
+# ✅ Good - clear what each variable represents
+def synchronize_data
+  external_state = fetch_external_state
+  state_changes = compare_with_local(external_state)
+  apply_changes(state_changes)
+end
+```
+
+**Guidelines:**
+- ✅ Use `result` in single-step methods where context is obvious
+- ✅ Use `result` for simple mathematical operations
+- ❌ Don't use `result` when data flows through multiple transformations
+- ❌ Don't use `result` when variable represents specific business concept
+
+---
+
+## TomDoc Documentation Format
+
+### Basic Structure
+
+```ruby
+# Public: Brief one-line description.
+#
+# param1 - Description of first parameter
+# param2 - Description of second parameter (optional)
+#
+# Returns the type of value returned.
+#
+# Examples
+#
+#   method_name(arg1, arg2)
+#   # => expected_result
+#
+def method_name(param1, param2 = nil)
+  # implementation
+end
+```
+
+### Visibility Keywords
+
+```ruby
+# Public: Stable public API, fully documented
+def create(name:, company_id:)
+  # ...
+end
+
+# Internal: Internal use, may change without notice
+def serialize_rank(rank)
+  # ...
+end
+
+# Deprecated: Will be removed, use alternative instead
+def create_rank(name, company_id)
+  # ...
+end
+```
+
+### Complete Examples
+
+**Simple Method:**
+```ruby
+# Public: Calculate total price including tax.
+#
+# subtotal - The Float subtotal before tax
+# tax_rate - The Float tax rate (e.g., 0.08 for 8%)
+#
+# Returns Float total price.
+#
+# Examples
+#
+#   calculate_total(100.0, 0.08)
+#   # => 108.0
+#
+def calculate_total(subtotal, tax_rate)
+  subtotal * (1 + tax_rate)
+end
+```
+
+**Multiple Return Types:**
+```ruby
+# Public: Find rank by ID and return current state.
+#
+# id - The Integer rank ID
+#
+# Returns Hash with rank data if found.
+# Returns nil if rank doesn't exist.
+#
+# Examples
+#
+#   read(id: 123)
+#   # => { id: 123, name: "Gold", company_id: 1 }
+#
+#   read(id: 999)
+#   # => nil
+#
+def read(id:)
+  rank = Rank.find_by(id: id)
+  return nil unless rank
+
+  serialize_rank(rank)
+end
+```
+
+**Service Class:**
+```ruby
+# Public: Synchronize rank data between application and backend.
+#
+# This service reads state from both systems, calculates changes,
+# and applies updates.
+#
+# rank_id        - The Integer rank ID to sync
+# installation   - The Connect::Installation for auth
+# skip_conflicts - Boolean to skip conflict resolution (default: false)
+#
+# Returns true if sync completed.
+# Returns false if sync skipped due to cooldown.
+# Raises Connect::ApiError if backend communication fails.
+#
+# Examples
+#
+#   synchronizer = Connect::Ranks::Synchronizer.new(
+#     rank_id: 123,
+#     installation: installation
+#   )
+#   synchronizer.sync
+#   # => true
+#
+class Connect::Ranks::Synchronizer
+  def initialize(rank_id:, installation:, skip_conflicts: false)
+    @rank_id = rank_id
+    @installation = installation
+    @skip_conflicts = skip_conflicts
+  end
+
+  def sync
+    # implementation
+  end
+end
+```
+
+### When to Document
+
+**Do document:**
+- ✅ Public service methods
+- ✅ Complex business logic
+- ✅ Non-obvious behavior
+- ✅ Methods that raise exceptions
+- ✅ Methods with side effects
+
+**Don't document:**
+- ❌ Simple, self-explanatory methods
+- ❌ Standard Rails methods (create, update, destroy)
+- ❌ Private helpers (unless complex)
+- ❌ Obvious getters/setters
+- ❌ Documentation that repeats method name
+
+---
+
+## Verify Assumptions Before Coding
+
+### The Core Principle
+
+**Complex conditional logic = Wrong assumptions about system behavior**
+
+Simple business rules should produce simple code. If your code is complex, stop and verify your understanding.
+
+### Verification Checklist
+
+**1. Check Database Schema**
+```bash
+grep -A 30 "create_table :ranks" db/schema.rb
+```
+
+**2. Check API Response Structure**
+```bash
+# Look at tests or API documentation
+# Don't assume based on "what makes sense"
+```
+
+**3. Check Existing Patterns**
+```bash
+grep -r "undiscard" app/services/
+grep -r "similar_pattern" app/
+```
+
+**4. Understand Business Rule**
+```ruby
+# What does this event actually mean?
+# Backend sends data = resource exists
+# Not: Check active field, status field, etc.
+```
+
+### Real Example: Sync Discard Logic
+
+**❌ Bad (Assumptions):**
+```ruby
+def apply_changes(changes)
+  # Assumed backend has 'active' field (it doesn't)
+  if changes.key?(:active)
+    if changes[:active] && @rank.discarded?
+      @rank.undiscard
+    elsif !changes[:active] && !@rank.discarded?
+      @rank.discard
+    end
+  end
+
+  # Assumed these fields exist (they don't)
+  @rank.name = changes[:name] if changes.key?(:name)
+  @rank.description = changes[:description] if changes.key?(:description)
+  @rank.level = changes[:level] if changes.key?(:level)
+end
+```
+
+**✅ Good (Verified):**
+```ruby
+def apply_changes(changes)
+  # Business rule: Backend sends changes = resource exists there
+  # Therefore: undiscard if currently discarded
+  @rank.undiscard if @rank.discarded?
+
+  # Checked schema: only 'name' exists for syncing
+  @rank.name = changes[:name] if changes.key?(:name)
+end
+```
+
+### Common Anti-Patterns
+
+**1. Assuming Status Fields**
+```ruby
+# ❌ Assumes 'active' field exists
+if data[:active]
+  activate_resource
+else
+  deactivate_resource
+end
+
+# ✅ Based on actual event meaning
+def handle_update(data)
+  resource.undiscard if resource.discarded? # Update = exists
+  resource.update!(data)
+end
+
+def handle_deletion(id)
+  resource.discard # Deletion = doesn't exist
+end
+```
+
+**2. Assuming Field Names**
+```ruby
+# ❌ Never checked schema
+user.first_name = data[:firstName]
+user.middle_name = data[:middleName]      # Doesn't exist
+user.full_address = data[:fullAddress]    # Doesn't exist
+
+# ✅ Verified against schema (has: first_name, last_name, address_line1)
+user.first_name = data[:firstName]
+user.last_name = data[:lastName]
+user.address_line1 = data[:addressLine1]
+```
+
+**3. Complex Conditionals for Simple Rules**
+```ruby
+# ❌ Complex logic for simple rule
+if data.key?(:active)
+  data[:active] ? undiscard : discard
+elsif data.key?(:status)
+  data[:status] == 'active' ? undiscard : discard
+elsif data.key?(:deleted)
+  data[:deleted] ? discard : undiscard
+else
+  # What do we do here?
+end
+
+# ✅ Understand actual rule
+def sync_from_backend(data)
+  undiscard if discarded? # Receiving data = resource exists
+  update!(data)
+end
+```
+
+### Red Flags
+
+Stop and verify if you see:
+- Nested if/elsif chains checking different field names
+- Comments like "assuming..." or "probably..."
+- Logic requiring "default behavior" branches
+- More than 3-4 lines for simple business rule
+
+### When Logic Feels Complex
+
+**Stop and:**
+1. Check `db/schema.rb` for actual columns
+2. Check API docs or tests for structure
+3. Check existing patterns: `grep -r "pattern" app/`
+4. Understand actual business rule
+5. Implement simple logic
+
+**Result:**
+- Complex (10+ lines) → Simple (1-2 lines)
+- Multiple assumptions → Verified facts
+- Unclear rules → Clear business logic
+
+---
+
+## Quick Reference
+
+### Variable Naming
+- [ ] Descriptive names indicating state/transformation
+- [ ] Prefixes for multi-state data flows
+- [ ] No generic names (data, result, value, temp)
+- [ ] Self-documenting over brief
+
+### Documentation (TomDoc)
+- [ ] Visibility keyword (Public/Internal/Deprecated)
+- [ ] Method description and parameters
+- [ ] Return types and exceptions
+- [ ] Examples for non-obvious behavior
+- [ ] No YARD (@param) or RDoc syntax
+
+### Verification
+- [ ] Checked schema for field existence
+- [ ] Verified API structure
+- [ ] Understood business rule
+- [ ] Simple code for simple logic
+- [ ] Stopped when logic felt complex
+
+---
+
+## Summary Principles
+
+**Variable Naming:**
+- Clarity > Brevity
+- State and transformation should be obvious
+- Future you will thank present you
+
+**Documentation:**
+- TomDoc is human-readable
+- Document why and what, not just how
+- Skip obvious, focus on complex
+
+**Verification:**
+- If business logic is simple, code should be simple
+- Complex code = wrong assumptions
+- Always verify before implementing
+
+**Applies to:**
+- Services, Controllers, Models
+- Presenters, Jobs, Lib classes
+- Helpers, any Ruby code
