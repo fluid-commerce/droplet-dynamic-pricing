@@ -1,0 +1,1030 @@
+---
+globs: **/app/services/**/*.rb
+alwaysApply: false
+---
+# Rails Service Class Rules
+
+## 🔴 Critical Rules - Apply First
+
+### Naming Convention
+- ✅ **Domain concepts** (what it represents): `UserProfile`, `AppState`, `OrderDetails`
+- ✅ **Specific tools** (clear purpose): `ChangeCalculator`, `PriceCalculator`
+- ✅ **Specific processes** (not generic): `Synchronization`, `Authorization`
+- ✅ Methods are **VERBS** (what they do): `fetch`, `apply`, `calculate`, `synchronize`
+- ❌ NO generic agent nouns: `UserFetcher`, `OrderProcessor`, `DataManager`, `StateHandler`
+- ❌ NO redundant names: `UserFetcher.fetch` (just use `UserProfile.fetch`)
+
+### Parameter Patterns
+- ✅ **Context** in `initialize`: `initialize(user:, company:)` - "who and where"
+- ✅ **Operation** on methods: `apply(changes:)` - "what to do"
+- ✅ **Pure services** (stateless): Empty initialize, params on method
+
+### Validation
+- ✅ Inline validation in initialize and methods (don't extract to private)
+- ✅ Validate types with `is_a?`: `raise ArgumentError, "user must be a User" unless user.is_a?(User)`
+- ✅ Type check catches both nil AND wrong types
+- ❌ NO nil-only checks: Don't use `if user.nil?` - use `unless user.is_a?(User)` instead
+
+### Hash Conventions
+- ✅ Always use **symbol keys**: `.symbolize_keys`
+- ✅ Verify fields exist before using: `raise KeyError unless state.key?(:id)`
+- ✅ Use `.compact_blank` to remove nil/empty values
+
+### Return Values
+- ✅ **State Providers** → Return Hash (never nil, use `{}`)
+- ✅ **Writers** → Return ActiveRecord object (not boolean)
+- ✅ **Orchestrators** → Return boolean
+- ✅ **Calculators** → Return Hash
+
+### External APIs
+- ✅ Define `.client` method as test seam
+- ✅ Rescue specific API errors
+- ✅ Log failures
+- ✅ Return safe defaults (empty hash)
+
+### ActiveRecord is a PRIVATE API
+- ✅ Services use DIFFERENT method names than ActiveRecord
+- ✅ `insert` instead of `create`
+- ✅ `modify` instead of `update`
+- ✅ `remove` instead of `delete/destroy/discard`
+- ✅ `fetch` instead of `find`
+- ❌ Only services call ActiveRecord methods directly
+- ❌ Controllers/ControllerActions should NOT call ActiveRecord directly
+
+---
+
+## ActiveRecord as Private API
+
+### Core Principle
+
+**ActiveRecord is a PRIVATE implementation detail of services.**
+
+Only service classes should call ActiveRecord methods directly. This creates a clear boundary:
+- **Services** → Call ActiveRecord (create, update, destroy, find)
+- **Everything else** → Call services (insert, modify, remove, fetch)
+
+### Method Naming Convention
+
+Services use **different method names** than ActiveRecord to make this boundary explicit:
+
+| Service Method | ActiveRecord Method | Purpose |
+|---------------|---------------------|---------|
+| `insert` | `create` | Create new record |
+| `modify` | `update` | Update existing record |
+| `remove` | `destroy/discard` | Delete/soft-delete record |
+| `fetch` | `find/find_by` | Retrieve record(s) |
+
+### Why This Matters
+
+**Clear boundaries:**
+```ruby
+# ✅ Service provides abstraction
+service = WidgetService.new(company: company)
+widget = service.insert(name: "Test", price_cents: 1000)
+
+# ❌ Don't expose ActiveRecord directly
+widget = Widget.create(name: "Test", price_cents: 1000)
+```
+
+**Business logic stays in services:**
+```ruby
+# ✅ Service handles side effects
+def insert(name:, price_cents:)
+  widget = @company.widgets.create(name: name, price_cents: price_cents)
+  WidgetNotifier.notify_created(widget) if widget.persisted?
+  InventoryAdjuster.adjust(widget)
+  widget
+end
+
+# ❌ Don't scatter business logic
+widget = Widget.create(name: "Test")
+WidgetNotifier.notify_created(widget)  # Logic leaking out
+```
+
+**Searchability and refactoring:**
+- Grep for `Widget.create` → Find only service implementations
+- Grep for `service.insert` → Find all places creating widgets
+- Change persistence layer → Update only services
+
+---
+
+## Service Types
+
+### 1. State Provider Services
+**Purpose:** Provide access to data (read operations)
+
+```ruby
+class UserProfile
+  def initialize(user:)
+    raise ArgumentError, "user must be a User" unless user.is_a?(User)
+    @user = user
+  end
+
+  def fetch_current
+    return {} if @user.discarded?
+
+    {
+      name: @user.name,
+      email: @user.email,
+      role: @user.role
+    }.symbolize_keys
+  end
+end
+
+# ✅ Returns Hash
+# ✅ Returns {} not nil for empty state
+```
+
+### 2. Writer Services
+**Purpose:** Persist changes (write operations)
+
+```ruby
+class UserWriter
+  def initialize(user:)
+    raise ArgumentError, "user must be a User" unless user.is_a?(User)
+    @user = user
+  end
+
+  def apply(changes:)
+    raise ArgumentError, "changes must be a Hash" unless changes.is_a?(Hash)
+    return @user if changes.blank?  # Early return, still returns object
+
+    @user.name = changes[:name] if changes.key?(:name)
+    @user.email = changes[:email] if changes.key?(:email)
+    @user.save!
+
+    @user  # Always return the object
+  end
+end
+
+# ✅ Returns ActiveRecord object
+# ✅ Uses save! to raise on failure
+# ❌ Don't return boolean (not @user.save)
+```
+
+### 3. Calculator Services (Pure/Stateless)
+**Purpose:** Pure computation with no external dependencies
+
+```ruby
+class ChangeCalculator
+  # ✅ Empty initialize for stateless service
+
+  def calculate(previous_state:, current_state:)
+    raise ArgumentError, "previous_state must be a Hash" unless previous_state.is_a?(Hash)
+    raise ArgumentError, "current_state must be a Hash" unless current_state.is_a?(Hash)
+
+    # Pure computation - no side effects
+    current_state.reject { |k, v| previous_state[k] == v }
+  end
+end
+
+# ✅ Stateless - no initialize context
+# ✅ All params on method
+# ✅ Returns Hash
+```
+
+### 4. External API Services
+**Purpose:** Communicate with external systems
+
+```ruby
+class ExternalDataService
+  def initialize(account:)
+    raise ArgumentError, "account must be an Account" unless account.is_a?(Account)
+    @account = account
+  end
+
+  def fetch_data
+    response = client.get(
+      resource: "data",
+      id: @account.external_id
+    )
+
+    normalize(response)
+  rescue ApiClient::NotFoundError => e
+    Rails.logger.info("Data not found", account_id: @account.id, error: e.message)
+    {}  # Safe default
+  rescue ApiClient::TimeoutError => e
+    Rails.logger.error("API timeout", account_id: @account.id, error: e.message)
+    {}
+  end
+
+  private
+
+  # ✅ Mark external boundary as .client for testing
+  def client
+    ApiClient.new(
+      base_url: @account.api_url,
+      api_key: @account.api_key,
+      timeout: 30
+    )
+  end
+
+  def normalize(response)
+    {
+      name: response["name"],
+      status: response["status"]
+    }.compact_blank.symbolize_keys
+  end
+end
+
+# ✅ Client method for test seam
+# ✅ Rescue specific errors
+# ✅ Return safe defaults
+# ✅ Normalize to symbol keys
+```
+
+### 5. Orchestrator Services
+**Purpose:** Coordinate multiple services
+
+```ruby
+class Synchronization
+  def initialize(
+    resource:,
+    sync_record:,
+    apply_updates: true,      # ✅ Flags for side effects
+    update_state: true
+  )
+    raise ArgumentError, "resource must be a Resource" unless resource.is_a?(Resource)
+    raise ArgumentError, "sync_record must be a SyncRecord" unless sync_record.is_a?(SyncRecord)
+
+    @resource = resource
+    @sync_record = sync_record
+    @apply_updates = apply_updates
+    @update_state = update_state
+  end
+
+  def synchronize
+    local_state = fetch_local_state
+    remote_state = fetch_remote_state
+    changes = calculate_changes(local_state, remote_state)
+
+    apply_changes(changes) if @apply_updates && changes.present?
+    update_sync_state(remote_state) if @update_state
+
+    true  # ✅ Return boolean
+  end
+
+  private
+
+  def fetch_local_state
+    AppState.new(resource: @resource).fetch_current
+  end
+
+  def fetch_remote_state
+    ExternalState.new(sync_record: @sync_record).fetch_current
+  end
+
+  def calculate_changes(previous, current)
+    ChangeCalculator.new.calculate(
+      previous_state: previous,
+      current_state: current
+    )
+  end
+
+  def apply_changes(changes)
+    Writer.new(resource: @resource).apply(changes: changes)
+  end
+
+  def update_sync_state(remote_state)
+    @sync_record.update!(
+      external_data: remote_state,
+      synced_at: Time.current
+    )
+  end
+end
+
+# ✅ Side-effect flags for testing
+# ✅ Delegates to other services
+# ✅ Returns boolean
+```
+
+---
+
+## Service Naming Patterns
+
+### Three Service Patterns
+
+We use three distinct service patterns, each with different naming conventions:
+
+1. **Domain Services** - Related operations on a domain entity (`WidgetService`)
+2. **Specialized Services** - Focused on one operation type (`PriceCalculator`)
+3. **State Providers** - Read-only access to data (`UserProfile`)
+
+---
+
+### Pattern 1: Domain Services (Most Common)
+
+**Use `[DomainEntity]Service` for related operations on a domain:**
+
+```ruby
+# ✅ Domain Service - CRUD + common domain operations
+class WidgetService
+  def initialize(company:)
+    raise ArgumentError, "company must be a Company" unless company.is_a?(Company)
+    @company = company
+  end
+
+  # CRUD operations
+
+  # Public: Insert new widget for the company.
+  #
+  # name        - The String widget name
+  # price_cents - The Integer price in cents
+  #
+  # Returns Widget object (unsaved if validation fails).
+  #
+  def insert(name:, price_cents:)
+    widget = @company.widgets.build(name: name, price_cents: price_cents)
+    widget.save
+    widget
+  end
+
+  def modify(widget:, attributes:)
+    widget.assign_attributes(attributes)
+    widget.save
+    widget
+  end
+
+  def remove(widget:)
+    widget.discard
+  end
+
+  # Common domain operations
+  def activate(widget:)
+    widget.update(status: 'active')
+  end
+
+  def deactivate(widget:)
+    widget.update(status: 'inactive')
+  end
+end
+```
+
+**Guidelines:**
+- ✅ 1-12 methods per service (ideally 3-5)
+- ✅ Related operations on same domain entity
+- ✅ CRUD + common domain actions (activate, deactivate, publish, cancel)
+- ❌ Don't split into separate services per operation
+- ❌ Don't exceed 12 methods (split if growing too large)
+
+**Examples:**
+```ruby
+class UserService          # insert, modify, remove, deactivate, reactivate, reset_password
+class OrderService         # insert, modify, remove, cancel, refund
+class ProductService       # insert, modify, remove, publish, unpublish
+```
+
+**When to use:**
+- Service contains multiple related operations on a domain entity
+- Operations include CRUD plus common business actions
+- 3-12 methods that logically belong together
+
+---
+
+### Pattern 2: Specialized Services
+
+**Use specific names when focused on ONE type of operation:**
+
+```ruby
+# ✅ Focused on calculations only
+class PriceCalculator
+  def initialize(company:)
+    raise ArgumentError, "company must be a Company" unless company.is_a?(Company)
+    @company = company
+  end
+
+  # Public: Calculate total price for items.
+  #
+  # items - Array of items with price_cents attribute
+  #
+  # Returns Integer total price in cents.
+  #
+  def calculate_total(items:)
+    items.sum(&:price_cents)
+  end
+
+  def calculate_tax(subtotal:)
+    subtotal * @company.tax_rate
+  end
+
+  def calculate_shipping(weight:, distance:)
+    base_rate = 500
+    base_rate + (weight * 100) + (distance * 10)
+  end
+end
+
+# ✅ Focused on synchronization only
+class WidgetSynchronization
+  def initialize(sync_record:)
+    raise ArgumentError, "sync_record must be a SyncRecord" unless sync_record.is_a?(SyncRecord)
+    @sync_record = sync_record
+  end
+
+  def synchronize
+    local_state = fetch_local_state
+    remote_state = fetch_remote_state
+    changes = calculate_changes(local_state, remote_state)
+    apply_changes(changes)
+  end
+
+  def fetch_remote_state
+    # Fetch from external API
+  end
+
+  def apply_changes(changes:)
+    # Apply changes to local resource
+  end
+end
+```
+
+**Common suffixes:**
+- `Calculator` - Calculations only
+- `Synchronization` - Syncing only
+- `Importer` - Importing only
+- `Exporter` - Exporting only
+- `Validator` - Validation only
+- `Parser` - Parsing only
+
+**When to use:**
+- Service focused on ONE type of operation
+- Operations don't fit CRUD pattern
+- Distinct from main domain operations
+
+---
+
+### Pattern 3: State Providers (Read-Only)
+
+**Use domain entity name when providing read-only access:**
+
+```ruby
+# ✅ Read-only state provider
+class UserProfile
+  def initialize(user:)
+    raise ArgumentError, "user must be a User" unless user.is_a?(User)
+    @user = user
+  end
+
+  def fetch_current
+    return {} if @user.discarded?
+
+    {
+      name: @user.name,
+      email: @user.email,
+      role: @user.role
+    }.symbolize_keys
+  end
+end
+
+# ✅ Read-only state provider
+class AppState
+  def initialize(resource:)
+    raise ArgumentError, "resource must be a Resource" unless resource.is_a?(Resource)
+    @resource = resource
+  end
+
+  def fetch_current
+    {
+      id: @resource.id,
+      name: @resource.name,
+      status: @resource.status
+    }.symbolize_keys
+  end
+end
+```
+
+**Guidelines:**
+- ✅ No "Service" suffix
+- ✅ Named after domain entity or state type
+- ✅ Returns Hash (never nil, use `{}`)
+- ❌ No write operations
+- ❌ No side effects
+
+**When to use:**
+- Provides read-only access to data
+- Fetches or computes state
+- No write operations
+
+---
+
+### Decision Tree
+
+```
+What does this service do?
+
+├─ Multiple related operations on a domain entity?
+│  ├─ CRUD operations?
+│  ├─ Common domain actions (activate, deactivate)?
+│  └─ 3-12 related methods?
+│     └─ ✅ Use: WidgetService, OrderService, UserService
+│
+├─ Focused on ONE type of operation?
+│  ├─ All about calculations?
+│  ├─ All about syncing?
+│  ├─ All about importing?
+│  └─ Distinct from CRUD?
+│     └─ ✅ Use: PriceCalculator, WidgetSynchronization, OrderImporter
+│
+└─ Provides read-only access?
+   └─ No write operations?
+      └─ ✅ Use: UserProfile, AppState, OrderDetails
+```
+
+---
+
+### Anti-Patterns
+
+```ruby
+# ❌ Too granular - DON'T split CRUD into separate services
+class WidgetCreator        # Just insert
+class WidgetUpdater        # Just modify
+class WidgetDeleter        # Just remove
+class WidgetActivator      # Just activate
+
+# ✅ Better - combine related operations
+class WidgetService
+  def insert(...) end
+  def modify(...) end
+  def remove(...) end
+  def activate(...) end
+end
+
+# ❌ Too vague - what does it manage?
+class DataManager          # What data?
+class StateHandler         # What state?
+class OrderProcessor       # Too vague
+
+# ✅ Better - specific names
+class OrderService         # CRUD + common operations
+class OrderCalculator      # Focused on calculations
+class OrderFulfillment     # Focused on fulfillment process
+
+# ❌ Too large - too many responsibilities
+class OrderService         # 20+ methods handling everything
+  def create(...)
+  def update(...)
+  # ... 15 more methods ...
+end
+
+# ✅ Better - split by concern
+class OrderService         # CRUD (5 methods)
+class OrderCalculator      # Calculations (5 methods)
+```
+
+---
+
+### Exception: ControllerAction Classes
+
+**ControllerActions are framework classes, not domain services.**
+
+ControllerActions orchestrate API requests and inherit from `ControllerAction`:
+- ✅ `Api::V202506::CreateWidgetAction` - Framework orchestration
+- ✅ `Api::V202506::ListWidgetsAction` - Framework orchestration
+
+These follow the pattern: `[Verb][Resource]Action` and are **exempt** from domain service naming rules.
+
+### Methods: Accurate Verbs
+```ruby
+# ✅ Good - Accurate Ruby idioms
+def fetch_current       # Get from source
+def apply(changes:)     # Write changes
+def calculate(...)      # Pure computation
+def synchronize         # Coordinate
+def persist(...)        # Write to storage
+
+# ❌ Bad - Vague/incorrect verbs
+def get_current         # Use 'fetch' for external sources
+def set(changes:)       # Use 'apply' for state changes
+def compute(...)        # Use 'calculate' for math
+def sync                # Be explicit: 'synchronize'
+def save(...)           # Use 'persist' to avoid ActiveRecord confusion
+```
+
+**Verb Guidelines:**
+- `fetch` - Retrieve from external source (API, database query)
+- `apply` - Apply changes to existing object
+- `calculate` - Pure computation
+- `persist` - Write to storage
+- `synchronize` - Coordinate between systems
+- `build` - Create new object (not saved)
+- `create` - Create and persist
+
+---
+
+## Parameter Patterns
+
+### Context in Initialize, Operation on Method
+```ruby
+# ✅ Good - Context in initialize
+class UserWriter
+  def initialize(user:)        # Context: who/where
+    @user = user
+  end
+
+  def apply(changes:)          # Operation: what to do
+    # ...
+  end
+end
+
+# Usage - set context once, call multiple times
+writer = UserWriter.new(user: current_user)
+writer.apply(changes: { name: "John" })
+writer.apply(changes: { email: "john@example.com" })
+
+# ❌ Bad - Passing context every time
+class UserWriter
+  def apply(user:, changes:)   # Repetitive
+    # ...
+  end
+end
+```
+
+**Context parameters:**
+- User/account performing action
+- Company/organization scope
+- Resource being operated on
+- Configuration objects
+
+**Operation parameters:**
+- Data to process
+- Options for this specific operation
+- Filters/search criteria
+
+### Pure Services: Empty Initialize
+```ruby
+# ✅ Good - No context needed for pure computation
+class ChangeCalculator
+  # No initialize - stateless
+
+  def calculate(previous_state:, current_state:)
+    current_state.reject { |k, v| previous_state[k] == v }
+  end
+end
+
+# ❌ Bad - Unnecessary context for pure service
+class ChangeCalculator
+  def initialize(...)  # Not needed!
+  end
+end
+```
+
+---
+
+## Hash Handling
+
+### Always Use Symbol Keys
+```ruby
+# ✅ Good
+def fetch_current
+  {
+    name: @user.name,
+    email: @user.email
+  }.symbolize_keys
+end
+
+# ✅ Good - normalize external data
+def normalize(api_response)
+  {
+    name: api_response["name"],
+    status: api_response["status"]
+  }.compact_blank.symbolize_keys
+end
+
+# ❌ Bad - string keys
+def fetch_current
+  {
+    "name" => @user.name,
+    "email" => @user.email
+  }
+end
+```
+
+### Verify Keys Before Using
+```ruby
+# ✅ Good - verify keys exist
+def apply(changes:)
+  raise KeyError, "Missing required key: :name" unless changes.key?(:name)
+
+  @user.name = changes[:name]
+  @user.save!
+end
+
+# ✅ Good - safe conditional updates
+def apply(changes:)
+  @user.name = changes[:name] if changes.key?(:name)
+  @user.email = changes[:email] if changes.key?(:email)
+  @user.save!
+end
+
+# ❌ Bad - assumes keys exist
+def apply(changes:)
+  @user.name = changes[:name]   # Raises if key missing
+end
+```
+
+---
+
+## Input Validation
+
+### Inline Validation (Don't Extract)
+```ruby
+# ✅ Good - inline validation with type check
+class UserWriter
+  def initialize(user:)
+    raise ArgumentError, "user must be a User" unless user.is_a?(User)
+    @user = user
+  end
+
+  def apply(changes:)
+    raise ArgumentError, "changes must be a Hash" unless changes.is_a?(Hash)
+    # method implementation
+  end
+end
+
+# ❌ Bad - unnecessary extraction
+class UserWriter
+  def initialize(user:)
+    validate_user!(user)  # Unnecessary indirection
+    @user = user
+  end
+
+  private
+
+  def validate_user!(user)
+    raise ArgumentError, "user must be a User" unless user.is_a?(User)
+  end
+end
+
+# ❌ Bad - nil-only check (doesn't catch wrong types)
+class UserWriter
+  def initialize(user:)
+    raise ArgumentError, "user cannot be nil" if user.nil?  # Weak validation
+    @user = user
+  end
+end
+```
+
+**Why inline:**
+- Validation is core responsibility of initializer
+- No unnecessary indirection
+- Consistent level of abstraction
+
+**Why type check over nil check:**
+- `is_a?` catches both nil AND wrong types
+- More descriptive error messages
+- Prevents subtle bugs from wrong types
+
+---
+
+## Return Value Patterns
+
+### State Providers → Hash
+```ruby
+def fetch_current
+  return {} if @user.discarded?  # ✅ Empty hash, not nil
+
+  { name: @user.name, email: @user.email }
+end
+
+# ❌ Bad
+def fetch_current
+  return nil if @user.discarded?  # Don't return nil
+end
+```
+
+### Writers → ActiveRecord Object
+```ruby
+def apply(changes:)
+  return @user if changes.blank?  # ✅ Return object
+
+  @user.name = changes[:name]
+  @user.save!
+
+  @user  # ✅ Return object, not boolean
+end
+
+# ❌ Bad
+def apply(changes:)
+  @user.name = changes[:name]
+  @user.save  # Returns boolean
+end
+```
+
+### Orchestrators → Boolean
+```ruby
+def synchronize
+  fetch_and_apply_changes
+  update_state
+
+  true  # ✅ Explicit success
+end
+```
+
+### Calculators → Hash
+```ruby
+def calculate(previous_state:, current_state:)
+  current_state.reject { |k, v| previous_state[k] == v }
+end
+```
+
+---
+
+## Side-Effect Flags (Orchestrators)
+
+```ruby
+# ✅ Good - flags for testing
+class Synchronization
+  def initialize(
+    resource:,
+    sync_record:,
+    apply_updates: true,        # Control side effects
+    send_notifications: true,
+    update_state: true
+  )
+    @resource = resource
+    @sync_record = sync_record
+    @apply_updates = apply_updates
+    @send_notifications = send_notifications
+    @update_state = update_state
+  end
+
+  def synchronize
+    changes = calculate_changes
+
+    apply_changes(changes) if @apply_updates
+    notify_users(changes) if @send_notifications
+    update_sync_state if @update_state
+
+    true
+  end
+end
+
+# Test usage
+sync = Synchronization.new(
+  resource: resource,
+  sync_record: sync_record,
+  apply_updates: true,          # Test this path
+  send_notifications: false,    # Don't actually send
+  update_state: false           # Don't actually update
+)
+```
+
+**Benefits:**
+- Test specific paths without side effects
+- Clear about what service does
+- Disable expensive operations in tests
+
+---
+
+## Perfect API Symmetry
+
+**When services operate on related resources, make their APIs identical.**
+
+### Bidirectional Sync Example
+```ruby
+# AppState - local database state
+class AppState
+  def initialize(sync_record:)     # ✅ IDENTICAL signature
+    @sync_record = sync_record
+    @resource = sync_record.resource
+  end
+
+  def fetch_current                # ✅ IDENTICAL method
+    # Fetch from database
+  end
+
+  def fetch_prior                  # ✅ IDENTICAL method
+    # Fetch historical state
+  end
+
+  def persist(changes:)            # ✅ IDENTICAL method
+    # Write to database
+  end
+end
+
+# ExternalState - external API state
+class ExternalState
+  def initialize(sync_record:)     # ✅ IDENTICAL signature
+    @sync_record = sync_record
+  end
+
+  def fetch_current                # ✅ IDENTICAL method
+    # Fetch from API
+  end
+
+  def fetch_prior                  # ✅ IDENTICAL method
+    # Fetch from stored snapshot
+  end
+
+  def persist(changes:)            # ✅ IDENTICAL method
+    # Send to API
+  end
+end
+
+# Orchestrator benefits from symmetry
+class Synchronization
+  def synchronize
+    app = AppState.new(sync_record: @sync_record)
+    external = ExternalState.new(sync_record: @sync_record)
+
+    # Perfect symmetry
+    app_prior = app.fetch_prior
+    app_current = app.fetch_current
+    external_prior = external.fetch_prior
+    external_current = external.fetch_current
+
+    app_changes = calculate(app_prior, app_current)
+    external_changes = calculate(external_prior, external_current)
+
+    # Bidirectional sync - same API both directions
+    app.persist(changes: external_changes)      # External → App
+    external.persist(changes: app_changes)      # App → External
+  end
+end
+```
+
+**Why powerful:**
+- Same pattern repeated → easier to understand
+- Same test structure
+- Leverage associations (both take `sync_record`)
+- Beautiful, symmetric code
+
+---
+
+## Quick Reference
+
+**Service Types:**
+- [ ] State Provider - `fetch_current` → Hash
+- [ ] Writer - `apply(changes:)` → ActiveRecord
+- [ ] Calculator - `calculate(...)` → Hash (stateless)
+- [ ] External API - `fetch_data` → Hash (with .client seam)
+- [ ] Orchestrator - `synchronize` → Boolean (with flags)
+
+**Naming:**
+- [ ] Class is noun (what it represents)
+- [ ] Methods are verbs (what they do)
+- [ ] Use accurate Ruby verbs (fetch, apply, calculate)
+- [ ] Use different names than ActiveRecord (insert/modify/remove/fetch)
+
+**ActiveRecord as Private API:**
+- [ ] Only services call ActiveRecord methods directly
+- [ ] Use `insert` not `create`
+- [ ] Use `modify` not `update`
+- [ ] Use `remove` not `delete/destroy/discard`
+- [ ] Use `fetch` not `find/find_by`
+
+**Parameters:**
+- [ ] Context in initialize (who/where)
+- [ ] Operation on method (what to do)
+- [ ] Pure services: empty initialize
+
+**Validation:**
+- [ ] Inline in initialize and methods
+- [ ] Use `is_a?` to check types (catches nil AND wrong types)
+- [ ] Don't extract to private methods
+- [ ] Don't use nil-only checks
+
+**Hash Handling:**
+- [ ] Always symbol keys
+- [ ] Use .symbolize_keys
+- [ ] Verify keys with .key?()
+- [ ] Use .compact_blank
+
+**Return Values:**
+- [ ] Consistent types
+- [ ] State providers → Hash (not nil)
+- [ ] Writers → ActiveRecord object (not boolean)
+- [ ] Orchestrators → Boolean
+- [ ] Calculators → Hash
+
+**External APIs:**
+- [ ] Define .client method (test seam)
+- [ ] Rescue specific errors
+- [ ] Log failures
+- [ ] Return safe defaults
+
+**Orchestrators:**
+- [ ] Side-effect flags for testing
+- [ ] Delegate to other services
+- [ ] Return boolean
+
+**API Symmetry:**
+- [ ] Related services use identical signatures
+- [ ] Same method names
+- [ ] Same return types
+
+---
+
+## Summary
+
+1. **ActiveRecord is a PRIVATE API** - Only services call it directly
+2. **Use different method names** - insert/modify/remove/fetch (not create/update/delete/find)
+3. **Services are nouns, methods are verbs**
+4. **Context in initialize, operation on method**
+5. **Pure services: empty initialize**
+6. **Always validate inputs inline**
+7. **Always use symbol keys in hashes**
+8. **Return consistent types**
+9. **External APIs: .client method for testing**
+10. **Orchestrators: flags for side effects**
+11. **Paired services: identical APIs**
+12. **Keep it simple - use Ruby idioms**
