@@ -177,7 +177,7 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     assert totals_called, "update_cart_totals should have been called"
   end
 
-  test "call returns failure when cart_token is missing" do
+  test "call returns success when cart_token is missing" do
     cart_without_token = @cart_data.dup
     cart_without_token.delete("cart_token")
 
@@ -187,8 +187,8 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     })
     result = service.call
 
-    assert_equal false, result[:success]
-    assert_equal "Cart token is missing", result[:message]
+    assert_equal true, result[:success]
+    assert_includes result[:message], "Cart token is missing, skipping update"
   end
 
   test "processes cart item successfully with normalized parameters" do
@@ -252,6 +252,95 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
         end
       end
     end
+  end
+
+  test "returns success when cart items is missing" do
+    cart_without_items = @cart_data.dup
+    cart_without_items.delete("items")
+
+    service = Callbacks::CartItemAddedService.new({
+      cart: cart_without_items,
+      cart_item: @cart_item,
+    })
+
+    service.stub(:find_company, @company) do
+      service.stub(:update_cart_items_prices, true) do
+        result = service.call
+
+        assert_equal true, result[:success]
+      end
+    end
+  end
+
+  test "returns error when cart items is not an array" do
+    cart_with_invalid_items = @cart_data.dup
+    cart_with_invalid_items["items"] = "not_an_array"
+
+    service = Callbacks::CartItemAddedService.new({
+      cart: cart_with_invalid_items,
+      cart_item: @cart_item,
+    })
+
+    service.stub(:find_company, @company) do
+      service.stub(:update_cart_items_prices, true) do
+        result = service.call
+
+        assert_equal false, result[:success]
+        assert_equal "invalid_cart_items_format", result[:error]
+        assert_includes result[:message], "Cart items must be an Array"
+      end
+    end
+  end
+
+  test "returns success when cart items is empty array" do
+    cart_with_empty_items = @cart_data.dup
+    cart_with_empty_items["items"] = []
+
+    service = Callbacks::CartItemAddedService.new({
+      cart: cart_with_empty_items,
+      cart_item: @cart_item,
+    })
+
+    service.stub(:find_company, @company) do
+      service.stub(:update_cart_items_prices, true) do
+        result = service.call
+
+        assert_equal true, result[:success]
+      end
+    end
+  end
+
+  test "returns error when cart_item id is missing" do
+    cart_item_without_id = @cart_item.dup
+    cart_item_without_id.delete("id")
+
+    service = Callbacks::CartItemAddedService.new({
+      cart: @cart_data,
+      cart_item: cart_item_without_id,
+    })
+
+    result = service.call
+
+    assert_equal false, result[:success]
+    assert_equal "missing_item_id", result[:error]
+    assert_includes result[:message], "Item ID is required"
+  end
+
+  test "returns error when cart_item has no price" do
+    cart_item_without_price = {
+      "id" => 674139,
+    }
+
+    service = Callbacks::CartItemAddedService.new({
+      cart: @cart_data,
+      cart_item: cart_item_without_price,
+    })
+
+    result = service.call
+
+    assert_equal false, result[:success]
+    assert_equal "missing_item_price", result[:error]
+    assert_includes result[:message], "Item price is required"
   end
 
   test "class method call works" do

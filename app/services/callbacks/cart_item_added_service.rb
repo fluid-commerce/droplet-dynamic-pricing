@@ -9,7 +9,10 @@ class Callbacks::CartItemAddedService < Callbacks::BaseService
     return log_and_return("Cart does not have preferred_customer pricing") unless price_type == PREFERRED_CUSTOMER_TYPE
 
     cart_token = cart["cart_token"]
-    return log_and_return("Cart token is missing", success: false) if cart_token.blank?
+    if cart_token.blank?
+      Rails.logger.warn "Skipping cart update: missing cart_token for cart payload: #{cart.inspect}"
+      return log_and_return("Cart token is missing, skipping update", success: true)
+    end
 
     update_result = update_item_to_subscription_price(cart_token, cart_item)
     return update_result if update_result[:success] == false
@@ -33,12 +36,25 @@ private
   end
 
   def update_item_to_subscription_price(cart_token, cart_item)
-    item_data = [ {
-      "id" => cart_item["id"],
-      "price" => cart_item["subscription_price"] || cart_item["price"],
-    } ]
+    item_id = cart_item["id"]
+    if item_id.blank?
+      Rails.logger.error "Cannot update item price: missing item ID for cart #{cart_token}. Item: #{cart_item.inspect}"
+      return { success: false, error: "missing_item_id", message: "Item ID is required" }
+    end
 
-    Rails.logger.info "Updating newly added item #{cart_item['id']} to subscription price: #{item_data.first['price']}"
+    subscription_price = cart_item["subscription_price"]
+    regular_price = cart_item["price"]
+    final_price = subscription_price || regular_price
+
+    if final_price.blank?
+      Rails.logger.error "Cannot update item price: no price available for item #{item_id} in cart #{cart_token}. Item: #{cart_item.inspect}"
+      return { success: false, error: "missing_item_price", message: "Item price is required" }
+    end
+
+    item_data = [ {
+      "id" => item_id,
+      "price" => final_price,
+    } ]
 
     update_cart_items_prices(cart_token, item_data)
     { success: true }
@@ -49,8 +65,22 @@ private
   end
 
   def update_cart_totals_with_subscription_prices(cart_token, cart)
-    cart_items = cart["items"] || []
-    return { success: true } if cart_items.empty?
+    cart_items = cart["items"]
+
+    if cart_items.nil?
+      Rails.logger.warn "Skipping cart totals update: cart['items'] is missing for cart #{cart_token}"
+      return { success: true }
+    end
+
+    unless cart_items.is_a?(Array)
+      Rails.logger.error "Invalid cart items format: expected Array, got #{cart_items.class} for cart #{cart_token}. Value: #{cart_items.inspect}"
+      return { success: false, error: "invalid_cart_items_format", message: "Cart items must be an Array" }
+    end
+
+    if cart_items.empty?
+      Rails.logger.debug "Skipping cart totals update: no items in cart #{cart_token}"
+      return { success: true }
+    end
 
     update_cart_totals(cart_token, cart_items, use_subscription_prices: true)
     { success: true }
