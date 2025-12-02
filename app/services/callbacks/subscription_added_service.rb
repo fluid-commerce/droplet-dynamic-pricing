@@ -8,16 +8,14 @@ class Callbacks::SubscriptionAddedService < Callbacks::BaseService
     update_cart_metadata(cart_token, { "price_type" => "preferred_customer" })
 
     if cart_items.any?
-      cart_items.each do |item|
-        item_data = [ {
+      all_items_data = cart_items.map do |item|
+        {
           "id" => item["id"],
           "price" => item["subscription_price"] || item["price"],
-        } ]
-        Rails.logger.info "Updating item #{item['id']} to subscription price: #{item_data.first['price']}"
-        update_cart_items_prices(cart_token, item_data)
+        }
       end
 
-      update_cart_totals(cart_token, cart_items, use_subscription_prices: true)
+      update_cart_items_prices(cart_token, all_items_data)
     end
 
     { success: true }

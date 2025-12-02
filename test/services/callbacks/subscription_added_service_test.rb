@@ -48,11 +48,9 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
     service.stub(:find_company, @company) do
       service.stub(:update_cart_metadata, true) do
         service.stub(:update_cart_items_prices, true) do
-          service.stub(:update_cart_totals, true) do
-            result = service.call
+          result = service.call
 
-            assert_equal({ success: true }, result)
-          end
+          assert_equal({ success: true }, result)
         end
       end
     end
@@ -84,9 +82,7 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
         assert_equal expected_metadata, metadata
       }) do
         service.stub(:update_cart_items_prices, true) do
-          service.stub(:update_cart_totals, true) do
-            service.call
-          end
+          service.call
         end
       end
     end
@@ -112,9 +108,7 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
           assert_equal expected_call[:item_id], items_data[0]["id"]
           assert_equal expected_call[:price], items_data[0]["price"]
         }) do
-          service.stub(:update_cart_totals, true) do
-            service.call
-          end
+          service.call
         end
       end
     end

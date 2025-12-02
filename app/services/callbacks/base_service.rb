@@ -123,35 +123,22 @@ protected
     nil
   end
 
-  def update_cart_totals(cart_token, cart_items, use_subscription_prices: false)
-    return if cart_token.blank? || cart_items.blank?
+
+  def has_active_subscriptions?(customer_id)
+    return false if customer_id.blank?
 
     company = find_company
-    return if company.blank?
+    return false if company.blank?
 
     client = FluidClient.new(company.authentication_token)
-    return if client.blank?
+    return false if client.blank?
 
-    total_amount = calculate_total_amount(cart_items, use_subscription_prices)
-    payload = { "amount_total" => total_amount }
-    Rails.logger.info "amount_total: #{total_amount}, Payload: #{payload}"
-
-    make_update_totals_request(client, cart_token, payload, company.authentication_token)
+    response = client.subscriptions.get_by_customer(customer_id, status: "active")
+    subscriptions = response["subscriptions"] || []
+    subscriptions.any?
   rescue StandardError => e
-    Rails.logger.error "Failed to update cart totals for cart #{cart_token}: #{e.message}"
-  end
-
-  def calculate_total_amount(cart_items, use_subscription_prices)
-    cart_items.sum do |item|
-      quantity = item["quantity"] || 1
-      price = if use_subscription_prices
-        item["subscription_price"] || item["price"]
-      else
-        item.dig("product", "price") || item["price"]
-      end
-      Rails.logger.info "price: #{price}, quantity: #{quantity}"
-      price.to_f * quantity.to_i
-    end
+    Rails.logger.error "Error checking active subscriptions for customer #{customer_id}: #{e.message}"
+    false
   end
 
   def make_update_totals_request(client, cart_token, payload, auth_token)
