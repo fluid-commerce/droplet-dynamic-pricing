@@ -12,7 +12,7 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
     customer = get_customer_by_email(email)
     return { success: true } if customer.blank?
 
-    customer_type = customer["metadata"]["customer_type"] || customer.dig("metadata", "customer_type")
+    customer_type = customer.dig("metadata", "customer_type") || customer.dig(:metadata, :customer_type)
     return { success: true, message: "Customer type is not set" } if customer_type.blank?
 
     if customer_type == "preferred_customer"
