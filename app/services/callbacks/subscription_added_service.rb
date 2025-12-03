@@ -4,10 +4,7 @@ class Callbacks::SubscriptionAddedService < Callbacks::BaseService
 
     update_cart_metadata({ "price_type" => "preferred_customer" })
 
-    if cart_items.any?
-      all_items_data = build_subscription_items_data
-      update_cart_items_prices(all_items_data)
-    end
+    update_cart_items_prices(cart_items_with_subscription_price) if cart_items.any?
 
     result_success
   rescue CallbackError => e

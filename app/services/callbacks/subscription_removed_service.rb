@@ -14,8 +14,8 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
     end
 
     if cart_items.any?
-      all_items_data = build_items_data(use_subscription_prices)
-      update_cart_items_prices(all_items_data)
+      items_data = use_subscription_prices ? cart_items_with_subscription_price : cart_items_with_regular_price
+      update_cart_items_prices(items_data)
     end
 
     result_success
@@ -45,14 +45,6 @@ private
     active_subscription_count = cart_items.count { |item| item["subscription"] == true }
 
     active_subscription_count >= 1
-  end
-
-  def build_items_data(use_subscription_prices)
-    if use_subscription_prices
-      build_subscription_items_data
-    else
-      build_regular_items_data
-    end
   end
 
   def get_customer_id_by_email(email)

@@ -82,7 +82,7 @@ private
     Rails.logger.error "Failed to update cart items prices for cart #{cart_token}: #{e.message}"
   end
 
-  def build_subscription_items_data
+  def cart_items_with_subscription_price
     cart_items.map do |item|
       {
         "id" => item["id"],
@@ -91,7 +91,7 @@ private
     end
   end
 
-  def build_regular_items_data
+  def cart_items_with_regular_price
     cart_items.map do |item|
       {
         "id" => item["id"],
