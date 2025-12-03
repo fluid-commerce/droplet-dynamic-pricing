@@ -1,6 +1,6 @@
 class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
   def call
-    return { success: true } if cart.blank?
+    raise CallbackError, "Cart is blank" if cart.blank?
 
     customer_email = cart["email"]
     should_keep_subscription_prices = determine_subscription_pricing_status(customer_email)

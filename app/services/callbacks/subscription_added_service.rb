@@ -1,6 +1,6 @@
 class Callbacks::SubscriptionAddedService < Callbacks::BaseService
   def call
-    return { success: true } if cart.blank?
+    raise CallbackError, "Cart is blank" if cart.blank?
 
     update_cart_metadata(cart_token, { "price_type" => "preferred_customer" })
 
