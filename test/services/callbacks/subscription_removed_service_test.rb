@@ -36,11 +36,11 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     @callback_params = { cart: @cart_data }
   end
 
-  test "call returns success when cart is blank" do
+  test "call returns error when cart is blank" do
     service = Callbacks::SubscriptionRemovedService.new({ cart: nil })
     result = service.call
 
-    assert_equal({ success: true }, result)
+    assert_equal({ success: false, message: "Cart is blank" }, result)
   end
 
   test "call processes subscription_removed successfully" do
