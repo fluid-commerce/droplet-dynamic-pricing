@@ -76,9 +76,8 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
     expected_metadata = { "price_type" => "preferred_customer" }
 
     service.stub(:find_company, @company) do
-      service.stub(:update_cart_metadata, ->(cart_token, metadata) {
+      service.stub(:update_cart_metadata, ->(metadata) {
         metadata_called = true
-        assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
         assert_equal expected_metadata, metadata
       }) do
         service.stub(:update_cart_items_prices, true) do
@@ -96,10 +95,9 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
 
     service.stub(:find_company, @company) do
       service.stub(:update_cart_metadata, true) do
-        service.stub(:update_cart_items_prices, ->(cart_token, items_data) {
+        service.stub(:update_cart_items_prices, ->(items_data) {
           prices_called_count += 1
           # Now expects all items in one call with subscription prices
-          assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
           assert_equal 2, items_data.length
           assert_equal 674137, items_data[0]["id"]
           assert_equal "72.0", items_data[0]["price"]

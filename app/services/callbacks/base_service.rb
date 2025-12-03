@@ -46,46 +46,43 @@ private
 
   def initialize_fluid_client
     company = find_company
-    return nil if company.blank?
+    raise CallbackError, "Company is blank" if company.blank?
 
     FluidClient.new(company.authentication_token)
+  rescue CallbackError => e
+    handle_callback_error(e)
   end
 
   def find_company
     company_data = callback_params.dig("cart", "company")
-
-    return nil unless company_data.present?
+    raise CallbackError, "Company data is blank" if company_data.blank?
 
     Company.find_by(fluid_company_id: company_data["id"])
-  rescue StandardError => e
-    Rails.logger.error "Error finding company: #{e.message}"
-    nil
+  rescue CallbackError => e
+    handle_callback_error(e)
   end
 
-  def update_cart_metadata(cart_token, metadata)
-    return if cart_token.blank?
-
+  def update_cart_metadata(metadata)
     client = fluid_client
-    return if client.blank?
+    raise CallbackError, "Fluid client is blank" if client.blank?
 
     client.carts.append_metadata(cart_token, metadata)
-  rescue StandardError => e
-    Rails.logger.error "Failed to update cart metadata for cart #{cart_token}: #{e.message}"
+  rescue CallbackError => e
+    handle_callback_error(e)
   end
 
-  def update_cart_items_prices(cart_token, items_data)
-    return if cart_token.blank? || items_data.blank?
+  def update_cart_items_prices(items_data)
+    raise CallbackError, "Items data is blank" if items_data.blank?
 
     client = fluid_client
-    return if client.blank?
-
+    raise CallbackError, "Fluid client is blank" if client.blank?
 
     client.carts.update_items_prices(cart_token, items_data)
   rescue StandardError => e
     Rails.logger.error "Failed to update cart items prices for cart #{cart_token}: #{e.message}"
   end
 
-  def build_subscription_items_data(cart_items)
+  def build_subscription_items_data
     cart_items.map do |item|
       {
         "id" => item["id"],
@@ -94,7 +91,7 @@ private
     end
   end
 
-  def build_regular_items_data(cart_items)
+  def build_regular_items_data
     cart_items.map do |item|
       {
         "id" => item["id"],
@@ -104,10 +101,10 @@ private
   end
 
   def has_active_subscriptions?(customer_id)
-    return false if customer_id.blank?
+    raise CallbackError, "Customer id is blank" if customer_id.blank?
 
     client = fluid_client
-    return false if client.blank?
+    raise CallbackError, "Fluid client is blank" if client.blank?
 
     response = client.subscriptions.get_by_customer(customer_id, status: "active")
     subscriptions = response["subscriptions"] || []

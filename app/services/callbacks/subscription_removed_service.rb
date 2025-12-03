@@ -6,16 +6,16 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
     should_keep_subscription_prices = determine_subscription_pricing_status(customer_email)
 
     if should_keep_subscription_prices
-      update_cart_metadata(cart_token, { "price_type" => "preferred_customer" })
+      update_cart_metadata({ "price_type" => "preferred_customer" })
       use_subscription_prices = true
     else
-      update_cart_metadata(cart_token, { "price_type" => nil })
+      update_cart_metadata({ "price_type" => nil })
       use_subscription_prices = false
     end
 
     if cart_items.any?
-      all_items_data = build_items_data(cart_items, use_subscription_prices)
-      update_cart_items_prices(cart_token, all_items_data)
+      all_items_data = build_items_data(use_subscription_prices)
+      update_cart_items_prices(all_items_data)
     end
 
     result_success
@@ -47,11 +47,11 @@ private
     active_subscription_count >= 1
   end
 
-  def build_items_data(cart_items, use_subscription_prices)
+  def build_items_data(use_subscription_prices)
     if use_subscription_prices
-      build_subscription_items_data(cart_items)
+      build_subscription_items_data
     else
-      build_regular_items_data(cart_items)
+      build_regular_items_data
     end
   end
 

@@ -2,11 +2,11 @@ class Callbacks::SubscriptionAddedService < Callbacks::BaseService
   def call
     raise CallbackError, "Cart is blank" if cart.blank?
 
-    update_cart_metadata(cart_token, { "price_type" => "preferred_customer" })
+    update_cart_metadata({ "price_type" => "preferred_customer" })
 
     if cart_items.any?
-      all_items_data = build_subscription_items_data(cart_items)
-      update_cart_items_prices(cart_token, all_items_data)
+      all_items_data = build_subscription_items_data
+      update_cart_items_prices(all_items_data)
     end
 
     result_success

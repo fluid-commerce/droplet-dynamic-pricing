@@ -6,6 +6,8 @@ private
   end
 
   def permitted_params
+    params.require(:cart).require(:cart_token)
+
     params.permit(
       :callback_name,
       :schema_version,

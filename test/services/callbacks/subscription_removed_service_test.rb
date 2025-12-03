@@ -83,9 +83,9 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     service.stub(:find_company, @company) do
       service.stub(:get_customer_id_by_email, 123) do
         service.stub(:should_maintain_subscription_pricing?, false) do
-          service.stub(:update_cart_metadata, ->(cart_token, metadata) {
+          service.stub(:update_cart_metadata, ->(metadata) {
             metadata_called = true
-            assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
+            # cart_token is now accessed via memoized method
             assert_equal expected_metadata, metadata
           }) do
             service.stub(:update_cart_items_prices, true) do
@@ -107,9 +107,9 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     service.stub(:find_company, @company) do
       service.stub(:get_customer_id_by_email, 123) do
         service.stub(:should_maintain_subscription_pricing?, true) do
-          service.stub(:update_cart_metadata, ->(cart_token, metadata) {
+          service.stub(:update_cart_metadata, ->(metadata) {
             metadata_called = true
-            assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
+            # cart_token is now accessed via memoized method
             assert_equal expected_metadata, metadata
           }) do
             service.stub(:update_cart_items_prices, true) do
@@ -131,10 +131,10 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
       service.stub(:get_customer_id_by_email, 123) do
         service.stub(:should_maintain_subscription_pricing?, false) do
           service.stub(:update_cart_metadata, true) do
-            service.stub(:update_cart_items_prices, ->(cart_token, items_data) {
+            service.stub(:update_cart_items_prices, ->(items_data) {
               prices_called_count += 1
               # Now expects all items in one call
-              assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
+              # cart_token is now accessed via memoized method
               assert_equal 2, items_data.length
               assert_equal 674137, items_data[0]["id"]
               assert_equal "80.0", items_data[0]["price"]
@@ -159,10 +159,10 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
       service.stub(:get_customer_id_by_email, 123) do
         service.stub(:should_maintain_subscription_pricing?, true) do
           service.stub(:update_cart_metadata, true) do
-            service.stub(:update_cart_items_prices, ->(cart_token, items_data) {
+            service.stub(:update_cart_items_prices, ->(items_data) {
               prices_called_count += 1
               # Now expects all items in one call with subscription prices
-              assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
+              # cart_token is now accessed via memoized method
               assert_equal 2, items_data.length
               assert_equal 674137, items_data[0]["id"]
               assert_equal "72.0", items_data[0]["price"]
@@ -190,9 +190,9 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     expected_metadata = { "price_type" => nil }
 
     service.stub(:find_company, @company) do
-      service.stub(:update_cart_metadata, ->(cart_token, metadata) {
+      service.stub(:update_cart_metadata, ->(metadata) {
         metadata_called = true
-        assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
+        # cart_token is now accessed via memoized method
         assert_equal expected_metadata, metadata
       }) do
         service.stub(:update_cart_items_prices, true) do
@@ -214,9 +214,9 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
     service.stub(:find_company, @company) do
       service.stub(:update_cart_metadata, true) do
-        service.stub(:update_cart_items_prices, ->(cart_token, items_data) {
+        service.stub(:update_cart_items_prices, ->(items_data) {
           prices_called_count += 1
-          assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
+          # cart_token is now accessed via memoized method
           assert_equal 2, items_data.length
           assert_equal 674137, items_data[0]["id"]
           assert_equal "80.0", items_data[0]["price"] # Regular price, not subscription price
