@@ -30,11 +30,39 @@ private
     return log_and_return("Customer not found for email #{email}") if customer[:data].blank?
 
     customer_data = customer[:data]
-    customer_type = customer_data.dig("metadata", "customer_type") || customer_data.dig(:metadata, :customer_type)
+    customer_id = customer_data["id"] || customer_data[:id]
+    return log_and_return("Customer ID not found for email #{email}") if customer_id.blank?
+
+    customer_type = get_customer_type_from_metafields(customer_id)
     return log_and_return("Customer type is not set for email #{email}",
 message: "Customer type is not set") if customer_type.blank?
 
     { success: true, customer_type: customer_type }
+  end
+
+  def get_customer_type_from_metafields(customer_id)
+    company = find_company
+    return nil if company.blank?
+
+    client = FluidClient.new(company.authentication_token)
+    return nil if client.blank?
+
+    metafield = client.metafields.get_by_key(
+      resource_type: "customer",
+      resource_id: customer_id,
+      key: "customer_type"
+    )
+
+    return nil if metafield.blank?
+
+    value = metafield["value"] || metafield[:value]
+    return nil if value.blank?
+
+    value["customer_type"] || value[:customer_type]
+  rescue StandardError => e
+    Rails.logger.error "Failed to get customer type from metafields for customer #{customer_id}: #{e.message}"
+    Rails.logger.error e.backtrace.join("\n")
+    nil
   end
 
   def fetch_customer_by_email(email)

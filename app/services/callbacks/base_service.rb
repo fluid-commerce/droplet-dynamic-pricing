@@ -143,14 +143,33 @@ protected
     response = client.customers.get(email: email)
     customers = response["customers"] || []
 
-    if customers.any?
-      customer = customers.first
-      customer.dig("metadata", "customer_type")
-    else
-      nil
-    end
+    return nil unless customers.any?
+
+    customer = customers.first
+    customer_id = customer["id"] || customer[:id]
+    return nil if customer_id.blank?
+
+    get_customer_type_from_metafields(client, customer_id)
   rescue StandardError => e
     Rails.logger.error "Failed to get customer type for email #{email}: #{e.message}"
+    nil
+  end
+
+  def get_customer_type_from_metafields(client, customer_id)
+    metafield = client.metafields.get_by_key(
+      resource_type: "customer",
+      resource_id: customer_id,
+      key: "customer_type"
+    )
+
+    return nil if metafield.blank?
+
+    value = metafield["value"] || metafield[:value]
+    return nil if value.blank?
+
+    value["customer_type"] || value[:customer_type]
+  rescue StandardError => e
+    Rails.logger.error "Failed to get customer type from metafields for customer #{customer_id}: #{e.message}"
     nil
   end
 
