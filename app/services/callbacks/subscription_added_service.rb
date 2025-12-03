@@ -1,9 +1,6 @@
 class Callbacks::SubscriptionAddedService < Callbacks::BaseService
   def call
-    cart = callback_params[:cart]
     return { success: true } if cart.blank?
-
-    cart_token, cart_items = extract_cart_token_and_items(cart)
 
     update_cart_metadata(cart_token, { "price_type" => "preferred_customer" })
 

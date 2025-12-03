@@ -1,11 +1,8 @@
 class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
   def call
-    cart = callback_params[:cart]
     return { success: true } if cart.blank?
 
-    cart_token, cart_items = extract_cart_token_and_items(cart)
     customer_email = cart["email"]
-
     should_keep_subscription_prices = determine_subscription_pricing_status(customer_email)
 
     if should_keep_subscription_prices

@@ -17,6 +17,18 @@ private
 
   attr_reader :callback_params
 
+  def cart
+    @cart ||= callback_params[:cart]
+  end
+
+  def cart_token
+    @cart_token ||= cart&.dig("cart_token")
+  end
+
+  def cart_items
+    @cart_items ||= cart&.dig("items") || []
+  end
+
   def result_success
     { success: true }
   end
@@ -103,11 +115,5 @@ private
   rescue StandardError => e
     Rails.logger.error "Error checking active subscriptions for customer #{customer_id}: #{e.message}"
     false
-  end
-
-  def extract_cart_token_and_items(cart)
-    cart_token = cart["cart_token"]
-    cart_items = cart["items"] || []
-    [ cart_token, cart_items ]
   end
 end
