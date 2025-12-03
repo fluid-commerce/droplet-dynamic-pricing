@@ -43,27 +43,18 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
     assert_equal "Both email and customer_id are missing", result[:message]
   end
 
-  test "updates cart metadata when customer_type is preferred_customer" do
+  test "returns metadata when customer_type is preferred_customer" do
     service = Callbacks::CartEmailOnCreateService.new({ cart: @cart_data })
-    metadata_called = false
 
     service.stub(:find_company, @company) do
       service.stub(:get_customer_type_from_metafields,
 { success: true, data: Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE }) do
-        service.stub(:update_cart_metadata, ->(cart_token, metadata) {
-          metadata_called = true
-          assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
-          assert_equal({ "price_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE }, metadata)
-        }) do
-          result = service.call
+        result = service.call
 
-          assert_equal true, result[:success]
-          assert_includes result[:message], "cart metadata updated"
-        end
+        assert_equal true, result[:success]
+        assert_equal({ "price_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE }, result[:metadata])
       end
     end
-
-    assert metadata_called, "update_cart_metadata should have been called"
   end
 
   test "returns success without metadata when customer_type is not preferred_customer" do
@@ -116,24 +107,19 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
     end
   end
 
-  test "handles cart_token extraction correctly" do
+  test "returns metadata with preferred_customer type" do
     cart_data_with_different_token = @cart_data.merge("cart_token" => "different_token")
     service = Callbacks::CartEmailOnCreateService.new({ cart: cart_data_with_different_token })
-    metadata_called = false
 
     service.stub(:find_company, @company) do
       service.stub(:get_customer_type_from_metafields,
 { success: true, data: Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE }) do
-        service.stub(:update_cart_metadata, ->(cart_token, metadata) {
-          metadata_called = true
-          assert_equal "different_token", cart_token
-        }) do
-          service.call
-        end
+        result = service.call
+
+        assert_equal true, result[:success]
+        assert_equal({ "price_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE }, result[:metadata])
       end
     end
-
-    assert metadata_called, "update_cart_metadata should have been called with correct cart_token"
   end
 
   test "class method call works" do

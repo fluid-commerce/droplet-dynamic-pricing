@@ -5,7 +5,7 @@ class Callbacks::CartEmailOnCreateService < Callbacks::BaseService
     cart = @callback_params[:cart]
     return log_and_return("Cart data is missing", success: false) if cart.blank?
 
-    email, customer_id, cart_token = extract_cart_details(cart)
+    email, customer_id, _cart_token = extract_cart_details(cart)
     return log_and_return("Both email and customer_id are missing") if email.blank? && customer_id.blank?
 
     customer_type_result = fetch_and_validate_customer_type(email, customer_id)
@@ -14,14 +14,20 @@ class Callbacks::CartEmailOnCreateService < Callbacks::BaseService
     customer_type = customer_type_result[:customer_type]
 
     if customer_type == PREFERRED_CUSTOMER_TYPE
-      update_cart_metadata(cart_token, { "price_type" => PREFERRED_CUSTOMER_TYPE })
-      log_and_return("Customer type is preferred_customer, cart metadata updated", success: true)
+      result_success
     else
       log_and_return("Customer type is '#{customer_type}', no special pricing needed", success: true)
     end
   end
 
 private
+
+  def result_success
+    {
+        success: true,
+        metadata: { "price_type" => PREFERRED_CUSTOMER_TYPE },
+    }
+  end
 
   def extract_cart_details(cart)
     email = cart["email"]
