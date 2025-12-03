@@ -15,6 +15,8 @@ class Callbacks::BaseService
 
 private
 
+  attr_reader :callback_params
+
   def result_success
     { success: true }
   end
@@ -38,13 +40,11 @@ private
   end
 
   def find_company
-    company_data = @callback_params.dig("cart", "company") || @callback_params.dig(:cart, :company)
+    company_data = callback_params.dig("cart", "company")
 
-    if company_data.present?
-      company = Company.find_by(fluid_company_id: company_data["id"])
-    end
+    return nil unless company_data.present?
 
-    company
+    Company.find_by(fluid_company_id: company_data["id"])
   rescue StandardError => e
     Rails.logger.error "Error finding company: #{e.message}"
     nil
@@ -53,10 +53,7 @@ private
   def update_cart_metadata(cart_token, metadata)
     return if cart_token.blank?
 
-    company = find_company
-    return if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
+    client = fluid_client
     return if client.blank?
 
     client.carts.append_metadata(cart_token, metadata)
@@ -67,14 +64,13 @@ private
   def update_cart_items_prices(cart_token, items_data)
     return if cart_token.blank? || items_data.blank?
 
+    client = fluid_client
+    return if client.blank?
+
     company = find_company
     return if company.blank?
 
-    client = FluidClient.new(company.authentication_token)
-    return if client.blank?
-    Rails.logger.info "Updating cart items prices: #{items_data}"
     payload = { "cart_items" => items_data }
-
     response = make_cart_items_prices_request(client, cart_token, payload, company.authentication_token)
 
     response
@@ -101,7 +97,6 @@ private
   end
 
   def make_cart_items_prices_request(client, cart_token, payload, auth_token)
-    Rails.logger.info "Making request to update cart items prices: #{payload}"
     response = client.patch("/api/carts/#{cart_token}/update_cart_items_prices", body: payload)
 
     response
@@ -114,12 +109,9 @@ private
   def get_cart(cart_token)
     return nil if cart_token.blank?
 
-    company = find_company
-    return nil if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
+    client = fluid_client
     return nil if client.blank?
-    Rails.logger.info "Getting cart: #{cart_token}"
+
     client.carts.get(cart_token)
   rescue StandardError => e
     Rails.logger.error "Failed to get cart #{cart_token}: #{e.message}"
@@ -127,11 +119,8 @@ private
   end
 
   def get_customer_type_by_email(email)
-    company = find_company
-    return nil if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
-    return if client.blank?
+    client = fluid_client
+    return nil if client.blank?
 
     response = client.customers.get(email: email)
     customers = response["customers"] || []
@@ -151,10 +140,7 @@ private
   def has_active_subscriptions?(customer_id)
     return false if customer_id.blank?
 
-    company = find_company
-    return false if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
+    client = fluid_client
     return false if client.blank?
 
     response = client.subscriptions.get_by_customer(customer_id, status: "active")

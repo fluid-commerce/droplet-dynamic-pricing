@@ -22,6 +22,8 @@ module DropletTemplate
     # Common ones are `templates`, `generators`, or `middleware`, for example.
     config.autoload_lib(ignore: %w[assets])
 
+    config.autoload_paths << Rails.root.join("app/errors")
+
     config.action_view.field_error_proc = Proc.new { |html_tag, instance|
       "<span class='text-orange-600'>#{html_tag}</span>".html_safe
     }

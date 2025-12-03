@@ -1,6 +1,6 @@
 class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
   def call
-    cart = @callback_params[:cart]
+    cart = callback_params[:cart]
     return { success: true } if cart.blank?
 
     cart_token, cart_items = extract_cart_token_and_items(cart)

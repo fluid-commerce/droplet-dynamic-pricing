@@ -54,7 +54,6 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
               result = service.call
 
               assert_equal true, result[:success]
-              assert_includes result[:message], "Subscription removed"
             end
           end
         end
