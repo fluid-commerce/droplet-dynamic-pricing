@@ -67,13 +67,8 @@ private
     client = fluid_client
     return if client.blank?
 
-    company = find_company
-    return if company.blank?
 
-    payload = { "cart_items" => items_data }
-    response = make_cart_items_prices_request(client, cart_token, payload, company.authentication_token)
-
-    response
+    client.carts.update_items_prices(cart_token, items_data)
   rescue StandardError => e
     Rails.logger.error "Failed to update cart items prices for cart #{cart_token}: #{e.message}"
   end
@@ -96,47 +91,6 @@ private
     end
   end
 
-  def make_cart_items_prices_request(client, cart_token, payload, auth_token)
-    response = client.patch("/api/carts/#{cart_token}/update_cart_items_prices", body: payload)
-
-    response
-  rescue StandardError => e
-    Rails.logger.error "Error in make_cart_items_prices_request: #{e.message}"
-    Rails.logger.error e.backtrace.join("\n")
-    raise e
-  end
-
-  def get_cart(cart_token)
-    return nil if cart_token.blank?
-
-    client = fluid_client
-    return nil if client.blank?
-
-    client.carts.get(cart_token)
-  rescue StandardError => e
-    Rails.logger.error "Failed to get cart #{cart_token}: #{e.message}"
-    nil
-  end
-
-  def get_customer_type_by_email(email)
-    client = fluid_client
-    return nil if client.blank?
-
-    response = client.customers.get(email: email)
-    customers = response["customers"] || []
-
-    if customers.any?
-      customer = customers.first
-      customer.dig("metadata", "customer_type")
-    else
-      nil
-    end
-  rescue StandardError => e
-    Rails.logger.error "Failed to get customer type for email #{email}: #{e.message}"
-    nil
-  end
-
-
   def has_active_subscriptions?(customer_id)
     return false if customer_id.blank?
 
@@ -149,16 +103,6 @@ private
   rescue StandardError => e
     Rails.logger.error "Error checking active subscriptions for customer #{customer_id}: #{e.message}"
     false
-  end
-
-  def make_update_totals_request(client, cart_token, payload, auth_token)
-    response = client.patch("/api/carts/#{cart_token}/update_totals", body: payload)
-
-    response
-  rescue StandardError => e
-    Rails.logger.error "Error in make_update_totals_request: #{e.message}"
-    Rails.logger.error e.backtrace.join("\n")
-    raise e
   end
 
   def extract_cart_token_and_items(cart)
