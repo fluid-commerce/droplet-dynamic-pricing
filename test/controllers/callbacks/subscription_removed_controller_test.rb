@@ -28,7 +28,7 @@ class Callbacks::SubscriptionRemovedControllerTest < ActionDispatch::Integration
 
   test "handles subscription_removed callback successfully" do
     Callbacks::SubscriptionRemovedService.stub(:call, { success: true }) do
-      post "/callback/subscription_removed", params: { cart: @cart_data }
+      post "/callbacks/subscription_removed", params: { cart: @cart_data }
 
       assert_response :success
       response_json = JSON.parse(response.body)
@@ -38,7 +38,7 @@ class Callbacks::SubscriptionRemovedControllerTest < ActionDispatch::Integration
 
   test "handles service errors gracefully" do
     Callbacks::SubscriptionRemovedService.stub(:call, ->(params) { raise StandardError.new("Test error") }) do
-      post "/callback/subscription_removed", params: { cart: @cart_data }
+      post "/callbacks/subscription_removed", params: { cart: @cart_data }
 
       assert_response :internal_server_error
       response_json = JSON.parse(response.body)
@@ -49,7 +49,7 @@ class Callbacks::SubscriptionRemovedControllerTest < ActionDispatch::Integration
 
   test "returns bad request when service returns error" do
     Callbacks::SubscriptionRemovedService.stub(:call, { success: false, error: "Service error" }) do
-      post "/callback/subscription_removed", params: { cart: @cart_data }
+      post "/callbacks/subscription_removed", params: { cart: @cart_data }
 
       assert_response :bad_request
       response_json = JSON.parse(response.body)
@@ -60,7 +60,7 @@ class Callbacks::SubscriptionRemovedControllerTest < ActionDispatch::Integration
 
   test "skips CSRF token verification" do
     Callbacks::SubscriptionRemovedService.stub(:call, { success: true }) do
-      post "/callback/subscription_removed", params: { cart: @cart_data }
+      post "/callbacks/subscription_removed", params: { cart: @cart_data }
 
       assert_response :success
     end
