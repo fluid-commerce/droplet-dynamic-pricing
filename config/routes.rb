@@ -8,7 +8,6 @@ Rails.application.routes.draw do
   post "callback/subscription_added", to: "callbacks/subscription_added#create"
   post "callback/subscription_removed", to: "callbacks/subscription_removed#create"
   post "callback/update_cart_email", to: "callbacks/update_cart_email#create"
-  post "callback/:callback_name", to: "callbacks#create", as: :callback
 
   namespace :admin do
     get "dashboard/index"
