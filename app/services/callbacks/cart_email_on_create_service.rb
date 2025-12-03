@@ -42,6 +42,9 @@ private
   end
 
   def get_customer_type_from_metafields(email, customer_id)
+    company = find_company
+    return log_and_return("Company not found", success: false, error: "company_not_found") if company.blank?
+
     client = fluid_client
     return log_and_return("FluidClient initialization failed", success: false) if client.blank?
 
