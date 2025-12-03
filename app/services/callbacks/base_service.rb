@@ -49,8 +49,6 @@ private
     raise CallbackError, "Company is blank" if company.blank?
 
     FluidClient.new(company.authentication_token)
-  rescue CallbackError => e
-    handle_callback_error(e)
   end
 
   def find_company
@@ -58,8 +56,6 @@ private
     raise CallbackError, "Company data is blank" if company_data.blank?
 
     Company.find_by(fluid_company_id: company_data["id"])
-  rescue CallbackError => e
-    handle_callback_error(e)
   end
 
   def update_cart_metadata(metadata)
@@ -99,8 +95,6 @@ private
   end
 
   def has_active_subscriptions?(customer_id)
-    raise CallbackError, "Customer id is blank" if customer_id.blank?
-
     client = fluid_client
     response = client.subscriptions.get_by_customer(customer_id, status: "active")
     subscriptions = response["subscriptions"] || []

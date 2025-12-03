@@ -51,8 +51,6 @@ private
     return nil if email.blank?
 
     client = fluid_client
-    return nil if client.blank?
-
     response = client.customers.get(email: email)
     customers = response["customers"] || []
 
