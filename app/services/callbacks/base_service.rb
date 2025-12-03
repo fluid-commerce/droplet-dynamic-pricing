@@ -64,7 +64,6 @@ private
 
   def update_cart_metadata(metadata)
     client = fluid_client
-    raise CallbackError, "Fluid client is blank" if client.blank?
 
     client.carts.append_metadata(cart_token, metadata)
   rescue CallbackError => e
@@ -75,7 +74,6 @@ private
     raise CallbackError, "Items data is blank" if items_data.blank?
 
     client = fluid_client
-    raise CallbackError, "Fluid client is blank" if client.blank?
 
     client.carts.update_items_prices(cart_token, items_data)
   rescue StandardError => e
@@ -104,8 +102,6 @@ private
     raise CallbackError, "Customer id is blank" if customer_id.blank?
 
     client = fluid_client
-    raise CallbackError, "Fluid client is blank" if client.blank?
-
     response = client.subscriptions.get_by_customer(customer_id, status: "active")
     subscriptions = response["subscriptions"] || []
     subscriptions.any?
