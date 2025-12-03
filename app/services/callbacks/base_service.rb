@@ -16,6 +16,14 @@ class Callbacks::BaseService
 protected
 
   def log_and_return(log_message, success: true, message: nil, error: nil)
+    service_name = self.class.name.demodulize
+
+    if success == false || error.present?
+      Rails.logger.error "[#{service_name}] #{log_message}"
+    else
+      Rails.logger.info "[#{service_name}] #{log_message}"
+    end
+
     result = { success: success }
     result[:message] = message || log_message
     result[:error] = error if error
