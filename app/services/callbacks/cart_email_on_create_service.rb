@@ -42,10 +42,7 @@ private
   end
 
   def get_customer_type_from_metafields(email, customer_id)
-    company = find_company
-    return log_and_return("Company not found", success: false, error: "company_not_found") if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
+    client = fluid_client
     return log_and_return("FluidClient initialization failed", success: false) if client.blank?
 
     resource_id = customer_id || get_customer_id_by_email(email)
@@ -78,10 +75,7 @@ per_page: 100)
   end
 
   def fetch_customer_by_email(email)
-    company = find_company
-    return { success: false, error: "company_not_found" } if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
+    client = fluid_client
     return { success: false, error: "FluidClient initialization failed" } if client.blank?
 
     escaped_email = CGI.escape(email.to_s)

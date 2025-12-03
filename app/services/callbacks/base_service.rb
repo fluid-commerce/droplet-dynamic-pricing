@@ -23,6 +23,17 @@ protected
     result
   end
 
+  def fluid_client
+    @fluid_client ||= initialize_fluid_client
+  end
+
+  def initialize_fluid_client
+    company = find_company
+    return nil if company.blank?
+
+    FluidClient.new(company.authentication_token)
+  end
+
   def find_company
     company_data = @callback_params.dig("cart", "company") || @callback_params.dig(:cart, :company)
 
@@ -39,10 +50,7 @@ protected
   def update_cart_metadata(cart_token, metadata)
     return if cart_token.blank?
 
-    company = find_company
-    return if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
+    client = fluid_client
     return if client.blank?
 
     client.carts.append_metadata(cart_token, metadata)
@@ -53,11 +61,12 @@ protected
   def update_cart_items_prices(cart_token, items_data)
     return if cart_token.blank? || items_data.blank?
 
+    client = fluid_client
+    return if client.blank?
+
     company = find_company
     return if company.blank?
 
-    client = FluidClient.new(company.authentication_token)
-    return if client.blank?
     Rails.logger.info "Updating cart items prices: #{items_data}"
     payload = { "cart_items" => items_data }
 
@@ -100,11 +109,9 @@ protected
   def get_cart(cart_token)
     return nil if cart_token.blank?
 
-    company = find_company
-    return nil if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
+    client = fluid_client
     return nil if client.blank?
+
     Rails.logger.info "Getting cart: #{cart_token}"
     client.carts.get(cart_token)
   rescue StandardError => e
@@ -113,11 +120,8 @@ protected
   end
 
   def get_customer_type_by_email(email)
-    company = find_company
-    return nil if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
-    return if client.blank?
+    client = fluid_client
+    return nil if client.blank?
 
     response = client.customers.get(email: email)
     customers = response["customers"] || []
@@ -137,10 +141,7 @@ protected
   def has_active_subscriptions?(customer_id)
     return false if customer_id.blank?
 
-    company = find_company
-    return false if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
+    client = fluid_client
     return false if client.blank?
 
     response = client.subscriptions.get_by_customer(customer_id, status: "active")
