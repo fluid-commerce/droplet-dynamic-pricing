@@ -53,7 +53,8 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
             service.stub(:update_cart_items_prices, true) do
               result = service.call
 
-              assert_equal({ success: true }, result)
+              assert_equal true, result[:success]
+              assert_includes result[:message], "Subscription removed"
             end
           end
         end

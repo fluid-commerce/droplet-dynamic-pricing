@@ -13,11 +13,6 @@ module Fluid
         @client.get("/api/carts/#{cart_token}")
       end
 
-      def update_metadata(cart_token, metadata)
-        payload = { "cart" => { "metadata" => metadata } }
-        @client.patch("/api/carts/#{cart_token}", body: payload)
-      end
-
       def append_metadata(cart_token, metadata)
         payload = { "cart" => { "metadata" => metadata } }
         @client.patch("/api/carts/#{cart_token}/append_metadata", body: payload)

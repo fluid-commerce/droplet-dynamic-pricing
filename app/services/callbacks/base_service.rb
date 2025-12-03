@@ -1,4 +1,6 @@
 class Callbacks::BaseService
+  PREFERRED_CUSTOMER_TYPE = "preferred_customer"
+
   def initialize(callback_params)
     @callback_params = callback_params
   end
@@ -11,7 +13,29 @@ class Callbacks::BaseService
     raise NotImplementedError, "Subclasses must implement call method"
   end
 
-protected
+private
+
+  def result_success
+    { success: true }
+  end
+
+  def handle_callback_error(error)
+    service_name = self.class.name.demodulize
+    Rails.logger.error "[#{service_name}] #{error.message}"
+
+    { success: false, message: error.message }
+  end
+
+  def fluid_client
+    @fluid_client ||= initialize_fluid_client
+  end
+
+  def initialize_fluid_client
+    company = find_company
+    return nil if company.blank?
+
+    FluidClient.new(company.authentication_token)
+  end
 
   def find_company
     company_data = @callback_params.dig("cart", "company") || @callback_params.dig(:cart, :company)
