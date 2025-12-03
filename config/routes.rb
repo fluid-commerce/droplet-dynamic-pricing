@@ -5,9 +5,10 @@ Rails.application.routes.draw do
 
   post "webhook", to: "webhooks#create", as: :webhook
 
-  post "callback/subscription_added", to: "callbacks/subscription_added#create"
-  post "callback/subscription_removed", to: "callbacks/subscription_removed#create"
-  post "callback/update_cart_email", to: "callbacks/update_cart_email#create"
+  namespace :callbacks do
+    resources :subscription_added, only: :create
+    resources :subscription_removed, only: :create
+  end
 
   namespace :admin do
     get "dashboard/index"
