@@ -35,7 +35,16 @@ private
   end
 
   def should_maintain_subscription_pricing?(customer_id)
-    has_active_subscriptions?(customer_id)
+    has_active = has_active_subscriptions?(customer_id)
+    has_another = has_another_subscription_in_cart?(customer_id)
+
+    has_active || has_another
+  end
+
+  def has_another_subscription_in_cart?(_customer_id)
+    active_subscription_count = cart_items.count { |item| item["subscription"] == true }
+
+    active_subscription_count >= 1
   end
 
   def build_items_data(cart_items, use_subscription_prices)
