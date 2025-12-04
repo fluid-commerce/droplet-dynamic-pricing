@@ -6,9 +6,7 @@ private
   end
 
   def permitted_params
-    params.require(:cart).require(:cart_token)
-
-    params.permit(
+    permitted = params.permit(
       :callback_name,
       :schema_version,
       :schema_hash,
@@ -17,5 +15,12 @@ private
       context: {},
       subscription_removed: {}
     )
+
+    cart = permitted.require(:cart)
+    cart.require(:cart_token)
+    cart.require(:email)
+    cart.require(:company).require(:id)
+
+    permitted
   end
 end

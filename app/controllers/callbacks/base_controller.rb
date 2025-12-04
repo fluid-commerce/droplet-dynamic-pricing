@@ -9,6 +9,9 @@ class Callbacks::BaseController < ApplicationController
     else
       render json: result, status: :bad_request
     end
+  rescue ActionController::ParameterMissing => e
+    Rails.logger.error "Callback error for #{self.class.name}: #{e.message}"
+    render json: { success: false, error: e.message }, status: :bad_request
   rescue StandardError => e
     Rails.logger.error "Callback error for #{self.class.name}: #{e.message}"
     render json: { success: false, error: e.message }, status: :internal_server_error
