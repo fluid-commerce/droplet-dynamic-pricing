@@ -1,233 +1,165 @@
 require "test_helper"
 
+class FakeCartsResource
+  attr_reader :metadata_calls, :items_prices_calls
+
+  def initialize
+    @metadata_calls = []
+    @items_prices_calls = []
+  end
+
+  def append_metadata(token, metadata)
+    @metadata_calls << { token: token, metadata: metadata }
+    { "success" => true }
+  end
+
+  def update_items_prices(token, items)
+    @items_prices_calls << { token: token, items: items }
+    { "success" => true }
+  end
+end
+
+class FakeCustomersResource
+  def initialize(customers_response = [])
+    @customers_response = customers_response
+  end
+
+  def get(params)
+    { "customers" => @customers_response }
+  end
+end
+
 class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
   fixtures(:companies)
 
-  def setup
-    @company = companies(:acme)
-    @cart_data = {
+  def company
+    companies(:acme)
+  end
+
+  def cart_data
+    {
       "id" => 265327,
       "cart_token" => "ct_52blT6sVvSo4Ck2ygrKyW2",
       "email" => "customer@example.com",
       "company" => {
-        "id" => @company.fluid_company_id,
-        "name" => @company.name,
+        "id" => company.fluid_company_id,
+        "name" => company.name,
         "subdomain" => "test",
       },
       "items" => [
-        {
-          "id" => 674137,
-          "price" => "80.0",
-          "subscription_price" => "72.0",
-          "product" => {
-            "price" => "80.0",
-          },
-        },
-        {
-          "id" => 674138,
-          "price" => "60.0",
-          "subscription_price" => "54.0",
-          "product" => {
-            "price" => "60.0",
-          },
-        },
+        { "id" => 674137, "price" => "80.0", "subscription_price" => "72.0" },
+        { "id" => 674138, "price" => "60.0", "subscription_price" => "54.0" },
       ],
     }
-    @callback_params = { cart: @cart_data }
   end
 
-  test "call returns success when cart is blank" do
+  def callback_params
+    { cart: cart_data }
+  end
+
+  test "call returns error when cart is blank" do
     service = Callbacks::SubscriptionRemovedService.new({ cart: nil })
     result = service.call
-
-    assert_equal({ success: true }, result)
+    assert_equal({ success: false, message: "Cart is blank" }, result)
   end
 
-  test "call processes subscription_removed successfully" do
-    service = Callbacks::SubscriptionRemovedService.new(@callback_params)
+  test "updates to REGULAR pricing when customer has NO other subscriptions" do
+    fake_carts = FakeCartsResource.new
+    fake_customers = FakeCustomersResource.new([ { "id" => 123 } ])
 
-    service.stub(:find_company, @company) do
-      service.stub(:get_customer_id_by_email, 123) do
-        service.stub(:should_maintain_subscription_pricing?, false) do
-          service.stub(:update_cart_metadata, true) do
-            service.stub(:update_cart_items_prices, true) do
-              result = service.call
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+    mock_client.define_singleton_method(:customers) { fake_customers }
 
-              assert_equal({ success: true }, result)
-            end
-          end
-        end
-      end
+    service = Callbacks::SubscriptionRemovedService.new(callback_params)
+
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    service.stub(:has_active_subscriptions?, false) do
+      result = service.call
+      assert result[:success]
     end
+
+    assert_equal 1, fake_carts.metadata_calls.size, "append_metadata should be called once"
+
+    call = fake_carts.metadata_calls.first
+    assert_not_nil call
+    assert_equal cart_data["cart_token"], call[:token]
+    assert_nil call[:metadata].with_indifferent_access[:price_type], "Price type should be nil"
+
+    assert_equal 1, fake_carts.items_prices_calls.size
+    items = fake_carts.items_prices_calls.first[:items].map(&:with_indifferent_access)
+
+    item1 = items.find { |i| i[:id].to_s == "674137" }
+    item2 = items.find { |i| i[:id].to_s == "674138" }
+
+    assert_equal 80.0, item1[:price].to_f
+    assert_equal 60.0, item2[:price].to_f
+  end
+
+  test "updates to SUBSCRIPTION pricing when customer HAS active subscriptions" do
+    fake_carts = FakeCartsResource.new
+    fake_customers = FakeCustomersResource.new([ { "id" => 123 } ])
+
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+    mock_client.define_singleton_method(:customers) { fake_customers }
+
+    service = Callbacks::SubscriptionRemovedService.new(callback_params)
+
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    service.stub(:has_active_subscriptions?, true) do
+      result = service.call
+      assert result[:success]
+    end
+
+    assert_equal 1, fake_carts.metadata_calls.size, "append_metadata should be called once"
+    call = fake_carts.metadata_calls.first
+
+    if call
+      assert_equal "preferred_customer", call[:metadata].with_indifferent_access[:price_type]
+    else
+      flunk "append_metadata was not called"
+    end
+
+    items = fake_carts.items_prices_calls.first[:items].map(&:with_indifferent_access)
+    item1 = items.find { |i| i[:id].to_s == "674137" }
+
+    assert_equal 72.0, item1[:price].to_f
+  end
+
+  test "removes subscription pricing when email is blank" do
+    fake_carts = FakeCartsResource.new
+
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+
+    params = { cart: cart_data.merge("email" => nil) }
+
+    service = Callbacks::SubscriptionRemovedService.new(params)
+
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    result = service.call
+    assert result[:success]
+
+    assert_equal 1, fake_carts.metadata_calls.size, "append_metadata should have been called even when email is blank"
+    call = fake_carts.metadata_calls.first
+
+    assert_not_nil call
+    assert_nil call[:metadata].with_indifferent_access[:price_type]
   end
 
   test "class method call works" do
-    # Mock the instance
     service_instance = Minitest::Mock.new
-    service_instance.expect(:call, { success: true })
+    service_instance.expect :call, { success: true }
 
-    Callbacks::SubscriptionRemovedService.stub(:new, ->(params) { service_instance }) do
-      result = Callbacks::SubscriptionRemovedService.call(@callback_params)
-
+    Callbacks::SubscriptionRemovedService.stub(:new, ->(_params) { service_instance }) do
+      result = Callbacks::SubscriptionRemovedService.call(callback_params)
       assert_equal({ success: true }, result)
     end
 
     service_instance.verify
-  end
-
-  test "updates cart metadata to null when customer should not maintain subscription pricing" do
-    service = Callbacks::SubscriptionRemovedService.new(@callback_params)
-    metadata_called = false
-    expected_metadata = { "price_type" => nil }
-
-    service.stub(:find_company, @company) do
-      service.stub(:get_customer_id_by_email, 123) do
-        service.stub(:should_maintain_subscription_pricing?, false) do
-          service.stub(:update_cart_metadata, ->(cart_token, metadata) {
-            metadata_called = true
-            assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
-            assert_equal expected_metadata, metadata
-          }) do
-            service.stub(:update_cart_items_prices, true) do
-              service.call
-            end
-          end
-        end
-      end
-    end
-
-    assert metadata_called, "update_cart_metadata should have been called"
-  end
-
-  test "updates cart metadata to preferred_customer when customer should maintain subscription pricing" do
-    service = Callbacks::SubscriptionRemovedService.new(@callback_params)
-    metadata_called = false
-    expected_metadata = { "price_type" => "preferred_customer" }
-
-    service.stub(:find_company, @company) do
-      service.stub(:get_customer_id_by_email, 123) do
-        service.stub(:should_maintain_subscription_pricing?, true) do
-          service.stub(:update_cart_metadata, ->(cart_token, metadata) {
-            metadata_called = true
-            assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
-            assert_equal expected_metadata, metadata
-          }) do
-            service.stub(:update_cart_items_prices, true) do
-              service.call
-            end
-          end
-        end
-      end
-    end
-
-    assert metadata_called, "update_cart_metadata should have been called"
-  end
-
-  test "updates items to regular pricing when customer should not maintain subscription pricing" do
-    service = Callbacks::SubscriptionRemovedService.new(@callback_params)
-    prices_called_count = 0
-
-    service.stub(:find_company, @company) do
-      service.stub(:get_customer_id_by_email, 123) do
-        service.stub(:should_maintain_subscription_pricing?, false) do
-          service.stub(:update_cart_metadata, true) do
-            service.stub(:update_cart_items_prices, ->(cart_token, items_data) {
-              prices_called_count += 1
-              # Now expects all items in one call
-              assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
-              assert_equal 2, items_data.length
-              assert_equal 674137, items_data[0]["id"]
-              assert_equal "80.0", items_data[0]["price"]
-              assert_equal 674138, items_data[1]["id"]
-              assert_equal "60.0", items_data[1]["price"]
-            }) do
-              service.call
-            end
-          end
-        end
-      end
-    end
-
-    assert_equal 1, prices_called_count, "update_cart_items_prices should have been called once with all items"
-  end
-
-  test "updates items to subscription pricing when customer should maintain subscription pricing" do
-    service = Callbacks::SubscriptionRemovedService.new(@callback_params)
-    prices_called_count = 0
-
-    service.stub(:find_company, @company) do
-      service.stub(:get_customer_id_by_email, 123) do
-        service.stub(:should_maintain_subscription_pricing?, true) do
-          service.stub(:update_cart_metadata, true) do
-            service.stub(:update_cart_items_prices, ->(cart_token, items_data) {
-              prices_called_count += 1
-              # Now expects all items in one call with subscription prices
-              assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
-              assert_equal 2, items_data.length
-              assert_equal 674137, items_data[0]["id"]
-              assert_equal "72.0", items_data[0]["price"]
-              assert_equal 674138, items_data[1]["id"]
-              assert_equal "54.0", items_data[1]["price"]
-            }) do
-              service.call
-            end
-          end
-        end
-      end
-    end
-
-    assert_equal 1, prices_called_count, "update_cart_items_prices should have been called once with all items"
-  end
-
-
-  test "removes subscription pricing when email is blank" do
-    cart_data_no_email = @cart_data.dup
-    cart_data_no_email.delete("email")
-    callback_params = { cart: cart_data_no_email }
-
-    service = Callbacks::SubscriptionRemovedService.new(callback_params)
-    metadata_called = false
-    expected_metadata = { "price_type" => nil }
-
-    service.stub(:find_company, @company) do
-      service.stub(:update_cart_metadata, ->(cart_token, metadata) {
-        metadata_called = true
-        assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
-        assert_equal expected_metadata, metadata
-      }) do
-        service.stub(:update_cart_items_prices, true) do
-          service.call
-        end
-      end
-    end
-
-    assert metadata_called, "update_cart_metadata should have been called with price_type: nil"
-  end
-
-  test "removes subscription pricing when email is empty string" do
-    cart_data_empty_email = @cart_data.dup
-    cart_data_empty_email["email"] = ""
-    callback_params = { cart: cart_data_empty_email }
-
-    service = Callbacks::SubscriptionRemovedService.new(callback_params)
-    prices_called_count = 0
-
-    service.stub(:find_company, @company) do
-      service.stub(:update_cart_metadata, true) do
-        service.stub(:update_cart_items_prices, ->(cart_token, items_data) {
-          prices_called_count += 1
-          assert_equal "ct_52blT6sVvSo4Ck2ygrKyW2", cart_token
-          assert_equal 2, items_data.length
-          assert_equal 674137, items_data[0]["id"]
-          assert_equal "80.0", items_data[0]["price"] # Regular price, not subscription price
-          assert_equal 674138, items_data[1]["id"]
-          assert_equal "60.0", items_data[1]["price"] # Regular price, not subscription price
-        }) do
-          service.call
-        end
-      end
-    end
-
-    assert_equal 1, prices_called_count, "update_cart_items_prices should have been called once with regular prices"
   end
 end

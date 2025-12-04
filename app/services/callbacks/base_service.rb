@@ -13,65 +13,65 @@ class Callbacks::BaseService
     raise NotImplementedError, "Subclasses must implement call method"
   end
 
-protected
+private
 
-  def log_and_return(log_message, success: true, message: nil, error: nil)
+  attr_reader :callback_params
+
+  def cart
+    @cart ||= callback_params[:cart]
+  end
+
+  def cart_token
+    @cart_token ||= cart&.dig("cart_token")
+  end
+
+  def cart_items
+    @cart_items ||= cart&.dig("items") || []
+  end
+
+  def result_success
+    { success: true }
+  end
+
+  def handle_callback_error(error)
     service_name = self.class.name.demodulize
-    Rails.logger.debug "[#{service_name}] #{log_message}"
+    Rails.logger.error "[#{service_name}] #{error.message}"
 
-    result = { success: success }
-    result[:message] = message || log_message
-    result[:error] = error if error
+    { success: false, message: error.message }
+  end
 
-    result
+  def fluid_client
+    @fluid_client ||= initialize_fluid_client
+  end
+
+  def initialize_fluid_client
+    company = find_company
+    raise CallbackError, "Company is blank" if company.blank?
+
+    FluidClient.new(company.authentication_token)
   end
 
   def find_company
-    company_data = @callback_params.dig("cart", "company") || @callback_params.dig(:cart, :company)
+    company_data = callback_params.dig("cart", "company")
+    raise CallbackError, "Company data is blank" if company_data.blank?
 
-    if company_data.present?
-      company = Company.find_by(fluid_company_id: company_data["id"])
-    end
-
-    company
-  rescue StandardError => e
-    Rails.logger.error "Error finding company: #{e.message}"
-    nil
+    Company.find_by(fluid_company_id: company_data["id"])
   end
 
-  def update_cart_metadata(cart_token, metadata)
-    return if cart_token.blank?
-
-    company = find_company
-    return if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
-    return if client.blank?
-
-    client.carts.append_metadata(cart_token, metadata)
-  rescue StandardError => e
-    Rails.logger.error "Failed to update cart metadata for cart #{cart_token}: #{e.message}"
+  def update_cart_metadata(metadata)
+    fluid_client.carts.append_metadata(cart_token, metadata)
+  rescue CallbackError => e
+    handle_callback_error(e)
   end
 
-  def update_cart_items_prices(cart_token, items_data)
-    return if cart_token.blank? || items_data.blank?
-
-    company = find_company
-    return if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
-    return if client.blank?
-    Rails.logger.info "Updating cart items prices: #{items_data}"
-    payload = { "cart_items" => items_data }
-
-    response = make_cart_items_prices_request(client, cart_token, payload, company.authentication_token)
-
-    response
+  def update_cart_items_prices(items_data)
+    raise CallbackError, "Items data is blank" if items_data.blank?
+    fluid_client.carts.update_items_prices(cart_token, items_data)
   rescue StandardError => e
     Rails.logger.error "Failed to update cart items prices for cart #{cart_token}: #{e.message}"
   end
 
-  def build_subscription_items_data(cart_items)
+  def cart_items_with_subscription_price
     cart_items.map do |item|
       {
         "id" => item["id"],
@@ -80,7 +80,7 @@ protected
     end
   end
 
-  def build_regular_items_data(cart_items)
+  def cart_items_with_regular_price
     cart_items.map do |item|
       {
         "id" => item["id"],
@@ -89,121 +89,12 @@ protected
     end
   end
 
-  def make_cart_items_prices_request(client, cart_token, payload, auth_token)
-    Rails.logger.info "Making request to update cart items prices: #{payload}"
-    response = client.patch("/api/carts/#{cart_token}/update_cart_items_prices", body: payload)
-
-    response
-  rescue StandardError => e
-    Rails.logger.error "Error in make_cart_items_prices_request: #{e.message}"
-    Rails.logger.error e.backtrace.join("\n")
-    raise e
-  end
-
-  def get_cart(cart_token)
-    return nil if cart_token.blank?
-
-    company = find_company
-    return nil if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
-    return nil if client.blank?
-    Rails.logger.info "Getting cart: #{cart_token}"
-    client.carts.get(cart_token)
-  rescue StandardError => e
-    Rails.logger.error "Failed to get cart #{cart_token}: #{e.message}"
-    nil
-  end
-
-  def get_customer_by_email(email)
-    company = find_company
-    return nil if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
-    return nil if client.blank?
-
-    escaped_email = CGI.escape(email.to_s)
-    search_query = "search_query=#{escaped_email}"
-
-    response = client.get("/api/customers?#{search_query}")
-    customers = response["customers"] || []
-
-    customers.first
-  rescue StandardError => e
-    Rails.logger.error "Failed to get customer by email #{email}: #{e.message}"
-    nil
-  end
-  def get_customer_type_by_email(email)
-    company = find_company
-    return nil if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
-    return if client.blank?
-
-    response = client.customers.get(email: email)
-    customers = response["customers"] || []
-
-    return nil unless customers.any?
-
-    customer = customers.first
-    customer_id = customer["id"] || customer[:id]
-    return nil if customer_id.blank?
-
-    get_customer_type_from_metafields(client, customer_id)
-  rescue StandardError => e
-    Rails.logger.error "Failed to get customer type for email #{email}: #{e.message}"
-    nil
-  end
-
-  def get_customer_type_from_metafields(client, customer_id)
-    metafield = client.metafields.get_by_key(
-      resource_type: "customer",
-      resource_id: customer_id,
-      key: "customer_type"
-    )
-
-    return nil if metafield.blank?
-
-    value = metafield["value"] || metafield[:value]
-    return nil if value.blank?
-
-    value["customer_type"] || value[:customer_type]
-  rescue StandardError => e
-    Rails.logger.error "Failed to get customer type from metafields for customer #{customer_id}: #{e.message}"
-    nil
-  end
-
-
   def has_active_subscriptions?(customer_id)
-    return false if customer_id.blank?
-
-    company = find_company
-    return false if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
-    return false if client.blank?
-
-    response = client.subscriptions.get_by_customer(customer_id, status: "active")
+    response = fluid_client.subscriptions.get_by_customer(customer_id, status: "active")
     subscriptions = response["subscriptions"] || []
     subscriptions.any?
   rescue StandardError => e
     Rails.logger.error "Error checking active subscriptions for customer #{customer_id}: #{e.message}"
     false
-  end
-
-  def make_update_totals_request(client, cart_token, payload, auth_token)
-    response = client.patch("/api/carts/#{cart_token}/update_totals", body: payload)
-
-    response
-  rescue StandardError => e
-    Rails.logger.error "Error in make_update_totals_request: #{e.message}"
-    Rails.logger.error e.backtrace.join("\n")
-    raise e
-  end
-
-  def extract_cart_token_and_items(cart)
-    cart_token = cart["cart_token"]
-    cart_items = cart["items"] || []
-    [ cart_token, cart_items ]
   end
 end

@@ -20,8 +20,11 @@ private
     raise NotImplementedError, "Subclasses must implement service_class method"
   end
 
+  def permitted_params
+    raise NotImplementedError, "Subclasses must implement permitted_params method"
+  end
+
   def callback_params
-    # :brakeman:ignore MassAssignment
-    params.permit!.to_h.with_indifferent_access
+    permitted_params.to_h.with_indifferent_access
   end
 end

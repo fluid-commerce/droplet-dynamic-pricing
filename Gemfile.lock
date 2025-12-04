@@ -419,7 +419,7 @@ PLATFORMS
 
 DEPENDENCIES
   bootsnap
-  brakeman (~> 7.1.1)
+  brakeman
   bundler (~> 2.6.5)
   cancancan (~> 3.6)
   capybara
