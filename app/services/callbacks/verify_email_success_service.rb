@@ -6,10 +6,8 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
     customer_type_result = fetch_and_validate_customer_type(customer_email)
 
     return customer_type_result unless customer_type_result[:success] && customer_type_result[:customer_type]
-    Rails.logger.info "Customer type: #{customer_type_result[:customer_type]}"
 
     if customer_type_result[:customer_type] == PREFERRED_CUSTOMER_TYPE
-
       update_result = update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
       return update_result if update_result.is_a?(Hash) && update_result[:success] == false
     end
