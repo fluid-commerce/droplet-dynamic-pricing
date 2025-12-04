@@ -158,6 +158,9 @@ jobs:
       - name: Build assets
         run: yarn build
 
+      - name: Build test assets
+        run: bin/vite build --mode test
+
       - name: Run JavaScript tests
         run: yarn test
 
