@@ -8,6 +8,7 @@ Rails.application.routes.draw do
   namespace :callbacks do
     resources :subscription_added, only: :create
     resources :subscription_removed, only: :create
+    resources :cart_item_added, only: :create
     resources :verify_email_success, only: :create
     resources :cart_email_on_create, only: :create
   end
