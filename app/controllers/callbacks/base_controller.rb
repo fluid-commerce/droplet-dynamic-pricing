@@ -9,6 +9,9 @@ class Callbacks::BaseController < ApplicationController
     else
       render json: result, status: :bad_request
     end
+  rescue ActionController::ParameterMissing => e
+    Rails.logger.error "Callback error for #{self.class.name}: #{e.message}"
+    render json: { success: false, error: e.message }, status: :bad_request
   rescue StandardError => e
     Rails.logger.error "Callback error for #{self.class.name}: #{e.message}"
     render json: { success: false, error: e.message }, status: :internal_server_error
@@ -20,8 +23,11 @@ private
     raise NotImplementedError, "Subclasses must implement service_class method"
   end
 
+  def permitted_params
+    raise NotImplementedError, "Subclasses must implement permitted_params method"
+  end
+
   def callback_params
-    # :brakeman:ignore MassAssignment
-    params.permit!.to_h.with_indifferent_access
+    permitted_params.to_h.with_indifferent_access
   end
 end
