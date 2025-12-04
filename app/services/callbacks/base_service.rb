@@ -89,17 +89,6 @@ private
     end
   end
 
-  def make_cart_items_prices_request(client, cart_token, payload, auth_token)
-    Rails.logger.info "Making request to update cart items prices: #{payload}"
-    response = client.patch("/api/carts/#{cart_token}/update_cart_items_prices", body: payload)
-
-    response
-  rescue StandardError => e
-    Rails.logger.error "Error in make_cart_items_prices_request: #{e.message}"
-    Rails.logger.error e.backtrace.join("\n")
-    raise e
-  end
-
   def fetch_and_validate_customer_type(email)
     customer_result = fetch_customer_by_email(email)
 
