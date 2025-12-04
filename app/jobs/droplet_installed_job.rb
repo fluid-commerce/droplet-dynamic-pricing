@@ -68,7 +68,8 @@ private
       )
 
       if callback.save
-        Rails.logger.info "[DropletInstalledJob] Created/updated callback: #{definition_name} (route: #{route_name_str})"
+        Rails.logger.info "[DropletInstalledJob] Created/updated callback: #{definition_name}
+                                            (route: #{route_name_str}) with URL: #{callback_url}"
       else
         Rails.logger.error "[DropletInstalledJob] Failed to create callback #{definition_name}:
                                                     #{callback.errors.full_messages.join(', ')}"
