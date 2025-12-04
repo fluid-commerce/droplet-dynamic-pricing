@@ -24,17 +24,17 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
   end
 
   def callback_params
-    { cart: cart_data }
+    { "cart" => cart_data }.with_indifferent_access
   end
 
-  test "call returns error when cart is blank" do
+  def test_call_returns_error_when_cart_is_blank
     service = Callbacks::SubscriptionAddedService.new({ cart: nil })
     result = service.call
 
     assert_equal({ success: false, message: "Cart is blank" }, result)
   end
 
-  test "successfully updates cart metadata and item prices via fluid client" do
+  def test_successfully_updates_cart_metadata_and_item_prices_via_fluid_client
     mock_carts_resource = Minitest::Mock.new
 
     mock_carts_resource.expect :append_metadata, { "success" => true } do |token, metadata|
@@ -60,17 +60,15 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
 
     service = Callbacks::SubscriptionAddedService.new(callback_params)
 
-    service.stub(:find_company, company) do
-      FluidClient.stub(:new, mock_client) do
-        result = service.call
-        assert result[:success]
-      end
+    FluidClient.stub(:new, ->(_auth_token) { mock_client }) do
+      result = service.call
+      assert result[:success], "Expected success but got: #{result.inspect}"
     end
 
     mock_carts_resource.verify
   end
 
-  test "class method call works" do
+  def test_class_method_call_works
     service_instance = Minitest::Mock.new
     service_instance.expect :call, { success: true }
 
