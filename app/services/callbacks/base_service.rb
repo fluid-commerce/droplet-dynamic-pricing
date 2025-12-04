@@ -110,6 +110,19 @@ private
     { success: true, customer_type: customer_type }
   end
 
+  def get_customer_id_by_email(email)
+    return nil if email.blank?
+
+    client = fluid_client
+    response = client.customers.get(email: email)
+    customers = response["customers"] || []
+
+    customers.any? ? customers.first["id"] : nil
+  rescue StandardError => e
+    Rails.logger.error "Failed to get customer ID by email #{email}: #{e.message}"
+    nil
+  end
+
   def get_customer_type_from_metafields(customer_id)
     metafield = fluid_client.metafields.get_by_key(
       resource_type: "customer",
@@ -132,7 +145,18 @@ private
     { success: false, error: "customer_lookup_failed", message: "Unable to fetch customer data" }
   end
 
+  def has_subscriptions?(customer_id)
+    has_active = has_active_subscriptions?(customer_id)
+    has_another = has_another_subscription_in_cart?(customer_id)
 
+    has_active || has_another
+  end
+
+  def has_another_subscription_in_cart?(_customer_id)
+    active_subscription_count = cart_items.count { |item| item["subscription"] == true }
+
+    active_subscription_count >= 1
+  end
 
   def has_active_subscriptions?(customer_id)
     response = fluid_client.subscriptions.get_by_customer(customer_id, status: "active")

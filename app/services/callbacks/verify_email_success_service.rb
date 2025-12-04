@@ -24,8 +24,40 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
 private
 
   def clean_cart_metadata_before_update
+    return if cart.dig("metadata", "price_type").nil?
+
+    if has_another_subscription_in_cart?(nil)
+      return
+    end
+
+    customer_data = fetch_customer_by_email(customer_email)
+    unless customer_data[:success]
+      clean_cart_metadata
+      return
+    end
+
+    if customer_data[:data].blank?
+      clean_cart_metadata
+      return
+    end
+
+    customer_id = customer_data[:data]["id"] || customer_data[:data][:id]
+    if customer_id.blank?
+      clean_cart_metadata
+      return
+    end
+
+    if has_subscriptions?(customer_id)
+      return
+    end
+
+    clean_cart_metadata
+  end
+
+  def clean_cart_metadata
     update_result = update_cart_metadata({ "price_type" => nil })
-    return update_result if update_result.is_a?(Hash) && update_result[:success] == false
+    return if update_result.is_a?(Hash) && update_result[:success] == false
+
     update_cart_items_prices(cart_items_with_regular_price) if cart_items.any?
   end
 
