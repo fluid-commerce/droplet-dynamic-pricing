@@ -1,23 +1,12 @@
 class Callbacks::SubscriptionAddedService < Callbacks::BaseService
   def call
-    cart = @callback_params[:cart]
-    return { success: true } if cart.blank?
+    raise CallbackError, "Cart is blank" if cart.blank?
 
-    cart_token, cart_items = extract_cart_token_and_items(cart)
+    update_cart_metadata({ "price_type" => "preferred_customer" })
+    update_cart_items_prices(cart_items_with_subscription_price) if cart_items.any?
 
-    update_cart_metadata(cart_token, { "price_type" => "preferred_customer" })
-
-    if cart_items.any?
-      all_items_data = cart_items.map do |item|
-        {
-          "id" => item["id"],
-          "price" => item["subscription_price"] || item["price"],
-        }
-      end
-
-      update_cart_items_prices(cart_token, all_items_data)
-    end
-
-    { success: true }
+    result_success
+  rescue CallbackError => e
+    handle_callback_error(e)
   end
 end

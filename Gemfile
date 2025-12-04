@@ -23,7 +23,7 @@ gem "thruster", require: false
 gem "vite_rails", "~> 3.0", ">= 3.0.19"
 
 group :development, :test do
-  gem "brakeman", "~> 7.1.1", require: false
+  gem "brakeman", require: false
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
   gem "dotenv-rails"
   gem "pry-nav", "~> 1.0.0"

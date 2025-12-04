@@ -1,72 +1,61 @@
 class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
   def call
-    cart = @callback_params[:cart]
-    return { success: true } if cart.blank?
+    raise CallbackError, "Cart is blank" if cart.blank?
 
-    cart_token, cart_items = extract_cart_token_and_items(cart)
     customer_email = cart["email"]
 
-    if customer_email.blank?
-      should_keep_subscription_prices = false
-    else
-      customer_id = get_customer_id_by_email(customer_email)
-
-      if customer_id.blank?
-        should_keep_subscription_prices = false
-      else
-        should_keep_subscription_prices = should_maintain_subscription_pricing?(customer_id)
-      end
-    end
-
-    if should_keep_subscription_prices
-      update_cart_metadata(cart_token, { "price_type" => "preferred_customer" })
+    if should_keep_subscription_prices(customer_email)
+      update_cart_metadata({ "price_type" => "preferred_customer" })
       use_subscription_prices = true
     else
-      update_cart_metadata(cart_token, { "price_type" => nil })
+      update_cart_metadata({ "price_type" => nil })
       use_subscription_prices = false
     end
 
     if cart_items.any?
-      all_items_data = cart_items.map do |item|
-        price = if use_subscription_prices
-          item["subscription_price"] || item["price"]
-        else
-          item.dig("product", "price") || item["price"]
-        end
-
-        {
-          "id" => item["id"],
-          "price" => price,
-        }
-      end
-
-      update_cart_items_prices(cart_token, all_items_data)
+      items_data = use_subscription_prices ? cart_items_with_subscription_price : cart_items_with_regular_price
+      update_cart_items_prices(items_data)
     end
 
-    { success: true }
+    result_success
+  rescue CallbackError => e
+    handle_callback_error(e)
   end
 
 private
 
-  def should_maintain_subscription_pricing?(customer_id)
-    result = has_active_subscriptions?(customer_id)
-    result
+  def should_keep_subscription_prices(customer_email)
+    return false if customer_email.blank?
+
+    customer_id = get_customer_id_by_email(customer_email)
+    return false if customer_id.blank?
+
+    has_subscriptions?(customer_id)
+  end
+
+  def has_subscriptions?(customer_id)
+    has_active = has_active_subscriptions?(customer_id)
+    has_another = has_another_subscription_in_cart?(customer_id)
+
+    has_active || has_another
+  end
+
+  def has_another_subscription_in_cart?(_customer_id)
+    active_subscription_count = cart_items.count { |item| item["subscription"] == true }
+
+    active_subscription_count >= 1
   end
 
   def get_customer_id_by_email(email)
     return nil if email.blank?
 
-    company = find_company
-    return nil if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
-    return nil if client.blank?
-
+    client = fluid_client
     response = client.customers.get(email: email)
     customers = response["customers"] || []
 
     customers.any? ? customers.first["id"] : nil
-  rescue StandardError
+  rescue StandardError => e
+    Rails.logger.error "Failed to get customer ID by email #{email}: #{e.message}"
     nil
   end
 end
