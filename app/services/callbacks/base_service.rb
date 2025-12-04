@@ -93,6 +93,47 @@ private
     end
   end
 
+  def fetch_and_validate_customer_type(email)
+    customer_result = fetch_customer_by_email(email)
+
+    return customer_result unless customer_result[:success]
+    return success_with_message("Customer not found for #{email}") if customer_result[:data].blank?
+
+    customer_data = customer_result[:data]
+    customer_id = customer_data["id"] || customer_data[:id]
+
+    return success_with_message("Customer ID missing for #{email}") if customer_id.blank?
+
+    customer_type = get_customer_type_from_metafields(customer_id)
+    return success_with_message("Customer type not set for #{email}") if customer_type.blank?
+
+    { success: true, customer_type: customer_type }
+  end
+
+  def get_customer_type_from_metafields(customer_id)
+    metafield = fluid_client.metafields.get_by_key(
+      resource_type: "customer",
+      resource_id: customer_id,
+      key: "customer_type"
+    )
+    metafield&.dig("value", "customer_type") || metafield&.dig(:value, :customer_type)
+  rescue StandardError
+    nil
+  end
+
+  def fetch_customer_by_email(email)
+    response = fluid_client.customers.get(email: email)
+    customers = response["customers"] || []
+
+    customer = customers.find { |c| c["email"]&.downcase == email.downcase }
+
+    { success: true, data: customer }
+  rescue StandardError
+    { success: false, error: "customer_lookup_failed", message: "Unable to fetch customer data" }
+  end
+
+
+
   def has_active_subscriptions?(customer_id)
     response = fluid_client.subscriptions.get_by_customer(customer_id, status: "active")
     subscriptions = response["subscriptions"] || []
@@ -100,5 +141,9 @@ private
   rescue StandardError => e
     Rails.logger.error "Error checking active subscriptions for customer #{customer_id}: #{e.message}"
     false
+  end
+
+  def success_with_message(msg)
+    { success: true, message: msg }
   end
 end
