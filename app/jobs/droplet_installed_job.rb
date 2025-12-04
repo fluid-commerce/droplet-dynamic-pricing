@@ -108,7 +108,8 @@ private
         if response && response["callback_registration"]["uuid"]
           installed_callback_ids << response["callback_registration"]["uuid"]
           Rails.logger.info(
-            "[DropletInstalledJob] Successfully registered callback #{callback.name} with UUID: #{response["callback_registration"]["uuid"]}"
+            "[DropletInstalledJob] Successfully registered callback #{callback.name} with UUID:
+                                                    #{response["callback_registration"]["uuid"]}"
           )
         else
           Rails.logger.warn(
