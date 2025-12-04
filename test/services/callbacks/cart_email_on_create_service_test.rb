@@ -47,7 +47,7 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
 
   test "returns metadata when customer_type is preferred_customer" do
     email = cart_data["email"]
-    customer_response = [{ "id" => 888, "email" => email }]
+    customer_response = [ { "id" => 888, "email" => email } ]
 
     metafield = {
       "key" => "customer_type",
@@ -70,7 +70,7 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
 
   test "returns success without metadata when customer_type is not preferred_customer" do
     email = cart_data["email"]
-    customer_response = [{ "id" => 777, "email" => email }]
+    customer_response = [ { "id" => 777, "email" => email } ]
 
     metafield = {
       "key" => "customer_type",
@@ -106,7 +106,7 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
 
   test "returns success when customer_id is missing" do
     email = cart_data["email"]
-    customer_response = [{ "email" => email, "id" => nil }]
+    customer_response = [ { "email" => email, "id" => nil } ]
     fake_client = stubbed_fluid_client(customers_response: customer_response)
 
     service = Callbacks::CartEmailOnCreateService.new(callback_params)
@@ -120,7 +120,7 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
 
   test "returns success when customer_type_metafield is missing" do
     email = cart_data["email"]
-    customer_response = [{ "id" => 999, "email" => email }]
+    customer_response = [ { "id" => 999, "email" => email } ]
     fake_client = stubbed_fluid_client(
       customers_response: customer_response,
       customer_type_metafield: nil
