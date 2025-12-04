@@ -368,6 +368,16 @@ GEM
     thruster (0.1.14-x86_64-darwin)
     thruster (0.1.14-x86_64-linux)
     timeout (0.4.3)
+    tiny_tds (3.3.0)
+      bigdecimal (~> 3)
+    tiny_tds (3.3.0-aarch64-linux-gnu)
+      bigdecimal (~> 3)
+    tiny_tds (3.3.0-aarch64-linux-musl)
+      bigdecimal (~> 3)
+    tiny_tds (3.3.0-x86_64-linux-gnu)
+      bigdecimal (~> 3)
+    tiny_tds (3.3.0-x86_64-linux-musl)
+      bigdecimal (~> 3)
     tzinfo (2.0.6)
       concurrent-ruby (~> 1.0)
     unicode-display_width (3.1.4)
@@ -443,6 +453,7 @@ DEPENDENCIES
   solid_cache
   solid_queue
   thruster
+  tiny_tds
   vite_rails (~> 3.0, >= 3.0.19)
   web-console
 

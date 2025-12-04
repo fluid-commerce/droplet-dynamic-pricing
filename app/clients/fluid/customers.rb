@@ -36,6 +36,13 @@ module Fluid
           query_params << "by_metadata=#{CGI.escape(json_metadata)}"
         end
 
+        if params.key?(:country_code)
+          country_codes = Array(params[:country_code])
+          country_codes.each do |code|
+            query_params << "country_code[]=#{CGI.escape(code.to_s)}"
+          end
+        end
+
         "?#{query_params.join('&')}"
       end
     end
