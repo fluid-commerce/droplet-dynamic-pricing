@@ -112,10 +112,10 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     assert_equal 1, fake_carts.items_prices_calls.size
     call = fake_carts.items_prices_calls.first
     assert_equal @cart_data["cart_token"], call[:token]
-    expected_item_data = [{
+    expected_item_data = [ {
       "id" => @cart_item["id"],
       "price" => @cart_item["subscription_price"],
-    }]
+    } ]
     assert_equal expected_item_data, call[:items]
   end
 
@@ -140,10 +140,10 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     assert_equal 1, fake_carts.items_prices_calls.size
     call = fake_carts.items_prices_calls.first
     assert_equal @cart_data["cart_token"], call[:token]
-    expected_item_data = [{
+    expected_item_data = [ {
       "id" => cart_item_without_subscription["id"],
       "price" => cart_item_without_subscription["price"],
-    }]
+    } ]
     assert_equal expected_item_data, call[:items]
   end
 
