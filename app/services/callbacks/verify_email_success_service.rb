@@ -1,85 +1,75 @@
 class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
   def call
-    email = @callback_params[:email] || @callback_params.dig("email")
+    raise CallbackError, "Cart is blank" if cart.blank?
+    raise CallbackError, "Missing email" if customer_email.blank?
 
-    cart_token = @callback_params[:cart_token] ||
-                 @callback_params.dig("cart_token") ||
-                 @callback_params.dig(:cart, :cart_token) ||
-                 @callback_params.dig("cart", "cart_token")
+    customer_type_result = fetch_and_validate_customer_type(customer_email)
 
-    return log_and_return("Missing email or cart_token", success: false) if email.blank? || cart_token.blank?
-
-    customer_type_result = fetch_and_validate_customer_type(email)
     return customer_type_result unless customer_type_result[:success] && customer_type_result[:customer_type]
+    Rails.logger.info "Customer type: #{customer_type_result[:customer_type]}"
 
-    customer_type = customer_type_result[:customer_type]
+    if customer_type_result[:customer_type] == PREFERRED_CUSTOMER_TYPE
 
-    if customer_type == PREFERRED_CUSTOMER_TYPE
-      update_result = update_cart_metadata_by_cart_token(cart_token, { "price_type" => PREFERRED_CUSTOMER_TYPE })
-      return update_result if update_result[:success] == false
+      update_result = update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
+      return update_result if update_result.is_a?(Hash) && update_result[:success] == false
     end
 
-    log_and_return("Email verification successful for cart #{cart_token}, email #{email}", success: true)
+    result_success
+  rescue CallbackError => e
+    handle_callback_error(e)
   end
 
 private
 
   def fetch_and_validate_customer_type(email)
-    customer = fetch_customer_by_email(email)
-    return customer if customer[:success] == false
-    return log_and_return("Customer not found for email #{email}") if customer[:data].blank?
+    customer_result = fetch_customer_by_email(email)
 
-    customer_data = customer[:data]
+    return customer_result unless customer_result[:success]
+    return success_with_message("Customer not found for #{email}") if customer_result[:data].blank?
+
+    customer_data = customer_result[:data]
     customer_id = customer_data["id"] || customer_data[:id]
-    return log_and_return("Customer ID not found for email #{email}") if customer_id.blank?
+
+    return success_with_message("Customer ID missing for #{email}") if customer_id.blank?
 
     customer_type = get_customer_type_from_metafields(customer_id)
-    return log_and_return("Customer type is not set for email #{email}",
-message: "Customer type is not set") if customer_type.blank?
+    return success_with_message("Customer type not set for #{email}") if customer_type.blank?
 
     { success: true, customer_type: customer_type }
   end
 
   def get_customer_type_from_metafields(customer_id)
-    company = find_company
-    return nil if company.blank?
-
-    client = FluidClient.new(company.authentication_token)
-    return nil if client.blank?
-
-    metafield = client.metafields.get_by_key(
+    metafield = fluid_client.metafields.get_by_key(
       resource_type: "customer",
       resource_id: customer_id,
       key: "customer_type"
     )
 
-    return nil if metafield.blank?
-
-    value = metafield["value"] || metafield[:value]
-    return nil if value.blank?
-
-    value["customer_type"] || value[:customer_type]
-  rescue StandardError => e
-    Rails.logger.error "Failed to get customer type from metafields for customer #{customer_id}: #{e.message}"
-    Rails.logger.error e.backtrace.join("\n")
+    metafield&.dig("value", "customer_type") || metafield&.dig(:value, :customer_type)
+  rescue StandardError
     nil
   end
 
   def fetch_customer_by_email(email)
-    customer = get_customer_by_email(email)
+    response = fluid_client.customers.get(email: email)
+    customers = response["customers"] || []
+
+    customer = customers.find { |c| c["email"]&.downcase == email.downcase }
+
     { success: true, data: customer }
-  rescue StandardError => e
-    Rails.logger.error "Failed to fetch customer for #{email}: #{e.message}"
-    Rails.logger.error e.backtrace.join("\n")
+  rescue StandardError
     { success: false, error: "customer_lookup_failed", message: "Unable to fetch customer data" }
   end
 
-  def update_cart_metadata_by_cart_token(cart_token, metadata)
-    update_cart_metadata(cart_token, metadata)
-    { success: true }
-  rescue StandardError => e
-    Rails.logger.error "Failed to update cart metadata for cart #{cart_token}: #{e.message}"
-    Rails.logger.error e.backtrace.join("\n")
-    { success: false, error: "cart_metadata_update_failed", message: "Unable to update cart metadata" }
+  def update_cart_metadata(metadata)
+    Rails.logger.info "Updating cart metadata: #{metadata}"
+
+    fluid_client.carts.append_metadata(cart_token, metadata)
+  rescue CallbackError => e
+    handle_callback_error(e)
+  end
+
+  def success_with_message(msg)
+    { success: true, message: msg }
   end
 end

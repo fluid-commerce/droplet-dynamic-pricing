@@ -5,9 +5,11 @@ class Callbacks::VerifyEmailSuccessControllerTest < ActionDispatch::IntegrationT
 
   def setup
     @company = companies(:acme)
+
     @cart_data = {
       "id" => 265327,
       "cart_token" => "ct_52blT6sVvSo4Ck2ygrKyW2",
+      "email" => "test@example.com",
       "company" => {
         "id" => @company.fluid_company_id,
         "name" => @company.name,
@@ -18,9 +20,7 @@ class Callbacks::VerifyEmailSuccessControllerTest < ActionDispatch::IntegrationT
 
   test "handles verify_email_success callback successfully" do
     Callbacks::VerifyEmailSuccessService.stub(:call, { success: true }) do
-      post "/callback/verify_email_success", params: {
-        email: "test@example.com",
-        cart_token: "ct_52blT6sVvSo4Ck2ygrKyW2",
+      post "/callbacks/verify_email_success", params: {
         cart: @cart_data,
       }
 
@@ -31,10 +31,8 @@ class Callbacks::VerifyEmailSuccessControllerTest < ActionDispatch::IntegrationT
   end
 
   test "handles service errors gracefully" do
-    Callbacks::VerifyEmailSuccessService.stub(:call, ->(params) { raise StandardError.new("Test error") }) do
-      post "/callback/verify_email_success", params: {
-        email: "test@example.com",
-        cart_token: "ct_52blT6sVvSo4Ck2ygrKyW2",
+    Callbacks::VerifyEmailSuccessService.stub(:call, ->(_params) { raise StandardError.new("Test error") }) do
+      post "/callbacks/verify_email_success", params: {
         cart: @cart_data,
       }
 
@@ -47,9 +45,7 @@ class Callbacks::VerifyEmailSuccessControllerTest < ActionDispatch::IntegrationT
 
   test "returns bad request when service returns error" do
     Callbacks::VerifyEmailSuccessService.stub(:call, { success: false, error: "Service error" }) do
-      post "/callback/verify_email_success", params: {
-        email: "test@example.com",
-        cart_token: "ct_52blT6sVvSo4Ck2ygrKyW2",
+      post "/callbacks/verify_email_success", params: {
         cart: @cart_data,
       }
 
@@ -60,11 +56,19 @@ class Callbacks::VerifyEmailSuccessControllerTest < ActionDispatch::IntegrationT
     end
   end
 
+  test "returns bad request when required params are missing in cart" do
+    invalid_cart = @cart_data.except("email")
+
+    post "/callbacks/verify_email_success", params: {
+      cart: invalid_cart,
+    }
+
+    assert_response :bad_request
+  end
+
   test "skips CSRF token verification" do
     Callbacks::VerifyEmailSuccessService.stub(:call, { success: true }) do
-      post "/callback/verify_email_success", params: {
-        email: "test@example.com",
-        cart_token: "ct_52blT6sVvSo4Ck2ygrKyW2",
+      post "/callbacks/verify_email_success", params: {
         cart: @cart_data,
       }
 

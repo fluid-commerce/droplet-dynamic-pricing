@@ -3,297 +3,151 @@ require "test_helper"
 class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
   fixtures(:companies)
 
-  def test_returns_failure_when_email_is_blank
+  TEST_PREFERRED_TYPE = "preferred_customer"
+
+  def test_returns_failure_when_email_is_missing_in_cart
     company = companies(:acme)
-    cart_token = "ct_52blT6sVvSo4Ck2ygrKyW2"
-    cart_payload = build_cart_payload(company:, cart_token:)
+    cart_payload = build_cart_payload(company: company, cart_token: "ct_123", email: nil)
+    params = { cart: cart_payload }
 
-    params = {
-      email: nil,
-      cart_token: cart_token,
-      "cart" => cart_payload,
-    }
+    result = Callbacks::VerifyEmailSuccessService.call(params)
 
-    verification_result = Callbacks::VerifyEmailSuccessService.call(params)
-
-    assert_equal(false, verification_result[:success])
-    assert_equal("Missing email or cart_token", verification_result[:message])
+    assert_equal false, result[:success]
+    assert_equal "Missing email", result[:message]
   end
 
-  def test_returns_failure_when_cart_token_is_blank
+  def test_returns_success_with_message_when_customer_not_found
     company = companies(:acme)
-    email_address = "test@example.com"
-    cart_payload = build_cart_payload(company:, cart_token: nil)
+    email = "unknown@example.com"
+    cart_payload = build_cart_payload(company: company, cart_token: "ct_123", email: email)
+    params = { cart: cart_payload }
 
-    params = {
-      email: email_address,
-      cart_token: nil,
-      "cart" => cart_payload,
-    }
+    fake_client = stubbed_fluid_client(customers_response: [])
 
-    verification_result = Callbacks::VerifyEmailSuccessService.call(params)
+    service = Callbacks::VerifyEmailSuccessService.new(params)
+    service.define_singleton_method(:fluid_client) { fake_client }
 
-    assert_equal(false, verification_result[:success])
-    assert_equal("Missing email or cart_token", verification_result[:message])
+    result = service.call
+
+    assert_equal true, result[:success], "Falló con error: #{result[:error]}"
+    assert_equal "Customer not found for #{email}", result[:message]
   end
 
-  def test_returns_success_when_customer_is_not_found
+  def test_returns_success_when_email_match_is_not_exact
     company = companies(:acme)
-    email_address = "test@example.com"
-    cart_token = "ct_52blT6sVvSo4Ck2ygrKyW2"
-    cart_payload = build_cart_payload(company:, cart_token:)
-    params = {
-      email: email_address,
-      cart_token: cart_token,
-      "cart" => cart_payload,
-    }
+    target_email = "john@example.com"
+    similar_email = "john.doe@example.com"
 
-    with_fluid_client(stubbed_fluid_client(customers_response: [])) do
-      verification_result = Callbacks::VerifyEmailSuccessService.call(params)
+    cart_payload = build_cart_payload(company: company, cart_token: "ct_123", email: target_email)
+    params = { cart: cart_payload }
 
-      assert_equal(true, verification_result[:success])
-      assert_equal("Customer not found for email #{email_address}", verification_result[:message])
-    end
+    customer_response = [ { "id" => 1, "email" => similar_email } ]
+    fake_client = stubbed_fluid_client(customers_response: customer_response)
+
+    service = Callbacks::VerifyEmailSuccessService.new(params)
+    service.define_singleton_method(:fluid_client) { fake_client }
+
+    result = service.call
+
+    assert_equal true, result[:success]
+    assert_equal "Customer not found for #{target_email}", result[:message]
   end
 
-  def test_returns_success_when_customer_type_is_blank
+  def test_returns_success_with_message_when_customer_id_is_missing
     company = companies(:acme)
-    email_address = "test@example.com"
-    cart_token = "ct_52blT6sVvSo4Ck2ygrKyW2"
-    cart_payload = build_cart_payload(company:, cart_token:)
-    params = {
-      email: email_address,
-      cart_token: cart_token,
-      "cart" => cart_payload,
-    }
+    email = "test@example.com"
+    cart_payload = build_cart_payload(company: company, cart_token: "ct_123", email: email)
+    params = { cart: cart_payload }
 
-    customer_response = [
-      {
-        "id" => 123,
-        "email" => email_address,
-      },
-    ]
+    customer_response = [ { "email" => email, "id" => nil } ]
+    fake_client = stubbed_fluid_client(customers_response: customer_response)
 
-    # No customer_type metafield (nil)
-    with_fluid_client(stubbed_fluid_client(customers_response: customer_response, customer_type_metafield: nil)) do
-      verification_result = Callbacks::VerifyEmailSuccessService.call(params)
+    service = Callbacks::VerifyEmailSuccessService.new(params)
+    service.define_singleton_method(:fluid_client) { fake_client }
 
-      assert_equal(true, verification_result[:success])
-      assert_equal("Customer type is not set", verification_result[:message])
-    end
+    result = service.call
+    assert_equal true, result[:success]
+    assert_equal "Customer ID missing for #{email}", result[:message]
+  end
+
+  def test_returns_success_with_message_when_customer_type_metafield_is_missing
+    company = companies(:acme)
+    email = "test@example.com"
+    cart_payload = build_cart_payload(company: company, cart_token: "ct_123", email: email)
+    params = { cart: cart_payload }
+
+    customer_response = [ { "id" => 999, "email" => email } ]
+    fake_client = stubbed_fluid_client(
+      customers_response: customer_response,
+      customer_type_metafield: nil
+    )
+
+    service = Callbacks::VerifyEmailSuccessService.new(params)
+    service.define_singleton_method(:fluid_client) { fake_client }
+
+    result = service.call
+    assert_equal true, result[:success]
+    assert_equal "Customer type not set for #{email}", result[:message]
   end
 
   def test_updates_cart_metadata_when_customer_is_preferred
     company = companies(:acme)
-    email_address = "test@example.com"
-    cart_token = "ct_52blT6sVvSo4Ck2ygrKyW2"
-    cart_payload = build_cart_payload(company:, cart_token:)
-    params = {
-      email: email_address,
-      cart_token: cart_token,
-      "cart" => cart_payload,
-    }
+    email = "vip@example.com"
+    cart_token = "ct_vip_123"
+    cart_payload = build_cart_payload(company: company, cart_token: cart_token, email: email)
+    params = { cart: cart_payload }
 
-    customer_response = [
-      {
-        "id" => 123,
-        "email" => email_address,
-      },
-    ]
+    customer_response = [ { "id" => 888, "email" => email } ]
 
-    customer_type_metafield = {
+    metafield = {
       "key" => "customer_type",
-      "value" => {
-        "customer_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE,
-      },
-      "value_type" => "json",
+      "value" => { "customer_type" => TEST_PREFERRED_TYPE },
     }
 
     fake_client = stubbed_fluid_client(
       customers_response: customer_response,
-      customer_type_metafield: customer_type_metafield
+      customer_type_metafield: metafield
     )
 
-    with_fluid_client(fake_client) do
-      verification_result = Callbacks::VerifyEmailSuccessService.call(params)
+    service = Callbacks::VerifyEmailSuccessService.new(params)
+    service.define_singleton_method(:fluid_client) { fake_client }
 
-      assert_equal(true, verification_result[:success])
-      assert_includes(verification_result[:message], "Email verification successful")
-    end
+    result = service.call
 
-    expected_metadata = { "price_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE }
-    assert_equal([ [ cart_token, expected_metadata ] ], fake_client.metadata_updates)
+    assert_equal true, result[:success]
+    expected_update = { "price_type" => TEST_PREFERRED_TYPE }
+    assert_equal [ [ cart_token, expected_update ] ], fake_client.metadata_updates
   end
 
-  def test_does_not_update_cart_metadata_when_customer_is_not_preferred
+  def test_does_not_update_metadata_when_customer_is_regular
     company = companies(:acme)
-    email_address = "test@example.com"
-    cart_token = "ct_52blT6sVvSo4Ck2ygrKyW2"
-    cart_payload = build_cart_payload(company:, cart_token:)
-    params = {
-      email: email_address,
-      cart_token: cart_token,
-      "cart" => cart_payload,
-    }
+    email = "regular@example.com"
+    cart_token = "ct_reg_123"
+    cart_payload = build_cart_payload(company: company, cart_token: cart_token, email: email)
+    params = { cart: cart_payload }
 
-    customer_response = [
-      {
-        "id" => 123,
-        "email" => email_address,
-      },
-    ]
+    customer_response = [ { "id" => 777, "email" => email } ]
 
-    customer_type_metafield = {
+    metafield = {
       "key" => "customer_type",
-      "value" => {
-        "customer_type" => "regular_customer",
-      },
-      "value_type" => "json",
+      "value" => { "customer_type" => "regular" },
     }
 
     fake_client = stubbed_fluid_client(
       customers_response: customer_response,
-      customer_type_metafield: customer_type_metafield
+      customer_type_metafield: metafield
     )
 
-    with_fluid_client(fake_client) do
-      verification_result = Callbacks::VerifyEmailSuccessService.call(params)
+    service = Callbacks::VerifyEmailSuccessService.new(params)
+    service.define_singleton_method(:fluid_client) { fake_client }
 
-      assert_equal(true, verification_result[:success])
-      assert_includes(verification_result[:message], "Email verification successful")
-    end
-
-    assert_equal([], fake_client.metadata_updates)
+    result = service.call
+    assert_equal true, result[:success]
+    assert_empty fake_client.metadata_updates
   end
-
-  def test_uses_cart_token_from_cart_payload_when_not_passed_explicitly
-    company = companies(:acme)
-    email_address = "test@example.com"
-    cart_token = "ct_52blT6sVvSo4Ck2ygrKyW2"
-    cart_payload = build_cart_payload(company:, cart_token:)
-    params = {
-      "email" => email_address,
-      "cart" => cart_payload,
-    }
-
-    customer_response = [
-      {
-        "id" => 123,
-        "email" => email_address,
-      },
-    ]
-
-    customer_type_metafield = {
-      "key" => "customer_type",
-      "value" => {
-        "customer_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE,
-      },
-      "value_type" => "json",
-    }
-
-    fake_client = stubbed_fluid_client(
-      customers_response: customer_response,
-      customer_type_metafield: customer_type_metafield
-    )
-
-    with_fluid_client(fake_client) do
-      verification_result = Callbacks::VerifyEmailSuccessService.call(params)
-
-      assert_equal(true, verification_result[:success])
-      assert_includes(verification_result[:message], "Email verification successful")
-    end
-
-    assert_equal(cart_token, fake_client.metadata_updates.dig(0, 0))
-  end
-
-  def test_supports_string_keys_for_email_and_cart_token
-    company = companies(:acme)
-    email_address = "test@example.com"
-    cart_token = "ct_52blT6sVvSo4Ck2ygrKyW2"
-    cart_payload = build_cart_payload(company:, cart_token:)
-    params = {
-      "email" => email_address,
-      "cart_token" => cart_token,
-      "cart" => cart_payload,
-    }
-
-    customer_response = [
-      {
-        "id" => 123,
-        "email" => email_address,
-      },
-    ]
-
-    customer_type_metafield = {
-      "key" => "customer_type",
-      "value" => {
-        "customer_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE,
-      },
-      "value_type" => "json",
-    }
-
-    fake_client = stubbed_fluid_client(
-      customers_response: customer_response,
-      customer_type_metafield: customer_type_metafield
-    )
-
-    with_fluid_client(fake_client) do
-      verification_result = Callbacks::VerifyEmailSuccessService.call(params)
-
-      assert_equal(true, verification_result[:success])
-      assert_includes(verification_result[:message], "Email verification successful")
-    end
-
-    expected_metadata = { "price_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE }
-    assert_equal([ [ cart_token, expected_metadata ] ], fake_client.metadata_updates)
-  end
-
-  def test_handles_symbol_keys_in_customer_metadata
-    company = companies(:acme)
-    email_address = "test@example.com"
-    cart_token = "ct_52blT6sVvSo4Ck2ygrKyW2"
-    cart_payload = build_cart_payload(company:, cart_token:)
-    params = {
-      email: email_address,
-      cart_token: cart_token,
-      "cart" => cart_payload,
-    }
-
-    customer_response = [
-      {
-        "id" => 123,
-        "email" => email_address,
-      },
-    ]
-
-    customer_type_metafield = {
-      "key" => "customer_type",
-      "value" => {
-        "customer_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE,
-      },
-      "value_type" => "json",
-    }
-
-    fake_client = stubbed_fluid_client(
-      customers_response: customer_response,
-      customer_type_metafield: customer_type_metafield
-    )
-
-    with_fluid_client(fake_client) do
-      verification_result = Callbacks::VerifyEmailSuccessService.call(params)
-
-      assert_equal(true, verification_result[:success])
-      assert_includes(verification_result[:message], "Email verification successful")
-    end
-
-    assert_equal(1, fake_client.metadata_updates.length)
-  end
-
-private
-
-  def build_cart_payload(company:, cart_token:)
-    {
-      "id" => 265_327,
+  def build_cart_payload(company:, cart_token:, email:)
+    payload = {
+      "id" => 12345,
       "cart_token" => cart_token,
       "company" => {
         "id" => company.fluid_company_id,
@@ -301,69 +155,92 @@ private
         "subdomain" => "test",
       },
     }
+    payload["email"] = email unless email.nil?
+    payload
   end
 
-  def stubbed_fluid_client(customers_response:, customer_type_metafield: nil, get_error: nil, append_error: nil)
+
+  def stubbed_fluid_client(customers_response: [], customer_type_metafield: nil, get_error: nil)
     StubFluidClient.new(
       customers_response: customers_response,
       customer_type_metafield: customer_type_metafield,
-      get_error: get_error,
-      append_error: append_error,
+      get_error: get_error
     )
   end
 
-  def with_fluid_client(fake_client)
-    FluidClient.stub(:new, ->(_token) { fake_client }) do
-      yield fake_client
+  class StubCustomersResource
+    def initialize(customers_response:, get_error:)
+      @customers_response = customers_response
+      @get_error = get_error
+    end
+
+    def get(params = {})
+      raise @get_error if @get_error
+      { "customers" => @customers_response }
+    end
+  end
+
+  class StubMetafieldsResource
+    def initialize(customer_type_metafield:, get_error:)
+      @customer_type_metafield = customer_type_metafield
+      @get_error = get_error
+    end
+
+    def get_by_key(resource_type:, resource_id:, key:)
+      raise @get_error if @get_error
+      return nil if @customer_type_metafield.nil?
+
+      if key.to_s == "customer_type"
+        @customer_type_metafield
+      else
+        nil
+      end
+    end
+  end
+
+  class StubCartsResource
+    attr_reader :metadata_updates
+
+    def initialize
+      @metadata_updates = []
+    end
+
+    def append_metadata(cart_token, metadata)
+      @metadata_updates << [ cart_token, metadata ]
+      { "success" => true }
     end
   end
 
   class StubFluidClient
-    attr_reader :metadata_updates, :requested_paths
+    attr_reader :metadata_updates
 
-    def initialize(customers_response:, customer_type_metafield:, get_error:, append_error:)
-      @customers_response = customers_response
-      @customer_type_metafield = customer_type_metafield
-      @get_error = get_error
-      @append_error = append_error
-      @metadata_updates = []
-      @requested_paths = []
+    def initialize(customers_response:, customer_type_metafield:, get_error:)
+      @customers_resource = StubCustomersResource.new(
+        customers_response: customers_response,
+        get_error: get_error
+      )
+      @metafields_resource = StubMetafieldsResource.new(
+        customer_type_metafield: customer_type_metafield,
+        get_error: get_error
+      )
+      @carts_resource = StubCartsResource.new
+      @metadata_updates = @carts_resource.metadata_updates
     end
 
     def blank?
       false
     end
 
-    def get(path)
-      raise @get_error if @get_error
-
-      @requested_paths << path
-      if path.include?("/api/v2/metafields")
-        { "metafields" => @customer_type_metafield ? [ @customer_type_metafield ] : [] }
-      else
-        { "customers" => @customers_response }
-      end
-    end
-
-    def carts
-      self
+    def customers
+      @customers_resource
     end
 
     def metafields
-      self
+      @metafields_resource
     end
 
-    def get_by_key(resource_type:, resource_id:, key:, **)
-      return nil if @customer_type_metafield.blank?
-
-      @customer_type_metafield if @customer_type_metafield["key"] == key.to_s
-    end
-
-    def append_metadata(cart_token, metadata)
-      raise @append_error if @append_error
-
-      @metadata_updates << [ cart_token, metadata ]
-      {}
+    def carts
+      @carts_resource
     end
   end
 end

@@ -21,6 +21,10 @@ private
     @cart ||= callback_params[:cart]
   end
 
+  def customer_email
+    @customer_email ||= cart&.dig("email")
+  end
+
   def cart_token
     @cart_token ||= cart&.dig("cart_token")
   end
