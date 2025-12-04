@@ -32,30 +32,4 @@ private
 
     has_subscriptions?(customer_id)
   end
-
-  def has_subscriptions?(customer_id)
-    has_active = has_active_subscriptions?(customer_id)
-    has_another = has_another_subscription_in_cart?(customer_id)
-
-    has_active || has_another
-  end
-
-  def has_another_subscription_in_cart?(_customer_id)
-    active_subscription_count = cart_items.count { |item| item["subscription"] == true }
-
-    active_subscription_count >= 1
-  end
-
-  def get_customer_id_by_email(email)
-    return nil if email.blank?
-
-    client = fluid_client
-    response = client.customers.get(email: email)
-    customers = response["customers"] || []
-
-    customers.any? ? customers.first["id"] : nil
-  rescue StandardError => e
-    Rails.logger.error "Failed to get customer ID by email #{email}: #{e.message}"
-    nil
-  end
 end

@@ -3,6 +3,8 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
     raise CallbackError, "Cart is blank" if cart.blank?
     raise CallbackError, "Missing email" if customer_email.blank?
 
+    clean_cart_metadata_before_update
+
     customer_type_result = fetch_and_validate_customer_type(customer_email)
 
     return customer_type_result unless customer_type_result[:success] && customer_type_result[:customer_type]
@@ -10,6 +12,8 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
     if customer_type_result[:customer_type] == PREFERRED_CUSTOMER_TYPE
       update_result = update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
       return update_result if update_result.is_a?(Hash) && update_result[:success] == false
+
+      update_cart_items_prices(cart_items_with_subscription_price) if cart_items.any?
     end
 
     result_success
@@ -18,6 +22,44 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
   end
 
 private
+
+  def clean_cart_metadata_before_update
+    return if cart.dig("metadata", "price_type").nil?
+
+    if has_another_subscription_in_cart?(nil)
+      return
+    end
+
+    customer_data = fetch_customer_by_email(customer_email)
+    unless customer_data[:success]
+      clean_cart_metadata
+      return
+    end
+
+    if customer_data[:data].blank?
+      clean_cart_metadata
+      return
+    end
+
+    customer_id = customer_data[:data]["id"] || customer_data[:data][:id]
+    if customer_id.blank?
+      clean_cart_metadata
+      return
+    end
+
+    if has_subscriptions?(customer_id)
+      return
+    end
+
+    clean_cart_metadata
+  end
+
+  def clean_cart_metadata
+    update_result = update_cart_metadata({ "price_type" => nil })
+    return if update_result.is_a?(Hash) && update_result[:success] == false
+
+    update_cart_items_prices(cart_items_with_regular_price) if cart_items.any?
+  end
 
   def fetch_and_validate_customer_type(email)
     customer_result = fetch_customer_by_email(email)

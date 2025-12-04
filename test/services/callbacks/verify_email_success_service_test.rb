@@ -19,7 +19,14 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
   def test_returns_success_with_message_when_customer_not_found
     company = companies(:acme)
     email = "unknown@example.com"
-    cart_payload = build_cart_payload(company: company, cart_token: "ct_123", email: email)
+    cart_token = "ct_123"
+    cart_payload = build_cart_payload(
+      company: company,
+      cart_token: cart_token,
+      email: email,
+      items: [ { "id" => 1, "price" => "100.0" } ],
+      metadata: { "price_type" => "preferred_customer" }
+    )
     params = { cart: cart_payload }
 
     fake_client = stubbed_fluid_client(customers_response: [])
@@ -31,6 +38,38 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
 
     assert_equal true, result[:success], "Falló con error: #{result[:error]}"
     assert_equal "Customer not found for #{email}", result[:message]
+    expected_updates = [
+      [ cart_token, { "price_type" => nil } ],
+    ]
+    assert_equal expected_updates, fake_client.metadata_updates
+    assert_equal 1, fake_client.items_prices_updates.size
+  end
+
+  def test_does_not_clean_metadata_when_customer_not_found_but_has_subscription_in_cart
+    company = companies(:acme)
+    email = "unknown@example.com"
+    cart_token = "ct_123"
+    cart_payload = build_cart_payload(
+      company: company,
+      cart_token: cart_token,
+      email: email,
+      items: [ { "id" => 1, "price" => "100.0", "subscription" => true } ],
+      metadata: { "price_type" => "preferred_customer" }
+    )
+    params = { cart: cart_payload }
+
+    fake_client = stubbed_fluid_client(customers_response: [])
+
+    service = Callbacks::VerifyEmailSuccessService.new(params)
+    service.define_singleton_method(:fluid_client) { fake_client }
+
+    result = service.call
+
+    assert_equal true, result[:success]
+    assert_equal "Customer not found for #{email}", result[:message]
+    # Should NOT clean metadata when there's a subscription in cart
+    assert_empty fake_client.metadata_updates
+    assert_empty fake_client.items_prices_updates
   end
 
   def test_returns_success_when_email_match_is_not_exact
@@ -94,7 +133,13 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     company = companies(:acme)
     email = "vip@example.com"
     cart_token = "ct_vip_123"
-    cart_payload = build_cart_payload(company: company, cart_token: cart_token, email: email)
+    cart_payload = build_cart_payload(
+      company: company,
+      cart_token: cart_token,
+      email: email,
+      items: [ { "id" => 1, "price" => "100.0", "subscription_price" => "90.0" } ],
+      metadata: { "price_type" => "preferred_customer" }
+    )
     params = { cart: cart_payload }
 
     customer_response = [ { "id" => 888, "email" => email } ]
@@ -115,15 +160,25 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     result = service.call
 
     assert_equal true, result[:success]
-    expected_update = { "price_type" => TEST_PREFERRED_TYPE }
-    assert_equal [ [ cart_token, expected_update ] ], fake_client.metadata_updates
+    expected_updates = [
+      [ cart_token, { "price_type" => nil } ],
+      [ cart_token, { "price_type" => TEST_PREFERRED_TYPE } ],
+    ]
+    assert_equal expected_updates, fake_client.metadata_updates
+    assert_equal 2, fake_client.items_prices_updates.size
   end
 
   def test_does_not_update_metadata_when_customer_is_regular
     company = companies(:acme)
     email = "regular@example.com"
     cart_token = "ct_reg_123"
-    cart_payload = build_cart_payload(company: company, cart_token: cart_token, email: email)
+    cart_payload = build_cart_payload(
+      company: company,
+      cart_token: cart_token,
+      email: email,
+      items: [ { "id" => 1, "price" => "100.0" } ],
+      metadata: { "price_type" => "preferred_customer" }
+    )
     params = { cart: cart_payload }
 
     customer_response = [ { "id" => 777, "email" => email } ]
@@ -143,9 +198,39 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
 
     result = service.call
     assert_equal true, result[:success]
-    assert_empty fake_client.metadata_updates
+    expected_updates = [
+      [ cart_token, { "price_type" => nil } ],
+    ]
+    assert_equal expected_updates, fake_client.metadata_updates
+    assert_equal 1, fake_client.items_prices_updates.size
   end
-  def build_cart_payload(company:, cart_token:, email:)
+
+  def test_does_not_clean_metadata_when_price_type_already_nil
+    company = companies(:acme)
+    email = "test@example.com"
+    cart_token = "ct_123"
+    cart_payload = build_cart_payload(
+      company: company,
+      cart_token: cart_token,
+      email: email,
+      items: [ { "id" => 1, "price" => "100.0" } ],
+      metadata: { "price_type" => nil }
+    )
+    params = { cart: cart_payload }
+
+    fake_client = stubbed_fluid_client(customers_response: [])
+
+    service = Callbacks::VerifyEmailSuccessService.new(params)
+    service.define_singleton_method(:fluid_client) { fake_client }
+
+    result = service.call
+
+    assert_equal true, result[:success]
+    # Should not update metadata if already nil
+    assert_empty fake_client.metadata_updates
+    assert_empty fake_client.items_prices_updates
+  end
+  def build_cart_payload(company:, cart_token:, email:, items: [], metadata: {})
     payload = {
       "id" => 12345,
       "cart_token" => cart_token,
@@ -156,6 +241,8 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
       },
     }
     payload["email"] = email unless email.nil?
+    payload["items"] = items if items.any?
+    payload["metadata"] = metadata if metadata.any?
     payload
   end
 
@@ -199,20 +286,26 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
   end
 
   class StubCartsResource
-    attr_reader :metadata_updates
+    attr_reader :metadata_updates, :items_prices_updates
 
     def initialize
       @metadata_updates = []
+      @items_prices_updates = []
     end
 
     def append_metadata(cart_token, metadata)
       @metadata_updates << [ cart_token, metadata ]
       { "success" => true }
     end
+
+    def update_items_prices(cart_token, items_data)
+      @items_prices_updates << { token: cart_token, items: items_data }
+      { "success" => true }
+    end
   end
 
   class StubFluidClient
-    attr_reader :metadata_updates
+    attr_reader :metadata_updates, :items_prices_updates
 
     def initialize(customers_response:, customer_type_metafield:, get_error:)
       @customers_resource = StubCustomersResource.new(
@@ -225,6 +318,7 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
       )
       @carts_resource = StubCartsResource.new
       @metadata_updates = @carts_resource.metadata_updates
+      @items_prices_updates = @carts_resource.items_prices_updates
     end
 
     def blank?
