@@ -1,67 +1,45 @@
 class Callbacks::CartItemAddedService < Callbacks::BaseService
   def call
-    params = normalize_params
-    cart, cart_item = extract_cart_and_item(params)
-
-    return log_and_return("Cart or cart_item data is missing", success: false) if cart.blank? || cart_item.blank?
+    raise CallbackError, "Cart is blank" if cart.blank?
+    raise CallbackError, "Cart item is blank" if cart_item.blank?
 
     price_type = cart.dig("metadata", "price_type")
-    return log_and_return("Cart does not have preferred_customer pricing") unless price_type == PREFERRED_CUSTOMER_TYPE
-
-    cart_token = cart["cart_token"]
-    if cart_token.blank?
-      Rails.logger.warn "Skipping cart update: missing cart_token for cart payload: #{cart.inspect}"
-      return log_and_return("Cart token is missing, skipping update", success: true)
+    if !(price_type == PREFERRED_CUSTOMER_TYPE)
+      return { success: true, message: "Cart does not have preferred_customer pricing" }
     end
 
-    update_result = update_item_to_subscription_price(cart_token, cart_item)
-    return update_result if update_result[:success] == false
+    update_item_to_subscription_price
 
-
-    log_and_return("Cart item updated to subscription price successfully", success: true)
+    { success: true, message: "Cart item updated to subscription price successfully" }
+  rescue CallbackError => e
+    handle_callback_error(e)
+  rescue StandardError => e
+    Rails.logger.error "Unexpected error in CartItemAddedService: #{e.message}"
+    Rails.logger.error e.backtrace.join("\n")
+    { success: false, error: "unexpected_error", message: "An unexpected error occurred" }
   end
 
 private
 
-  def normalize_params
-    @callback_params.with_indifferent_access
+  def cart_item
+    @cart_item ||= callback_params[:cart_item]
   end
 
-  def extract_cart_and_item(params)
-    cart = params["cart"]
-    cart_item = params["cart_item"]
-    [ cart, cart_item ]
-  end
-
-  def update_item_to_subscription_price(cart_token, cart_item)
+  def update_item_to_subscription_price
     item_id = cart_item["id"]
-    if item_id.blank?
-      Rails.logger.error "Cannot update item price: missing item ID for cart #{cart_token}. Item: #{cart_item.inspect}"
-      return { success: false, error: "missing_item_id", message: "Item ID is required" }
-    end
+    raise CallbackError, "Item ID is required" if item_id.blank?
 
     subscription_price = cart_item["subscription_price"]
     regular_price = cart_item["price"]
     final_price = subscription_price || regular_price
 
-    if final_price.blank?
-      Rails.logger.error "Cannot update item price: no price available for item #{item_id}
-                                        in cart #{cart_token}. Item: #{cart_item.inspect}"
-
-      return { success: false, error: "missing_item_price", message: "Item price is required" }
-    end
+    raise CallbackError, "Item price is not present in cart item" if final_price.blank?
 
     item_data = [ {
       "id" => item_id,
       "price" => final_price,
     } ]
 
-    update_cart_items_prices(cart_token, item_data)
-
-    { success: true }
-  rescue StandardError => e
-    Rails.logger.error "Failed to update item prices for cart #{cart_token}: #{e.message}"
-    Rails.logger.error e.backtrace.join("\n")
-    { success: false, error: "item_price_update_failed", message: "Unable to update item prices" }
+    update_cart_items_prices(item_data)
   end
 end

@@ -50,18 +50,6 @@ private
 
     FluidClient.new(company.authentication_token)
   end
-
-  def log_and_return(log_message, success: true, message: nil, error: nil)
-    service_name = self.class.name.demodulize
-    Rails.logger.debug "[#{service_name}] #{log_message}"
-
-    result = { success: success }
-    result[:message] = message || log_message
-    result[:error] = error if error
-
-    result
-  end
-
   def find_company
     company_data = callback_params.dig("cart", "company")
     raise CallbackError, "Company data is blank" if company_data.blank?

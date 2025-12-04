@@ -45,7 +45,7 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     result = service.call
 
     assert_equal false, result[:success]
-    assert_equal "Cart or cart_item data is missing", result[:message]
+    assert_equal "Cart is blank", result[:message]
   end
 
   test "call returns failure when cart_item is blank" do
@@ -53,7 +53,7 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     result = service.call
 
     assert_equal false, result[:success]
-    assert_equal "Cart or cart_item data is missing", result[:message]
+    assert_equal "Cart item is blank", result[:message]
   end
 
   test "call returns success when price_type is not preferred_customer" do
@@ -84,50 +84,39 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     assert_equal "Cart does not have preferred_customer pricing", result[:message]
   end
 
-  test "call returns success when cart_token is blank" do
-    cart_without_token = @cart_data.dup
-    cart_without_token["cart_token"] = nil
+  test "call processes cart_item_added successfully when price_type is preferred_customer" do
+    fake_carts = FakeCartsResource.new
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
 
-    service = Callbacks::CartItemAddedService.new({
-      cart: cart_without_token,
-      cart_item: @cart_item,
-    })
+    service = Callbacks::CartItemAddedService.new(@callback_params)
+    service.define_singleton_method(:fluid_client) { mock_client }
+
     result = service.call
 
     assert_equal true, result[:success]
-    assert_equal "Cart token is missing, skipping update", result[:message]
-  end
-
-  test "call processes cart_item_added successfully when price_type is preferred_customer" do
-    service = Callbacks::CartItemAddedService.new(@callback_params)
-
-    service.stub(:update_cart_items_prices, true) do
-      result = service.call
-
-      assert_equal true, result[:success]
-      assert_includes result[:message], "Cart item updated to subscription price successfully"
-    end
+    assert_includes result[:message], "Cart item updated to subscription price successfully"
+    assert_equal 1, fake_carts.items_prices_calls.size
   end
 
   test "updates cart items prices with subscription_price when available" do
+    fake_carts = FakeCartsResource.new
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+
     service = Callbacks::CartItemAddedService.new(@callback_params)
-    prices_called = false
-    expected_item_data = [
-      {
-        "id" => @cart_item["id"],
-        "price" => @cart_item["subscription_price"],
-      },
-    ]
+    service.define_singleton_method(:fluid_client) { mock_client }
 
-    service.stub(:update_cart_items_prices, ->(cart_token, items_data) {
-      prices_called = true
-      assert_equal @cart_data["cart_token"], cart_token
-      assert_equal expected_item_data, items_data
-    }) do
-      service.call
-    end
+    service.call
 
-    assert prices_called, "update_cart_items_prices should have been called"
+    assert_equal 1, fake_carts.items_prices_calls.size
+    call = fake_carts.items_prices_calls.first
+    assert_equal @cart_data["cart_token"], call[:token]
+    expected_item_data = [{
+      "id" => @cart_item["id"],
+      "price" => @cart_item["subscription_price"],
+    }]
+    assert_equal expected_item_data, call[:items]
   end
 
   test "updates cart items prices with regular price when subscription_price is not available" do
@@ -136,27 +125,26 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
       "price" => "50.0",
     }
 
+    fake_carts = FakeCartsResource.new
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+
     service = Callbacks::CartItemAddedService.new({
       cart: @cart_data,
       cart_item: cart_item_without_subscription,
     })
-    prices_called = false
-    expected_item_data = [
-      {
-        "id" => cart_item_without_subscription["id"],
-        "price" => cart_item_without_subscription["price"],
-      },
-    ]
+    service.define_singleton_method(:fluid_client) { mock_client }
 
-    service.stub(:update_cart_items_prices, ->(cart_token, items_data) {
-      prices_called = true
-      assert_equal @cart_data["cart_token"], cart_token
-      assert_equal expected_item_data, items_data
-    }) do
-      service.call
-    end
+    service.call
 
-    assert prices_called, "update_cart_items_prices should have been called"
+    assert_equal 1, fake_carts.items_prices_calls.size
+    call = fake_carts.items_prices_calls.first
+    assert_equal @cart_data["cart_token"], call[:token]
+    expected_item_data = [{
+      "id" => cart_item_without_subscription["id"],
+      "price" => cart_item_without_subscription["price"],
+    }]
+    assert_equal expected_item_data, call[:items]
   end
 
   test "returns error if item ID is missing during price update" do
@@ -170,7 +158,6 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
 
     result = service.call
     assert_equal false, result[:success]
-    assert_equal "missing_item_id", result[:error]
     assert_equal "Item ID is required", result[:message]
   end
 
@@ -186,8 +173,7 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
 
     result = service.call
     assert_equal false, result[:success]
-    assert_equal "missing_item_price", result[:error]
-    assert_equal "Item price is required", result[:message]
+    assert_equal "Item price is not present in cart item", result[:message]
   end
 
   test "class method call works" do
@@ -203,19 +189,47 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     service_instance.verify
   end
 
-  test "handles mixed key types with indifferent access" do
-    mixed_params = {
-      "cart" => @cart_data,
-      :cart_item => @cart_item,
+  test "handles parameters with consistent key types" do
+    consistent_params = {
+      cart: @cart_data,
+      cart_item: @cart_item,
     }
 
-    service = Callbacks::CartItemAddedService.new(mixed_params)
+    fake_carts = FakeCartsResource.new
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
 
-    service.stub(:update_cart_items_prices, true) do
+    service = Callbacks::CartItemAddedService.new(consistent_params)
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    result = service.call
+
+    assert_equal true, result[:success]
+    assert_includes result[:message], "Cart item updated to subscription price successfully"
+  end
+
+  test "handles StandardError gracefully" do
+    service = Callbacks::CartItemAddedService.new(@callback_params)
+
+    service.stub(:update_item_to_subscription_price, -> { raise StandardError.new("Network error") }) do
       result = service.call
 
-      assert_equal true, result[:success]
-      assert_includes result[:message], "Cart item updated to subscription price successfully"
+      assert_equal false, result[:success]
+      assert_equal "unexpected_error", result[:error]
+      assert_equal "An unexpected error occurred", result[:message]
     end
+  end
+end
+
+class FakeCartsResource
+  attr_reader :items_prices_calls
+
+  def initialize
+    @items_prices_calls = []
+  end
+
+  def update_items_prices(token, items)
+    @items_prices_calls << { token: token, items: items }
+    { "success" => true }
   end
 end
