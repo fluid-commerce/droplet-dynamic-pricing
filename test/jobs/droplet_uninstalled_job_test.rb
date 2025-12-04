@@ -187,4 +187,160 @@ describe DropletUninstalledJob do
       assert_equal company.authentication_token, captured_token
     end
   end
+
+  describe "#deactivate_callbacks_from_routes" do
+    it "deactivates callbacks from callback routes" do
+      # Create active callbacks
+      callback1 = ::Callback.create!(
+        name: "cart_subscription_added",
+        description: "Test callback 1",
+        url: "https://example.com/callback1",
+        timeout_in_seconds: 10,
+        active: true
+      )
+
+      callback2 = ::Callback.create!(
+        name: "cart_item_added",
+        description: "Test callback 2",
+        url: "https://example.com/callback2",
+        timeout_in_seconds: 10,
+        active: true
+      )
+
+      job = DropletUninstalledJob.new
+      job.instance_variable_set(:@payload, {})
+
+      job.send(:deactivate_callbacks_from_routes)
+
+      callback1.reload
+      callback2.reload
+      _(callback1).wont_be :active?
+      _(callback2).wont_be :active?
+    end
+
+    it "handles missing callbacks gracefully" do
+      # Ensure no callbacks exist
+      ::Callback.delete_all
+
+      job = DropletUninstalledJob.new
+      job.instance_variable_set(:@payload, {})
+
+      # Should not raise error
+      _(-> { job.send(:deactivate_callbacks_from_routes) }).must_be_silent
+    end
+
+    it "re-raises errors after logging" do
+      job = DropletUninstalledJob.new
+      job.instance_variable_set(:@payload, {})
+
+      Rails.application.routes.stub :routes, -> { raise NoMethodError.new("test error") } do
+        error = _(-> { job.send(:deactivate_callbacks_from_routes) }).must_raise NoMethodError
+        _(error.message).must_equal "test error"
+      end
+    end
+  end
+
+  describe "#delete_installed_callbacks" do
+    it "continues with next callback when FluidClient::Error occurs" do
+      company = companies(:acme)
+      company.update(installed_callback_ids: %w[callback-id-1 callback-id-2])
+
+      job = DropletUninstalledJob.new
+      job.instance_variable_set(:@payload, {})
+
+      mock_client = Object.new
+      def mock_client.callback_registrations
+        @mock_registrations ||= Object.new
+        def @mock_registrations.delete(id)
+          @call_count ||= 0
+          @call_count += 1
+          if @call_count == 1
+            raise FluidClient::APIError.new("API Error")
+          else
+            true
+          end
+        end
+        @mock_registrations
+      end
+
+      FluidClient.stub :new, ->(_token) { mock_client } do
+        job.send(:delete_installed_callbacks, company)
+      end
+
+      # Verify callback IDs were cleared
+      company.reload
+      _(company.installed_callback_ids).must_be_empty
+    end
+
+    it "continues with next callback when StandardError occurs" do
+      company = companies(:acme)
+      company.update(installed_callback_ids: %w[callback-id-1 callback-id-2])
+
+      job = DropletUninstalledJob.new
+      job.instance_variable_set(:@payload, {})
+
+      mock_client = Object.new
+      def mock_client.callback_registrations
+        @mock_registrations ||= Object.new
+        def @mock_registrations.delete(id)
+          @call_count ||= 0
+          @call_count += 1
+          if @call_count == 1
+            raise NoMethodError.new("Unexpected error")
+          else
+            true
+          end
+        end
+        @mock_registrations
+      end
+
+      FluidClient.stub :new, ->(_token) { mock_client } do
+        job.send(:delete_installed_callbacks, company)
+      end
+
+      # Verify callback IDs were cleared despite first error
+      company.reload
+      _(company.installed_callback_ids).must_be_empty
+    end
+
+    it "clears installed_callback_ids after processing" do
+      company = companies(:acme)
+      company.update(installed_callback_ids: %w[callback-id-1 callback-id-2])
+
+      job = DropletUninstalledJob.new
+      job.instance_variable_set(:@payload, {})
+
+      mock_client = Object.new
+      def mock_client.callback_registrations
+        @mock_registrations ||= Object.new
+        def @mock_registrations.delete(id)
+          true
+        end
+        @mock_registrations
+      end
+
+      FluidClient.stub :new, ->(_token) { mock_client } do
+        job.send(:delete_installed_callbacks, company)
+      end
+
+      company.reload
+      _(company.installed_callback_ids).must_be_empty
+    end
+
+    it "does nothing when company has no installed callbacks" do
+      company = companies(:acme)
+      company.update(installed_callback_ids: [])
+
+      job = DropletUninstalledJob.new
+      job.instance_variable_set(:@payload, {})
+
+      # Should not call FluidClient at all
+      called = false
+      FluidClient.stub :new, ->(_token) { called = true; Minitest::Mock.new } do
+        job.send(:delete_installed_callbacks, company)
+      end
+
+      _(called).must_equal false
+    end
+  end
 end
