@@ -50,6 +50,7 @@ private
 
     FluidClient.new(company.authentication_token)
   end
+
   def find_company
     company_data = callback_params.dig("cart", "company")
     raise CallbackError, "Company data is blank" if company_data.blank?
