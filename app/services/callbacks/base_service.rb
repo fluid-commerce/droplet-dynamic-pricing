@@ -59,19 +59,14 @@ private
   end
 
   def update_cart_metadata(metadata)
-    client = fluid_client
-
-    client.carts.append_metadata(cart_token, metadata)
+    fluid_client.carts.append_metadata(cart_token, metadata)
   rescue CallbackError => e
     handle_callback_error(e)
   end
 
   def update_cart_items_prices(items_data)
     raise CallbackError, "Items data is blank" if items_data.blank?
-
-    client = fluid_client
-
-    client.carts.update_items_prices(cart_token, items_data)
+    fluid_client.carts.update_items_prices(cart_token, items_data)
   rescue StandardError => e
     Rails.logger.error "Failed to update cart items prices for cart #{cart_token}: #{e.message}"
   end
@@ -95,8 +90,7 @@ private
   end
 
   def has_active_subscriptions?(customer_id)
-    client = fluid_client
-    response = client.subscriptions.get_by_customer(customer_id, status: "active")
+    response = fluid_client.subscriptions.get_by_customer(customer_id, status: "active")
     subscriptions = response["subscriptions"] || []
     subscriptions.any?
   rescue StandardError => e

@@ -3,9 +3,8 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
     raise CallbackError, "Cart is blank" if cart.blank?
 
     customer_email = cart["email"]
-    should_keep_subscription_prices = determine_subscription_pricing_status(customer_email)
 
-    if should_keep_subscription_prices
+    if should_keep_subscription_prices(customer_email)
       update_cart_metadata({ "price_type" => "preferred_customer" })
       use_subscription_prices = true
     else
@@ -25,16 +24,16 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
 
 private
 
-  def determine_subscription_pricing_status(customer_email)
+  def should_keep_subscription_prices(customer_email)
     return false if customer_email.blank?
 
     customer_id = get_customer_id_by_email(customer_email)
     return false if customer_id.blank?
 
-    should_maintain_subscription_pricing?(customer_id)
+    has_subscriptions?(customer_id)
   end
 
-  def should_maintain_subscription_pricing?(customer_id)
+  def has_subscriptions?(customer_id)
     has_active = has_active_subscriptions?(customer_id)
     has_another = has_another_subscription_in_cart?(customer_id)
 

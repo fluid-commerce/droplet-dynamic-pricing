@@ -48,7 +48,7 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
     service.stub(:find_company, @company) do
       service.stub(:get_customer_id_by_email, 123) do
-        service.stub(:should_maintain_subscription_pricing?, false) do
+        service.stub(:has_subscriptions?, false) do
           service.stub(:update_cart_metadata, true) do
             service.stub(:update_cart_items_prices, true) do
               result = service.call
@@ -82,7 +82,7 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
     service.stub(:find_company, @company) do
       service.stub(:get_customer_id_by_email, 123) do
-        service.stub(:should_maintain_subscription_pricing?, false) do
+        service.stub(:has_subscriptions?, false) do
           service.stub(:update_cart_metadata, ->(metadata) {
             metadata_called = true
             # cart_token is now accessed via memoized method
@@ -106,7 +106,7 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
     service.stub(:find_company, @company) do
       service.stub(:get_customer_id_by_email, 123) do
-        service.stub(:should_maintain_subscription_pricing?, true) do
+        service.stub(:has_subscriptions?, true) do
           service.stub(:update_cart_metadata, ->(metadata) {
             metadata_called = true
             # cart_token is now accessed via memoized method
@@ -129,7 +129,7 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
     service.stub(:find_company, @company) do
       service.stub(:get_customer_id_by_email, 123) do
-        service.stub(:should_maintain_subscription_pricing?, false) do
+        service.stub(:has_subscriptions?, false) do
           service.stub(:update_cart_metadata, true) do
             service.stub(:update_cart_items_prices, ->(items_data) {
               prices_called_count += 1
@@ -157,7 +157,7 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
     service.stub(:find_company, @company) do
       service.stub(:get_customer_id_by_email, 123) do
-        service.stub(:should_maintain_subscription_pricing?, true) do
+        service.stub(:has_subscriptions?, true) do
           service.stub(:update_cart_metadata, true) do
             service.stub(:update_cart_items_prices, ->(items_data) {
               prices_called_count += 1
