@@ -29,20 +29,28 @@ private
     callback_routes = extract_callback_routes
 
     callback_routes.each do |route_name, _route_path|
-      route_name_str = route_name.to_s
-      definition_name = ROUTE_TO_DEFINITION_NAME[route_name_str] || route_name_str
-
-      callback = ::Callback.find_by(name: definition_name)
-      if callback.present?
-        callback.update(active: false)
-        Rails.logger.info "[DropletUninstalledJob] Deactivated callback: #{definition_name} (route: #{route_name_str})"
-      else
-        Rails.logger.warn "[DropletUninstalledJob] Callback not found for deactivation: #{definition_name}"
-      end
+      definition_name = translate_route_name(route_name)
+      deactivate_callback(definition_name, route_name)
     end
   rescue StandardError => e
     Rails.logger.error "[DropletUninstalledJob] Error deactivating callbacks from routes: #{e.message}"
     Rails.logger.error e.backtrace.join("\n")
+    raise
+  end
+
+  def translate_route_name(route_name)
+    route_name_str = route_name.to_s
+    ROUTE_TO_DEFINITION_NAME[route_name_str] || route_name_str
+  end
+
+  def deactivate_callback(definition_name, route_name)
+    callback = ::Callback.find_by(name: definition_name)
+    if callback.present?
+      callback.update(active: false)
+      Rails.logger.info "[DropletUninstalledJob] Deactivated callback: #{definition_name} (route: #{route_name})"
+    else
+      Rails.logger.warn "[DropletUninstalledJob] Callback not found for deactivation: #{definition_name}"
+    end
   end
 
   def extract_callback_routes
@@ -64,8 +72,15 @@ private
       begin
         client.callback_registrations.delete(callback_id)
         Rails.logger.info "[DropletUninstalledJob] Successfully deleted callback registration: #{callback_id}"
-      rescue => e
-        Rails.logger.error("[DropletUninstalledJob] Failed to delete callback #{callback_id}: #{e.message}")
+      rescue FluidClient::Error => e
+        Rails.logger.error(
+          "[DropletUninstalledJob] Failed to delete callback #{callback_id}: #{e.message}"
+        )
+      rescue StandardError => e
+        Rails.logger.error(
+          "[DropletUninstalledJob] Unexpected error deleting callback #{callback_id}: #{e.message}"
+        )
+        next
       end
     end
 

@@ -52,32 +52,44 @@ private
 
   def create_callbacks_from_routes
     callback_routes = extract_callback_routes
-    base_url = Setting.host_server.base_url
 
     callback_routes.each do |route_name, route_path|
-      route_name_str = route_name.to_s
-      definition_name = ROUTE_TO_DEFINITION_NAME[route_name_str] || route_name_str
-      callback_url = "#{base_url}#{route_path}"
-
-      callback = ::Callback.find_or_initialize_by(name: definition_name)
-      callback.assign_attributes(
-        description: "Callback for #{route_name_str.humanize}",
-        url: callback_url,
-        timeout_in_seconds: 20,
-        active: true
-      )
-
-      if callback.save
-        Rails.logger.info "[DropletInstalledJob] Created/updated callback: #{definition_name}
-                                            (route: #{route_name_str}) with URL: #{callback_url}"
-      else
-        Rails.logger.error "[DropletInstalledJob] Failed to create callback #{definition_name}:
-                                                    #{callback.errors.full_messages.join(', ')}"
-      end
+      definition_name = translate_route_name(route_name)
+      callback_url = build_callback_url(route_path)
+      create_or_update_callback(definition_name, callback_url, route_name)
     end
   rescue StandardError => e
     Rails.logger.error "[DropletInstalledJob] Error creating callbacks from routes: #{e.message}"
     Rails.logger.error e.backtrace.join("\n")
+    raise
+  end
+
+  def build_callback_url(route_path)
+    base_url = Setting.host_server.base_url
+    "#{base_url}#{route_path}"
+  end
+
+  def translate_route_name(route_name)
+    route_name_str = route_name.to_s
+    ROUTE_TO_DEFINITION_NAME[route_name_str] || route_name_str
+  end
+
+  def create_or_update_callback(definition_name, callback_url, route_name)
+    callback = ::Callback.find_or_initialize_by(name: definition_name)
+    callback.assign_attributes(
+      description: "Callback for #{route_name.to_s.humanize}",
+      url: callback_url,
+      timeout_in_seconds: 20,
+      active: true
+    )
+
+    if callback.save
+      Rails.logger.info "[DropletInstalledJob] Created/updated callback: #{definition_name} " \
+                        "(route: #{route_name}) with URL: #{callback_url}"
+    else
+      Rails.logger.error "[DropletInstalledJob] Failed to create callback #{definition_name}: " \
+                         "#{callback.errors.full_messages.join(', ')}"
+    end
   end
 
   def extract_callback_routes
@@ -116,10 +128,15 @@ private
             "[DropletInstalledJob] Callback registered but no UUID returned for: #{callback.name}"
           )
         end
-      rescue => e
+      rescue FluidClient::Error => e
         Rails.logger.error(
           "[DropletInstalledJob] Failed to register callback #{callback.name}: #{e.message}"
         )
+      rescue StandardError => e
+        Rails.logger.error(
+          "[DropletInstalledJob] Unexpected error registering callback #{callback.name}: #{e.message}"
+        )
+        next
       end
     end
 
