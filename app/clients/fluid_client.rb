@@ -8,6 +8,7 @@ class FluidClient
   include Fluid::Carts
   include Fluid::Metafields
   include Fluid::Subscriptions
+  include Fluid::Metafields
 
   base_uri Setting.fluid_api.base_url
   format :json
