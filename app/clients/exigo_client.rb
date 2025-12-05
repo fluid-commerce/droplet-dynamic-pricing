@@ -29,16 +29,28 @@ class ExigoClient
 
     execute_query(query).map { |row| row["CustomerID"] }
   end
+
   def establish_connection
-    TinyTds::Client.new(
-      host: @connection_config[:host] || @connection_config["host"],
-      database: @connection_config[:database] || @connection_config["database"],
-      username: @connection_config[:username] || @connection_config["username"],
-      password: @connection_config[:password] || @connection_config["password"],
-      port: (@connection_config[:port] || @connection_config["port"] || 1433).to_i,
-      timeout: 30
-    )
+    TinyTds::Client.new(@connection_config)
   rescue StandardError => e
     raise ConnectionError, "Failed to connect to Exigo SQL Server database: #{e.message}"
+  end
+
+  def execute_query(query, params = [])
+    connection = establish_connection
+    result = connection.execute(query, params)
+    rows = result.map { |row| row }
+    rows
+  ensure
+    connection&.close
+  end
+
+  def connection_config
+    @connection_config ||= {
+      host: ENV.fetch("RAIN_EXIGO_DB_HOST", nil),
+      username: ENV.fetch("RAIN_DB_EXIGO_USERNAME", nil),
+      password: ENV.fetch("RAIN_EXIGO_DB_PASSWORD", nil),
+      name: ENV.fetch("RAIN_EXIGO_DB_NAME", nil),
+    }
   end
 end

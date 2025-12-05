@@ -1,10 +1,10 @@
 module Rain
   class PreferredCustomerSyncJob < ApplicationJob
+    before_perform :check_if_company_is_rain
+
     queue_as :default
 
     def perform
-      check_if_company_is_rain(company.authentication_token)
-
       preferred_by_type = get_preferred_customer_type_id
       active_autoship_ids = get_customers_with_active_autoships
       exigo_preferred_ids = preferred_by_type.union(active_autoship_ids)
