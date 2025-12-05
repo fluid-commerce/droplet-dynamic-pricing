@@ -101,16 +101,19 @@ class Callbacks::CartItemAddedControllerTest < ActionDispatch::IntegrationTest
     assert_response :bad_request
   end
 
-  test "requires email in permitted_params" do
-    invalid_cart_data = cart_data.dup
-    invalid_cart_data.delete("email")
+  test "allows request without email" do
+    Callbacks::CartItemAddedService.stub(:call, { success: true }) do
+      cart_without_email = cart_data.except("email")
 
-    post "/callbacks/cart_item_added", params: {
-      cart: invalid_cart_data,
-      cart_item: cart_item,
-    }
+      post "/callbacks/cart_item_added", params: {
+        cart: cart_without_email,
+        cart_item: cart_item,
+      }
 
-    assert_response :bad_request
+      assert_response :success
+      response_json = JSON.parse(response.body)
+      assert_equal true, response_json["success"]
+    end
   end
 
   test "requires company_id in permitted_params" do

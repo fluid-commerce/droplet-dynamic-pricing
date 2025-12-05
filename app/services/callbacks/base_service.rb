@@ -147,12 +147,12 @@ private
 
   def has_subscriptions?(customer_id)
     has_active = has_active_subscriptions?(customer_id)
-    has_another = has_another_subscription_in_cart?(customer_id)
+    has_another = has_another_subscription_in_cart?
 
     has_active || has_another
   end
 
-  def has_another_subscription_in_cart?(_customer_id)
+  def has_another_subscription_in_cart?
     active_subscription_count = cart_items.count { |item| item["subscription"] == true }
 
     active_subscription_count >= 1
