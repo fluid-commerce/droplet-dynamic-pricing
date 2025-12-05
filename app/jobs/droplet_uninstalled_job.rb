@@ -24,28 +24,17 @@ private
     subscription_webhooks.each do |webhook|
       begin
         delete_subscription_webhook(client, webhook)
-      rescue FluidClient::Error => e
+      rescue => e
         Rails.logger.error(
           "[DropletUninstalledJob] Failed to delete subscription.#{webhook["event"]} " \
           "webhook #{webhook["id"]}: #{e.message}"
         )
-      rescue StandardError => e
-        Rails.logger.error(
-          "[DropletUninstalledJob] Unexpected error deleting subscription.#{webhook["event"]} " \
-          "webhook #{webhook["id"]}: #{e.message}"
-        )
-        next
       end
     end
-  rescue FluidClient::Error => e
+  rescue => e
     Rails.logger.error(
       "[DropletUninstalledJob] Failed to get webhooks for deletion: #{e.message}"
     )
-  rescue StandardError => e
-    Rails.logger.error(
-      "[DropletUninstalledJob] Unexpected error getting webhooks for deletion: #{e.message}"
-    )
-    raise
   end
 
   def fetch_subscription_webhooks(client)

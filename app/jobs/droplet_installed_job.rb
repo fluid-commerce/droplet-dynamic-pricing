@@ -38,6 +38,12 @@ class DropletInstalledJob < WebhookEventJob
 
     register_active_callbacks(company)
     register_subscription_webhooks(company)
+  rescue StandardError => e
+    Rails.logger.error(
+      "[DropletInstalledJob] Error registering callbacks or webhooks: #{e.message}"
+    )
+    Rails.logger.error e.backtrace.join("\n")
+    raise
   end
 
 private
@@ -49,15 +55,10 @@ private
     webhook_events.each do |webhook_config|
       begin
         register_subscription_webhook(client, webhook_config, company)
-      rescue FluidClient::Error => e
+      rescue => e
         Rails.logger.error(
           "[DropletInstalledJob] Failed to register subscription.#{webhook_config[:event]} webhook: #{e.message}"
         )
-      rescue StandardError => e
-        Rails.logger.error(
-          "[DropletInstalledJob] Unexpected error registering subscription.#{webhook_config[:event]} webhook: #{e.message}"
-        )
-        next
       end
     end
   end
@@ -126,10 +127,15 @@ private
             "[DropletInstalledJob] Callback registered but no UUID returned for: #{callback.name}"
           )
         end
-      rescue => e
+      rescue FluidClient::Error => e
         Rails.logger.error(
           "[DropletInstalledJob] Failed to register callback #{callback.name}: #{e.message}"
         )
+      rescue StandardError => e
+        Rails.logger.error(
+          "[DropletInstalledJob] Unexpected error registering callback #{callback.name}: #{e.message}"
+        )
+        next
       end
     end
 
