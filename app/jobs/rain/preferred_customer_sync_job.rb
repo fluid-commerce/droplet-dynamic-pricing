@@ -1,49 +1,79 @@
 module Rain
   class PreferredCustomerSyncJob < ApplicationJob
-    before_perform :check_if_company_is_rain
+    # before_perform :check_if_company_is_rain
 
     queue_as :default
 
     def perform
-      preferred_by_type = get_preferred_customer_type_id
-      active_autoship_ids = get_customers_with_active_autoships
-      exigo_preferred_ids = preferred_by_type.union(active_autoship_ids)
+      rain_company
 
-      fluid_client.customers.get(country_code: %w[US CA]) do |customer|
-        if exigo_preferred_ids.include?(customer["id"])
-          fluid_client.customers.append_metadata(customer["id"], { "customer_type" => "preferred" })
-        end
+      unless rain_company.present?
+        abort("Rain company not found")
       end
+
+
+
+      get_customers_from_fluid_and_append_metadata(exigo_preferred_ids)
     end
   end
 
 private
 
+  def rain_company
+    @rain_company ||= Company.find_by(fluid_company_id: ENV.fetch("RAIN_FLUID_COMPANY_ID", nil))
+  end
+
   def fluid_client
-    @fluid_client ||= FluidClient.new(company.authentication_token)
+    @fluid_client ||= FluidClient.new(rain_company.authentication_token)
   end
 
   def exigo_client
-    @exigo_client ||= ExigoClient.new(company.integration_setting.exigo_connection_config)
+    @exigo_client ||= ExigoClient.new(rain_company.integration_setting.credentials)
   end
 
-  def check_if_company_is_rain(authentication_token)
-    Company.find_by(authentication_token: authentication_token)
-    false unless company.present?
-    true
+  # def company
+  #   Company.find_by(fluid_company_id: ENV.fetch("RAIN_FLUID_COMPANY_ID", nil))
+  # end
+
+  def get_customers_from_fluid_and_append_metadata(exigo_preferred_ids)
+    fluid_client.customers.get(country_code: %w[US CA]) do |customer|
+      if exigo_preferred_ids.include?(customer["id"])
+        # ask for batch update for metadata
+        fluid_client.customers.append_metadata(customer["id"], { "customer_type" => "preferred" })
+      end
+    end
   end
 
-  def get_preferred_customer_type_id
-    exigo_client.customers_by_type_id(company.integration_setting.preferred_customer_type_id)
-  rescue ExigoClient::Error => e
-    Rails.logger.error("[Rain::PreferredCustomerSyncJob] Error getting preferred customer type id: #{e.message}")
-    nil
-  end
 
-  def get_customers_with_active_autoships
-    exigo_client.customers_with_active_autoships
-  rescue ExigoClient::Error => e
-    Rails.logger.error("[Rain::PreferredCustomerSyncJob] Error getting customers with active autoships: #{e.message}")
-    nil
+
+
+
+
+  # def check_if_company_is_rain
+
+
+  #   rain_company_id = ENV.fetch("RAIN_FLUID_COMPANY_ID", nil)
+  #   Rails.logger.info("Rain company id: #{rain_company_id}")
+  #   droplet_company_id = company&.fluid_company_id
+  #   Rails.logger.info("Droplet company id: #{droplet_company_id}")
+
+  #   unless droplet_company_id.present?
+  #     abort("Droplet company id not found")
+  #   end
+
+  #   unless rain_company_id.present?
+  #     abort("Rain company id not found")
+  #   end
+
+  #   unless droplet_company_id == rain_company_id
+  #     abort("Droplet company id does not match rain company id")
+  #   end
+
+  #   true
+  # end
+
+  def abort(message)
+    Rails.logger.error(message)
+    throw(:abort)
   end
 end

@@ -1,7 +1,12 @@
 <% content_for :head do %>
   <%= vite_typescript_tag 'home.tsx' %>
 <% end %>
-<header class="p-2 flex justify-end">
-  <%= link_to "Sign in", new_user_session_path %>
-</header>
-<div id="root"></div>
+
+<div id="root"
+     data-company-id="<%= @company_id %>"
+     data-exigo-db-host="<%= @integration_settings&.credentials&.dig('exigo_db_host') %>"
+     data-db-exigo-username="<%= @integration_settings&.credentials&.dig('db_exigo_username') %>"
+     data-exigo-db-password="<%= @integration_settings&.credentials&.dig('exigo_db_password') %>"
+     data-exigo-db-name="<%= @integration_settings&.credentials&.dig('exigo_db_name') %>"
+     data-preferred-customer-type-id="<%= @integration_settings&.credentials&.dig('preferred_customer_type_id') %>">
+</div>

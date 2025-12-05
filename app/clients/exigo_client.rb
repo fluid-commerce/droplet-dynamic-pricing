@@ -6,14 +6,23 @@ class ExigoClient
   Error = Class.new(StandardError)
   ConnectionError = Class.new(Error)
 
-  def initialize(connection_config)
-    @connection_config = connection_config
+  attr_reader :credentials
+
+  def initialize(credentials = {})
+    @credentials = credentials
   end
+
+  def customer_types
+    query = <<-SQL.squish
+      SELECT * FROM Dbo.CustomerTypes
+    SQL
+
+    execute_query(query)
+  end
+
   def customers_by_type_id(customer_type_id)
     query = <<-SQL.squish
-      SELECT CustomerID
-      FROM dbo.Customers
-      WHERE CustomerTypeID = ?
+      SELECT CustomerID FROM dbo.Customers WHERE CustomerTypeID = ?
     SQL
 
     execute_query(query, [ customer_type_id ]).map { |row| row["CustomerID"] }
@@ -21,13 +30,12 @@ class ExigoClient
 
   def customers_with_active_autoships
     query = <<-SQL.squish
-      SELECT DISTINCT CustomerID
-      FROM dbo.AutoOrders
+      SELECT * FROM dbo.AutoOrders
       WHERE AutoOrderStatusID = 0
-      AND NextRunDate >= GETUTCDATE()
+      AND NextRunDate >= GETDATE()
     SQL
 
-    execute_query(query).map { |row| row["CustomerID"] }
+    execute_query(query).map { |row| row["CustomerID"] }.uniq
   end
 
   def establish_connection
@@ -38,7 +46,22 @@ class ExigoClient
 
   def execute_query(query, params = [])
     connection = establish_connection
-    result = connection.execute(query, params)
+
+    if params.any?
+      params.each_with_index do |param, index|
+        safe_value = case param
+        when Numeric
+          param
+        when String
+          "'#{param.gsub("'", "''")}'"
+        else
+          param.to_s.gsub("'", "''")
+        end
+        query = query.sub("?", safe_value.to_s)
+      end
+    end
+
+    result = connection.execute(query)
     rows = result.map { |row| row }
     rows
   ensure
@@ -46,11 +69,11 @@ class ExigoClient
   end
 
   def connection_config
-    @connection_config ||= {
-      host: ENV.fetch("RAIN_EXIGO_DB_HOST", nil),
-      username: ENV.fetch("RAIN_DB_EXIGO_USERNAME", nil),
-      password: ENV.fetch("RAIN_EXIGO_DB_PASSWORD", nil),
-      name: ENV.fetch("RAIN_EXIGO_DB_NAME", nil),
+    {
+      host: credentials["exigo_db_host"],
+      username: credentials["db_exigo_username"],
+      password: credentials["exigo_db_password"],
+      name: credentials["exigo_db_name"],
     }
   end
 end
