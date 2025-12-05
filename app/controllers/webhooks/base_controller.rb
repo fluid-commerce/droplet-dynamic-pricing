@@ -28,7 +28,11 @@ protected
     Company.find_by(fluid_company_id: company_id) if company_id.present?
   end
 
+  def permitted_params
+    raise NotImplementedError, "Subclasses must implement permitted_params method"
+  end
+
   def webhook_params
-    params.permit!.to_h.with_indifferent_access
+    permitted_params.to_h.with_indifferent_access
   end
 end

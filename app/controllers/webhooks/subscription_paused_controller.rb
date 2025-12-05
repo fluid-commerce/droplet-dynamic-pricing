@@ -13,4 +13,15 @@ class Webhooks::SubscriptionPausedController < Webhooks::BaseController
     Rails.logger.error e.backtrace.join("\n")
     render json: { success: false, error: e.message }, status: :internal_server_error
   end
+
+private
+
+  def permitted_params
+    params.permit(
+      company: {},
+      subscription: {},
+      customer: {},
+      subscription_paused: {}
+    )
+  end
 end
