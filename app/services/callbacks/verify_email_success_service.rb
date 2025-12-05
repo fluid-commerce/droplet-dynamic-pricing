@@ -26,7 +26,7 @@ private
   def clean_cart_metadata_before_update
     return if cart.dig("metadata", "price_type").nil?
 
-    if has_another_subscription_in_cart?(nil)
+    if has_another_subscription_in_cart?
       return
     end
 

@@ -76,8 +76,10 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     service.define_singleton_method(:fluid_client) { mock_client }
 
     service.stub(:has_active_subscriptions?, false) do
-      result = service.call
-      assert result[:success]
+      service.stub(:has_another_subscription_in_cart?, false) do
+        result = service.call
+        assert result[:success]
+      end
     end
 
     assert_equal 1, fake_carts.metadata_calls.size, "append_metadata should be called once"
@@ -110,8 +112,10 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     service.define_singleton_method(:fluid_client) { mock_client }
 
     service.stub(:has_active_subscriptions?, true) do
-      result = service.call
-      assert result[:success]
+      service.stub(:has_another_subscription_in_cart?, false) do
+        result = service.call
+        assert result[:success]
+      end
     end
 
     assert_equal 1, fake_carts.metadata_calls.size, "append_metadata should be called once"
@@ -129,13 +133,17 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     assert_equal 72.0, item1[:price].to_f
   end
 
-  test "removes subscription pricing when email is blank" do
+  test "removes subscription pricing when email is blank and no subscription items in cart" do
     fake_carts = FakeCartsResource.new
 
     mock_client = Object.new
     mock_client.define_singleton_method(:carts) { fake_carts }
 
-    params = { cart: cart_data.merge("email" => nil) }
+    cart_without_email = cart_data.merge("email" => nil)
+    # Ensure no items have subscription: true
+    cart_without_email["items"].each { |item| item.delete("subscription") }
+
+    params = { cart: cart_without_email }
 
     service = Callbacks::SubscriptionRemovedService.new(params)
 
@@ -149,6 +157,44 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
     assert_not_nil call
     assert_nil call[:metadata].with_indifferent_access[:price_type]
+
+    # Should update to regular prices
+    assert_equal 1, fake_carts.items_prices_calls.size
+    items = fake_carts.items_prices_calls.first[:items].map(&:with_indifferent_access)
+    item1 = items.find { |i| i[:id].to_s == "674137" }
+    assert_equal 80.0, item1[:price].to_f, "Should use regular price when no subscription items"
+  end
+
+  test "keeps subscription pricing when email is blank but cart has subscription items" do
+    fake_carts = FakeCartsResource.new
+
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+
+    cart_without_email = cart_data.merge("email" => nil)
+    # Add subscription: true to items
+    cart_without_email["items"].each { |item| item["subscription"] = true }
+
+    params = { cart: cart_without_email }
+
+    service = Callbacks::SubscriptionRemovedService.new(params)
+
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    result = service.call
+    assert result[:success]
+
+    assert_equal 1, fake_carts.metadata_calls.size
+    call = fake_carts.metadata_calls.first
+
+    assert_not_nil call
+    assert_equal "preferred_customer", call[:metadata].with_indifferent_access[:price_type]
+
+    # Should update to subscription prices
+    assert_equal 1, fake_carts.items_prices_calls.size
+    items = fake_carts.items_prices_calls.first[:items].map(&:with_indifferent_access)
+    item1 = items.find { |i| i[:id].to_s == "674137" }
+    assert_equal 72.0, item1[:price].to_f, "Should use subscription price when cart has subscription items"
   end
 
   test "class method call works" do
