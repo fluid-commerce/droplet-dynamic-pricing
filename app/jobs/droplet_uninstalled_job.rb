@@ -19,34 +19,51 @@ private
 
   def delete_subscription_webhooks(company)
     client = FluidClient.new(company.authentication_token)
+    subscription_webhooks = fetch_subscription_webhooks(client)
 
-    begin
-      response = client.webhooks.get
-      webhooks = response["webhooks"] || []
-
-      subscription_webhooks = webhooks.select do |webhook|
-        webhook["resource"] == "subscription" &&
-          %w[started paused cancelled].include?(webhook["event"])
+    subscription_webhooks.each do |webhook|
+      begin
+        delete_subscription_webhook(client, webhook)
+      rescue FluidClient::Error => e
+        Rails.logger.error(
+          "[DropletUninstalledJob] Failed to delete subscription.#{webhook["event"]} " \
+          "webhook #{webhook["id"]}: #{e.message}"
+        )
+      rescue StandardError => e
+        Rails.logger.error(
+          "[DropletUninstalledJob] Unexpected error deleting subscription.#{webhook["event"]} " \
+          "webhook #{webhook["id"]}: #{e.message}"
+        )
+        next
       end
-
-      subscription_webhooks.each do |webhook|
-        begin
-          client.webhooks.delete(webhook["id"])
-          Rails.logger.info(
-            "[DropletUninstalledJob] Successfully deleted subscription.#{webhook["event"]} webhook: #{webhook["id"]}"
-          )
-        rescue => e
-          Rails.logger.error(
-            "[DropletUninstalledJob] Failed to delete subscription.#{webhook["event"]}
-            webhook #{webhook["id"]}: #{e.message}"
-          )
-        end
-      end
-    rescue => e
-      Rails.logger.error(
-        "[DropletUninstalledJob] Failed to get webhooks for deletion: #{e.message}"
-      )
     end
+  rescue FluidClient::Error => e
+    Rails.logger.error(
+      "[DropletUninstalledJob] Failed to get webhooks for deletion: #{e.message}"
+    )
+  rescue StandardError => e
+    Rails.logger.error(
+      "[DropletUninstalledJob] Unexpected error getting webhooks for deletion: #{e.message}"
+    )
+    raise
+  end
+
+  def fetch_subscription_webhooks(client)
+    response = client.webhooks.get
+    webhooks = response["webhooks"] || []
+
+    webhooks.select do |webhook|
+      webhook["resource"] == "subscription" &&
+        %w[started paused cancelled].include?(webhook["event"])
+    end
+  end
+
+  def delete_subscription_webhook(client, webhook)
+    client.webhooks.delete(webhook["id"])
+    Rails.logger.info(
+      "[DropletUninstalledJob] Successfully deleted subscription.#{webhook["event"]} " \
+      "webhook: #{webhook["id"]}"
+    )
   end
 
   def delete_installed_callbacks(company)
