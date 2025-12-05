@@ -2,7 +2,17 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
   def call
     raise CallbackError, "Cart is blank" if cart.blank?
 
-    customer_email = cart["email"]
+    if customer_email.blank?
+      if has_another_subscription_in_cart?(nil)
+        update_cart_metadata({ "price_type" => "preferred_customer" })
+        update_cart_items_prices(cart_items_with_subscription_price) if cart_items.any?
+        return result_success
+      end
+      update_cart_metadata({ "price_type" => nil })
+      update_cart_items_prices(cart_items_with_regular_price) if cart_items.any?
+      return result_success
+    end
+
 
     if should_keep_subscription_prices(customer_email)
       update_cart_metadata({ "price_type" => "preferred_customer" })
