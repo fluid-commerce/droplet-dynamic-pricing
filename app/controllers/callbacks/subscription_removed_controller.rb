@@ -18,7 +18,6 @@ private
 
     cart = permitted.require(:cart)
     cart.require(:cart_token)
-    cart.require(:email)
     cart.require(:company).require(:id)
 
     permitted

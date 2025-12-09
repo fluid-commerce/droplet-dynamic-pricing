@@ -4,6 +4,11 @@ require "test_helper"
 describe WebhooksController do
   fixtures(:companies)
 
+  before do
+    Tasks::Settings.create_defaults
+    Setting.host_server.update(values: { base_url: "https://test.example.com" }) if Setting.host_server.present?
+  end
+
   describe "droplet events" do
     it "handles droplet installed event" do
       company_data = {

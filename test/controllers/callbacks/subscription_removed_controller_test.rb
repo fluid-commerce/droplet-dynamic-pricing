@@ -78,12 +78,16 @@ class Callbacks::SubscriptionRemovedControllerTest < ActionDispatch::Integration
     assert_response :bad_request
   end
 
-  def test_requires_email_in_permitted_params
-    invalid_params = { cart: cart_data.except("email") }
+  def test_allows_request_without_email
+    Callbacks::SubscriptionRemovedService.stub(:call, { success: true }) do
+      cart_without_email = cart_data.except("email")
 
-    post "/callbacks/subscription_removed", params: invalid_params
+      post "/callbacks/subscription_removed", params: { cart: cart_without_email }
 
-    assert_response :bad_request
+      assert_response :success
+      response_json = JSON.parse(response.body)
+      assert_equal true, response_json["success"]
+    end
   end
 
   def test_requires_company_id_in_permitted_params

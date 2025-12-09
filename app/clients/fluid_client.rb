@@ -6,7 +6,6 @@ class FluidClient
   include Fluid::CallbackRegistrations
   include Fluid::Customers
   include Fluid::Carts
-  include Fluid::Metafields
   include Fluid::Subscriptions
   include Fluid::Metafields
 
