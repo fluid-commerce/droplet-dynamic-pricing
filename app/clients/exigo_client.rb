@@ -61,7 +61,15 @@ class ExigoClient
   end
 
   def establish_connection
-    TinyTds::Client.new(connection_config)
+    TinyTds::Client.new(
+      host: credentials["exigo_db_host"],
+      username: credentials["db_exigo_username"],
+      password: credentials["exigo_db_password"],
+      database: credentials["exigo_db_name"],
+      azure: true,
+      login_timeout: 5,
+      timeout: 15,
+    )
   rescue StandardError => e
     raise ConnectionError, "Failed to connect to Exigo SQL Server database: #{e.message}"
   end
@@ -88,14 +96,5 @@ class ExigoClient
     rows
   ensure
     connection&.close
-  end
-
-  def connection_config
-    {
-      host: credentials["exigo_db_host"],
-      username: credentials["db_exigo_username"],
-      password: credentials["exigo_db_password"],
-      database: credentials["exigo_db_name"],
-    }
   end
 end

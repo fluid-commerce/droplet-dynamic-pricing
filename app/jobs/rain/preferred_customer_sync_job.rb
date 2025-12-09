@@ -3,17 +3,20 @@ module Rain
     queue_as :default
 
     def perform
+      @fluid_company_id = ENV.fetch("RAIN_FLUID_COMPANY_ID", nil)
+      return unless @fluid_company_id.present?
+      rain_company = Company.find_by(fluid_company_id: @fluid_company_id)
       return unless rain_company.present?
-      return unless sync_enabled_for_rain?
-
       synchronize_preferred_customers
     end
-  end
+
 
 private
 
+  attr_reader :fluid_company_id
+
   def rain_company
-    @rain_company ||= Company.find_by(fluid_company_id: ENV.fetch("RAIN_FLUID_COMPANY_ID", nil))
+    @rain_company ||= Company.find_by(fluid_company_id: fluid_company_id)
   end
 
   def fluid_client
@@ -25,47 +28,62 @@ private
   end
 
   def synchronize_preferred_customers
+    Rails.logger.info("[PreferredSync] synchronize_preferred_customers start")
     preferred_type_id = preferred_customer_type_id
     retail_type_id = retail_customer_type_id
     exigo_active_autoship_ids = exigo_client.customers_with_active_autoships
+    Rails.logger.info("[PreferredSync] exigo_active_autoships count=#{exigo_active_autoship_ids.size}")
 
+    kept = 0
+    demoted = 0
     fetch_fluid_customers.each do |customer|
       customer_id = customer["id"]
+      Rails.logger.info("[PreferredSync] processing customer_id=#{customer_id}")
       next unless customer_id.present?
 
       has_exigo_autoship = exigo_active_autoship_ids.include?(customer_id) ||
         exigo_client.customer_has_active_autoship?(customer_id)
+      Rails.logger.info("[PreferredSync] exigo_autoship=#{has_exigo_autoship}")
 
       if has_exigo_autoship
         ensure_fluid_preferred(customer_id)
         update_exigo_customer_type(customer_id, preferred_type_id)
+        kept += 1
         next
       end
 
-      if fluid_client.customers.active_autoship?(customer_id)
+      fluid_autoship = fluid_client.customers.active_autoship?(customer_id)
+      Rails.logger.info("[PreferredSync] fluid_autoship=#{fluid_autoship}")
+      if fluid_autoship
+        kept += 1
         next
       end
 
       demote_customer(customer_id, retail_type_id)
+      demoted += 1
     end
+    Rails.logger.info("[PreferredSync] summary kept=#{kept} demoted=#{demoted}")
   end
 
   def ensure_fluid_preferred(customer_id)
-    fluid_client.customers.append_metadata(customer_id, { "customer_type" => "preferred" })
+    fluid_client.customers.append_metadata(customer_id, { "customer_type" => "preferred_customer" })
   end
 
   def demote_customer(customer_id, retail_type_id)
+    Rails.logger.info("[PreferredSync] demote_customer customer_id=#{customer_id} retail_type_id=#{retail_type_id}")
     fluid_client.customers.append_metadata(customer_id, { "customer_type" => "retail" })
-    update_exigo_customer_type(customer_id, retail_type_id)
+    # update_exigo_customer_type(customer_id, retail_type_id) # disabled for testing (no Exigo writes)
   end
 
   def update_exigo_customer_type(customer_id, customer_type_id)
     return unless customer_type_id.present?
 
-    exigo_client.update_customer_type(customer_id, customer_type_id)
+    # Exigo writes are disabled for testing. Uncomment to enable:
+    # exigo_client.update_customer_type(customer_id, customer_type_id)
   end
 
   def fetch_fluid_customers
+    Rails.logger.info("[PreferredSync] fetch_fluid_customers start")
     customers = []
     page = 1
     per_page = 100
@@ -86,9 +104,10 @@ private
   end
 
   def exigo_credentials
+    Rails.logger.info("[PreferredSync] exigo_credentials using env")
     {
       "exigo_db_host" => ENV.fetch("RAIN_EXIGO_DB_HOST", nil),
-      "db_exigo_username" => ENV.fetch("RAIN_DB_EXIGO_USERNAME", nil),
+      "db_exigo_username" => ENV.fetch("RAIN_EXIGO_DB_USERNAME", nil),
       "exigo_db_password" => ENV.fetch("RAIN_EXIGO_DB_PASSWORD", nil),
       "exigo_db_name" => ENV.fetch("RAIN_EXIGO_DB_NAME", nil),
     }.compact
@@ -101,9 +120,5 @@ private
   def retail_customer_type_id
     ENV.fetch("RAIN_RETAIL_CUSTOMER_TYPE_ID", nil)
   end
-
-  def sync_enabled_for_rain?
-    rain_company.fluid_company_id.to_s == ENV.fetch("RAIN_FLUID_COMPANY_ID", nil).to_s
-  end
 end
-
+end
