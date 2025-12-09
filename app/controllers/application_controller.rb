@@ -2,6 +2,8 @@ class ApplicationController < ActionController::Base
   # Only allow modern browsers supporting webp images, web push, badges, import maps, CSS nesting, and CSS :has.
   allow_browser versions: :modern
 
+  before_action :set_dri
+
   def validate_droplet_authorization
     unless params.dig(:company, :droplet_uuid) == Setting.droplet.uuid
       render json: { error: "Unauthorized" }, status: :unauthorized
@@ -16,5 +18,11 @@ protected
 
   def current_ability
     @current_ability ||= Ability.new(user: current_user)
+  end
+
+  private
+
+  def set_dri
+    @dri = params[:dri]
   end
 end

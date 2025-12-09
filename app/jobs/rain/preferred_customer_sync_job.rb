@@ -1,22 +1,24 @@
 module Rain
   class PreferredCustomerSyncJob < ApplicationJob
     queue_as :default
-
+    before_perform :set_rain_company
     def perform
-      @fluid_company_id = ENV.fetch("RAIN_FLUID_COMPANY_ID", nil)
-      return unless @fluid_company_id.present?
-      rain_company = Company.find_by(fluid_company_id: @fluid_company_id)
-      return unless rain_company.present?
       synchronize_preferred_customers
     end
 
 
 private
 
-  attr_reader :fluid_company_id
+  attr_reader :fluid_company_id, :rain_company
 
-  def rain_company
-    @rain_company ||= Company.find_by(fluid_company_id: fluid_company_id)
+  def set_rain_company
+    fluid_company_id = ENV.fetch("RAIN_FLUID_COMPANY_ID", nil)
+    return unless fluid_company_id.present?
+
+    company = Company.find_by(fluid_company_id: fluid_company_id)
+    return unless company.present?
+
+    @rain_company = company
   end
 
   def fluid_client
@@ -78,7 +80,6 @@ private
   def update_exigo_customer_type(customer_id, customer_type_id)
     return unless customer_type_id.present?
 
-    # Exigo writes are disabled for testing. Uncomment to enable:
     # exigo_client.update_customer_type(customer_id, customer_type_id)
   end
 
@@ -104,7 +105,6 @@ private
   end
 
   def exigo_credentials
-    Rails.logger.info("[PreferredSync] exigo_credentials using env")
     {
       "exigo_db_host" => ENV.fetch("RAIN_EXIGO_DB_HOST", nil),
       "db_exigo_username" => ENV.fetch("RAIN_EXIGO_DB_USERNAME", nil),
