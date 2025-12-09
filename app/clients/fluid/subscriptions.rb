@@ -21,10 +21,10 @@ module Fluid
         return "" if params.empty?
 
         query_params = []
-
+        query_params << "page=#{params[:page]}" if params.key?(:page)
+        query_params << "per_page=#{params[:per_page]}" if params.key?(:per_page)
         query_params << "status=#{params[:status]}" if params.key?(:status)
         query_params << "customer_id=#{params[:customer_id]}" if params.key?(:customer_id)
-
         "?#{query_params.join('&')}"
       end
     end
