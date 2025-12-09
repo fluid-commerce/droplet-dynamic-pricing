@@ -10,7 +10,7 @@ module Rain
 
   private
 
-  attr_reader :fluid_company_id, :rain_company
+    attr_reader :fluid_company_id, :rain_company
 
     def set_rain_company
       fluid_company_id = ENV.fetch("RAIN_FLUID_COMPANY_ID", nil)
@@ -91,13 +91,13 @@ module Rain
         customer_id,
         { "customer_type" => "retail" }
       )
-      # update_exigo_customer_type(customer_id, retail_type_id) # disabled for testing
+      update_exigo_customer_type(customer_id, retail_type_id)
     end
 
     def update_exigo_customer_type(customer_id, customer_type_id)
-      return unless customer_type_id.present?
+      nil unless customer_type_id.present?
 
-      # exigo_client.update_customer_type(customer_id, customer_type_id)
+      exigo_client.update_customer_type(customer_id, customer_type_id)
     end
 
     def fetch_fluid_customers
