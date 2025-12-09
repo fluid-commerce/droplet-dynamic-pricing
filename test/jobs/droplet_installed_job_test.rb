@@ -1,6 +1,11 @@
 require "test_helper"
 
 describe DropletInstalledJob do
+  before do
+    Tasks::Settings.create_defaults
+    Setting.host_server.update(values: { base_url: "https://test.example.com" }) if Setting.host_server.present?
+  end
+
   describe "#perform" do
     it "creates a company from payload when company doesn't exist" do
       company_data = {
