@@ -16,9 +16,21 @@ module Fluid
         @client.get("/api/customers#{query}")
       end
 
+      def find(customer_id)
+        @client.get("/api/customers/#{customer_id}")
+      end
+
       def append_metadata(customer_id, metadata)
         payload = { "metadata" => metadata }
         @client.patch("/api/customers/#{customer_id}/append_metadata", body: payload)
+      end
+
+      def active_autoship?(customer_id)
+        response = find(customer_id)
+        response["has_active_autoship"] || response.dig("customer", "has_active_autoship") || false
+      rescue FluidClient::Error => e
+        Rails.logger.warn("Failed to check Fluid autoship for customer #{customer_id}: #{e.message}")
+        true
       end
 
     private

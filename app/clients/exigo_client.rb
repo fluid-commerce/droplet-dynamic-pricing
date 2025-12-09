@@ -14,7 +14,7 @@ class ExigoClient
 
   def customer_types
     query = <<-SQL.squish
-      SELECT * FROM Dbo.CustomerTypes
+      SELECT * FROM dbo.CustomerTypes
     SQL
 
     execute_query(query)
@@ -38,8 +38,30 @@ class ExigoClient
     execute_query(query).map { |row| row["CustomerID"] }.uniq
   end
 
+  def customer_has_active_autoship?(customer_id)
+    query = <<-SQL.squish
+      SELECT COUNT(*) AS count FROM dbo.AutoOrders
+      WHERE CustomerID = ?
+      AND AutoOrderStatusID = 0
+      AND NextRunDate >= GETDATE()
+    SQL
+
+    result = execute_query(query, [ customer_id ])
+    result.first["count"].to_i.positive?
+  end
+
+  def update_customer_type(customer_id, customer_type_id)
+    query = <<-SQL.squish
+      UPDATE dbo.Customers
+      SET CustomerTypeID = ?
+      WHERE CustomerID = ?
+    SQL
+
+    execute_non_query(query, [ customer_type_id, customer_id ])
+  end
+
   def establish_connection
-    TinyTds::Client.new(@connection_config)
+    TinyTds::Client.new(connection_config)
   rescue StandardError => e
     raise ConnectionError, "Failed to connect to Exigo SQL Server database: #{e.message}"
   end
@@ -73,7 +95,7 @@ class ExigoClient
       host: credentials["exigo_db_host"],
       username: credentials["db_exigo_username"],
       password: credentials["exigo_db_password"],
-      name: credentials["exigo_db_name"],
+      database: credentials["exigo_db_name"],
     }
   end
 end
