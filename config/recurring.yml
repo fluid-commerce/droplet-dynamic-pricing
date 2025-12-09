@@ -11,4 +11,4 @@ production:
   preferred_customer_sync:
     class: Rain::PreferredCustomerSyncJob
     queue: default
-    schedule: at midnight
+    schedule: "0 0 * * *"
