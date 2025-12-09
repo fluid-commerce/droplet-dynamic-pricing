@@ -8,9 +8,9 @@ module Rain
       synchronize_preferred_customers
     end
 
-    private
+  private
 
-    attr_reader :fluid_company_id, :rain_company
+  attr_reader :fluid_company_id, :rain_company
 
     def set_rain_company
       fluid_company_id = ENV.fetch("RAIN_FLUID_COMPANY_ID", nil)
@@ -133,7 +133,7 @@ module Rain
         "exigo_db_host"      => ENV.fetch("RAIN_EXIGO_DB_HOST", nil),
         "db_exigo_username"  => ENV.fetch("RAIN_EXIGO_DB_USERNAME", nil),
         "exigo_db_password"  => ENV.fetch("RAIN_EXIGO_DB_PASSWORD", nil),
-        "exigo_db_name"      => ENV.fetch("RAIN_EXIGO_DB_NAME", nil)
+        "exigo_db_name"      => ENV.fetch("RAIN_EXIGO_DB_NAME", nil),
       }.compact
     end
 
