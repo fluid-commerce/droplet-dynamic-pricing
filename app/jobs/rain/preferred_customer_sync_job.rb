@@ -120,4 +120,6 @@ private
   def retail_customer_type_id
     ENV.fetch("RAIN_RETAIL_CUSTOMER_TYPE_ID", nil)
   end
+
+  end
 end
