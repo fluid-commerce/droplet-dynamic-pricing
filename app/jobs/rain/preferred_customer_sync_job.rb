@@ -87,19 +87,19 @@ private
 
   def exigo_credentials
     {
-      "exigo_db_host" => rain_company.integration_settings.credentials.dig("exigo_db_host"),
-      "db_exigo_username" => rain_company.integration_settings.credentials.dig("db_exigo_username"),
-      "exigo_db_password" => rain_company.integration_settings.credentials.dig("exigo_db_password"),
-      "exigo_db_name" => rain_company.integration_settings.credentials.dig("exigo_db_name"),
+      "exigo_db_host" => ENV.fetch("RAIN_EXIGO_DB_HOST", nil),
+      "db_exigo_username" => ENV.fetch("RAIN_DB_EXIGO_USERNAME", nil),
+      "exigo_db_password" => ENV.fetch("RAIN_EXIGO_DB_PASSWORD", nil),
+      "exigo_db_name" => ENV.fetch("RAIN_EXIGO_DB_NAME", nil),
     }.compact
   end
 
   def preferred_customer_type_id
-    rain_company.integration_settings.credentials.dig("preferred_customer_type_id")
+    ENV.fetch("RAIN_PREFERRED_CUSTOMER_TYPE_ID", nil)
   end
 
   def retail_customer_type_id
-    rain_company.integration_settings.credentials.dig("retail_customer_type_id")
+    ENV.fetch("RAIN_RETAIL_CUSTOMER_TYPE_ID", nil)
   end
 
   def sync_enabled_for_rain?
