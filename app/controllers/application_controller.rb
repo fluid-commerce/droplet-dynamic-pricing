@@ -20,7 +20,7 @@ protected
     @current_ability ||= Ability.new(user: current_user)
   end
 
-  private
+private
 
   def set_dri
     @dri = params[:dri]
