@@ -8,7 +8,6 @@ protected
 
   def customer_id
     customer_external_id = @webhook_params.dig("subscription", "customer", "external_id")
-    customer_internal_id = @webhook_params.dig("subscription", "customer", "id")
   end
 
   def subscription_id
