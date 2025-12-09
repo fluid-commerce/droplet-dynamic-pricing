@@ -7,9 +7,10 @@ interface FluidProps {
   companyId: string;
   exigoDbHost?: string;
   dbExigoUsername?: string;
-  exigoDbPassword?: string;
+  dbExigoPassword?: string;
   exigoDbName?: string;
   preferredCustomerTypeId?: string;
+  retailCustomerTypeId?: string;
 }
 
 // Interfaces
@@ -67,19 +68,27 @@ const TabContent: React.FC<TabContentProps> = ({ tabs, activeTab }) => {
   return <Component {...activeTabData.props} />;
 };
 
-const Fluid = ({ companyId, exigoDbHost, dbExigoUsername, exigoDbPassword, exigoDbName, preferredCustomerTypeId }: FluidProps) => {
+const Fluid = ({
+  companyId,
+  exigoDbHost,
+  dbExigoUsername,
+  dbExigoPassword,
+  exigoDbName,
+  preferredCustomerTypeId,
+  retailCustomerTypeId
+}: FluidProps) => {
   const tabs: TabItem[] = [
     {
       id: 'configuration',
       label: 'Configuration',
       component: ConfigurationForm,
-      props: { companyId, exigoDbHost, dbExigoUsername, exigoDbPassword, exigoDbName }
+      props: { companyId, exigoDbHost, dbExigoUsername, dbExigoPassword, exigoDbName }
     },
     {
       id: 'match-types',
       label: 'Match Types',
       component: MatchTypesForm,
-      props: { companyId, preferredCustomerTypeId }
+      props: { companyId, preferredCustomerTypeId, retailCustomerTypeId }
     }
   ];
 
@@ -103,5 +112,17 @@ const dbExigoUsername = rootElement.dataset.dbExigoUsername || '';
 const exigoDbPassword = rootElement.dataset.exigoDbPassword || '';
 const exigoDbName = rootElement.dataset.exigoDbName || '';
 const preferredCustomerTypeId = rootElement.dataset.preferredCustomerTypeId || '';
+const retailCustomerTypeId = rootElement.dataset.retailCustomerTypeId || '';
 
-root.render(<Fluid companyId={companyId} exigoDbHost={exigoDbHost} dbExigoUsername={dbExigoUsername} exigoDbPassword={exigoDbPassword} exigoDbName={exigoDbName} preferredCustomerTypeId={preferredCustomerTypeId} />);
+root.render(
+  <Fluid
+    companyId={companyId}
+    exigoDbHost={exigoDbHost}
+    dbExigoUsername={dbExigoUsername}
+    dbExigoPassword={exigoDbPassword}
+    exigoDbName={exigoDbName}
+    preferredCustomerTypeId={preferredCustomerTypeId}
+    retailCustomerTypeId={retailCustomerTypeId}
+  />
+);
+
