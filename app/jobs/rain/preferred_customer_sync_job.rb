@@ -7,7 +7,7 @@ module Rain
     end
 
 
-private
+  private
 
   attr_reader :fluid_company_id, :rain_company
 
