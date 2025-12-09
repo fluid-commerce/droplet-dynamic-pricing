@@ -121,4 +121,3 @@ private
     ENV.fetch("RAIN_RETAIL_CUSTOMER_TYPE_ID", nil)
   end
 end
-end

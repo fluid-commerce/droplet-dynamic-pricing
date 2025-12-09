@@ -39,4 +39,3 @@ class ExigoClientTest < ActiveSupport::TestCase
     refute client.stub(:establish_connection, without_autoship) { client.customer_has_active_autoship?(123) }
   end
 end
-
