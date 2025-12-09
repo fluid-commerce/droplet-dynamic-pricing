@@ -80,6 +80,7 @@ module Rain
       Class.new do
         define_method(:customers_with_active_autoships) { active_autoship_ids }
         define_method(:customer_has_active_autoship?, &has_autoship_proc)
+        define_method(:update_customer_type) { |customer_id, customer_type_id| nil }
       end.new
     end
 
