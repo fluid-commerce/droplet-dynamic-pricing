@@ -40,7 +40,7 @@ module Rain
               exigo_active_autoship_ids.include?(customer_id) ||
               exigo_client.customer_has_active_autoship?(customer_id)
           rescue ExigoClient::Error => e
-            Rails.logger.error("[PreferredSync] Failed to check Exigo autoship for customer #{customer_id}: #{e.message}")
+            Rails.logger.error("[PreferredSync] Failed to check Exigo autoship for #{customer_id}:#{e.message}")
             Rails.logger.info("[PreferredSync] Skipping customer #{customer_id} due to Exigo error")
             next
           end
@@ -58,7 +58,7 @@ module Rain
             fluid_autoship = fluid_client.customers.active_autoship?(customer_id)
             Rails.logger.info("[PreferredSync] fluid_autoship=#{fluid_autoship}")
           rescue FluidClient::Error => e
-            Rails.logger.error("[PreferredSync] Failed to check Fluid autoship for customer #{customer_id}: #{e.message}")
+            Rails.logger.error("[PreferredSync] Failed to check Fluid autoship for #{customer_id}:#{e.message}")
             Rails.logger.info("[PreferredSync] Skipping customer #{customer_id} due to Fluid error")
             next
           end
@@ -82,7 +82,7 @@ module Rain
       true
     end
 
-    private
+  private
 
     def fluid_client
       @fluid_client ||= FluidClient.new(@company.authentication_token)

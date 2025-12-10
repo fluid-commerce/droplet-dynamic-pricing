@@ -65,7 +65,7 @@ class ExigoClientTest < ActiveSupport::TestCase
       "exigo_db_host" => "acme.host.com",
       "exigo_db_username" => "acme_user",
       "exigo_db_password" => "acme_pass",
-      "exigo_db_name" => "acme_db"
+      "exigo_db_name" => "acme_db",
     }
 
     assert_equal expected_credentials, client.credentials
@@ -95,19 +95,19 @@ class ExigoClientTest < ActiveSupport::TestCase
 
   test "quote_value safely escapes SQL injection attempts" do
     client = ExigoClient.new("TEST")
-    
+
     # Test normal string
     assert_equal "N'test'", client.send(:quote_value, "test")
-    
+
     # Test SQL injection attempt - single quotes should be doubled
     malicious_input = "'; DROP TABLE users; --"
     expected = "N'''; DROP TABLE users; --'"
     assert_equal expected, client.send(:quote_value, malicious_input)
-    
+
     # Test numbers
     assert_equal "123", client.send(:quote_value, 123)
     assert_equal "123.45", client.send(:quote_value, 123.45)
-    
+
     # Test boolean and nil
     assert_equal "1", client.send(:quote_value, true)
     assert_equal "0", client.send(:quote_value, false)

@@ -20,7 +20,7 @@ module Rain
       exigo_client_stub = build_exigo_client(
         active_autoship_ids: [],
         has_autoship_proc: ->(_) { false },
-        update_customer_type_proc: ->(id, type_id) { exigo_update_calls << [id, type_id] }
+        update_customer_type_proc: ->(id, type_id) { exigo_update_calls << [ id, type_id ] }
       )
 
       service = PreferredCustomerSyncService.new(company: company)
@@ -52,7 +52,7 @@ module Rain
       exigo_client_stub = build_exigo_client(
         active_autoship_ids: [ 202 ],
         has_autoship_proc: ->(_) { true },
-        update_customer_type_proc: ->(id, type_id) { exigo_update_calls << [id, type_id] }
+        update_customer_type_proc: ->(id, type_id) { exigo_update_calls << [ id, type_id ] }
       )
 
       service = PreferredCustomerSyncService.new(company: company)
@@ -84,7 +84,7 @@ module Rain
       exigo_client_stub = build_exigo_client(
         active_autoship_ids: [],
         has_autoship_proc: ->(_) { false },
-        update_customer_type_proc: ->(id, type_id) { exigo_update_calls << [id, type_id] }
+        update_customer_type_proc: ->(id, type_id) { exigo_update_calls << [ id, type_id ] }
       )
 
       service = PreferredCustomerSyncService.new(company: company)
@@ -331,7 +331,7 @@ module Rain
       end
     end
 
-    private
+  private
 
     def build_exigo_client(active_autoship_ids:, has_autoship_proc:, update_customer_type_proc:)
       Class.new do

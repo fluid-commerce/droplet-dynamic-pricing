@@ -10,7 +10,7 @@ module Rain
       Rain::PreferredCustomerSyncService.new(company: rain_company).synchronize
     end
 
-    private
+  private
 
     attr_reader :rain_company
 
@@ -19,7 +19,7 @@ module Rain
       return unless fluid_company_id
 
       company = Company.find_by(fluid_company_id: fluid_company_id)
-      return unless company
+      return unless company.present?
 
       @rain_company = company
     end

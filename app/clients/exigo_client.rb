@@ -94,8 +94,6 @@ class ExigoClient
           "INT"
         when Float
           "FLOAT"
-        when String
-          "NVARCHAR(MAX)"
         else
           "NVARCHAR(MAX)"
         end
@@ -129,8 +127,6 @@ class ExigoClient
           "INT"
         when Float
           "FLOAT"
-        when String
-          "NVARCHAR(MAX)"
         else
           "NVARCHAR(MAX)"
         end
@@ -146,7 +142,7 @@ class ExigoClient
     connection&.close
   end
 
-  private
+private
 
   def build_credentials_from_company(company_name)
     return {} unless company_name.present?
@@ -156,7 +152,7 @@ class ExigoClient
       "exigo_db_host"      => ENV.fetch("#{company_prefix}_EXIGO_DB_HOST", nil),
       "exigo_db_username"  => ENV.fetch("#{company_prefix}_EXIGO_DB_USERNAME", nil),
       "exigo_db_password"  => ENV.fetch("#{company_prefix}_EXIGO_DB_PASSWORD", nil),
-      "exigo_db_name"      => ENV.fetch("#{company_prefix}_EXIGO_DB_NAME", nil)
+      "exigo_db_name"      => ENV.fetch("#{company_prefix}_EXIGO_DB_NAME", nil),
     }.compact
   end
 
