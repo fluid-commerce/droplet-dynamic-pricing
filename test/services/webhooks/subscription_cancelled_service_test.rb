@@ -8,11 +8,11 @@ class Webhooks::SubscriptionCancelledServiceTest < ActiveSupport::TestCase
     @webhook_params = {
       "subscription" => {
         "id" => 12345,
-        "customer_id" => 6834670,
+        "customer" => {
+          "id" => 6834670,
+        },
       },
-      "company" => {
-        "fluid_company_id" => @company.fluid_company_id,
-      },
+      "company_id" => @company.fluid_company_id,
     }
   end
 
@@ -44,7 +44,7 @@ class Webhooks::SubscriptionCancelledServiceTest < ActiveSupport::TestCase
   end
 
   test "returns error when customer_id is missing" do
-    webhook_params = { "company" => { "fluid_company_id" => @company.fluid_company_id } }
+    webhook_params = { "company_id" => @company.fluid_company_id }
 
     result = Webhooks::SubscriptionCancelledService.call(webhook_params, @company)
 

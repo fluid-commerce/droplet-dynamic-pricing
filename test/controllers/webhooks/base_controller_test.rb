@@ -11,7 +11,7 @@ describe Webhooks::BaseController do
   describe "authentication" do
     it "requires valid authentication token" do
       post webhook_subscription_started_path, params: {
-        company: { fluid_company_id: @company.fluid_company_id },
+        company_id: @company.fluid_company_id,
       }, as: :json
 
       _(response.status).must_equal 401
@@ -22,7 +22,7 @@ describe Webhooks::BaseController do
     it "accepts webhook auth token from AUTH_TOKEN header" do
       Webhooks::SubscriptionStartedService.stub :call, { success: true, message: "Success" } do
         post webhook_subscription_started_path, params: {
-          company: { fluid_company_id: @company.fluid_company_id },
+          company_id: @company.fluid_company_id,
         }, headers: { "AUTH_TOKEN" => @webhook_auth_token }, as: :json
 
         _(response.status).must_equal 200
@@ -32,7 +32,7 @@ describe Webhooks::BaseController do
     it "accepts webhook auth token from X-Auth-Token header" do
       Webhooks::SubscriptionStartedService.stub :call, { success: true, message: "Success" } do
         post webhook_subscription_started_path, params: {
-          company: { fluid_company_id: @company.fluid_company_id },
+          company_id: @company.fluid_company_id,
         }, headers: { "X-Auth-Token" => @webhook_auth_token }, as: :json
 
         _(response.status).must_equal 200
@@ -42,7 +42,7 @@ describe Webhooks::BaseController do
     it "accepts company webhook verification token" do
       Webhooks::SubscriptionStartedService.stub :call, { success: true, message: "Success" } do
         post webhook_subscription_started_path, params: {
-          company: { fluid_company_id: @company.fluid_company_id },
+          company_id: @company.fluid_company_id,
         }, headers: { "AUTH_TOKEN" => @company.webhook_verification_token }, as: :json
 
         _(response.status).must_equal 200
@@ -51,7 +51,7 @@ describe Webhooks::BaseController do
 
     it "returns not_found when company is not found" do
       post webhook_subscription_started_path, params: {
-        company: { fluid_company_id: 999999999 },
+        company_id: 999999999,
       }, headers: { "AUTH_TOKEN" => @webhook_auth_token }, as: :json
 
       _(response.status).must_equal 404
@@ -62,7 +62,7 @@ describe Webhooks::BaseController do
     it "accepts HTTP_AUTH_TOKEN env variable" do
       Webhooks::SubscriptionStartedService.stub :call, { success: true, message: "Success" } do
         post webhook_subscription_started_path, params: {
-          company: { fluid_company_id: @company.fluid_company_id },
+          company_id: @company.fluid_company_id,
         }, env: { "HTTP_AUTH_TOKEN" => @webhook_auth_token }, as: :json
 
         _(response.status).must_equal 200

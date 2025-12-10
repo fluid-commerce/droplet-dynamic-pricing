@@ -24,7 +24,10 @@ protected
   end
 
   def find_company
-    company_id = webhook_params.dig("company", "fluid_company_id") || webhook_params.dig(:company, :fluid_company_id)
+    company_id = webhook_params.dig("payload", "company_id") ||
+                 webhook_params.dig(:payload, :company_id) ||
+                 webhook_params.dig("company_id") ||
+                 webhook_params.dig(:company_id)
     Company.find_by(fluid_company_id: company_id) if company_id.present?
   end
 

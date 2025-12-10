@@ -18,9 +18,8 @@ private
 
   def permitted_params
     params.permit(
-      company: {},
+      :event_name, :schema_version, :schema_hash, :company_id, :resource_name, :resource, :event,
       subscription: {},
-      customer: {},
       subscription_started: {}
     )
   end

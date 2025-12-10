@@ -7,15 +7,12 @@ class Webhooks::BaseService
 protected
 
   def customer_id
-    @webhook_params.dig("subscription", "customer_id") ||
-      @webhook_params.dig(:subscription, :customer_id) ||
-      @webhook_params.dig("customer", "id") ||
-      @webhook_params.dig(:customer, :id)
+    @webhook_params.dig("subscription", "customer", "id") ||
+      @webhook_params.dig(:subscription, :customer, :id)
   end
 
   def subscription_id
-    @webhook_params.dig("subscription", "id") ||
-      @webhook_params.dig(:subscription, :id)
+    @webhook_params.dig("subscription", "id")
   end
 
   def update_customer_type(customer_id, customer_type)

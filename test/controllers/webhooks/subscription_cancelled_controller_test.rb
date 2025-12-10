@@ -9,11 +9,11 @@ describe Webhooks::SubscriptionCancelledController do
     @webhook_params = {
       "subscription" => {
         "id" => 12345,
-        "customer_id" => 6834670,
+        "customer" => {
+          "id" => 6834670,
+        },
       },
-      "company" => {
-        "fluid_company_id" => @company.fluid_company_id,
-      },
+      "company_id" => @company.fluid_company_id,
     }
   end
 
@@ -86,11 +86,11 @@ headers: { "X-Auth-Token" => @webhook_auth_token }, as: :json
       invalid_params = {
         "subscription" => {
           "id" => 12345,
-          "customer_id" => 6834670,
+          "customer" => {
+            "id" => 6834670,
+          },
         },
-        "company" => {
-          "fluid_company_id" => 999999999,
-        },
+        "company_id" => 999999999,
       }
 
       post webhook_subscription_cancelled_path, params: invalid_params,
@@ -117,7 +117,7 @@ headers: { "AUTH_TOKEN" => @webhook_auth_token }, as: :json
 
         _(service_called).must_equal true
         _(captured_params["subscription"]["id"]).must_equal 12345
-        _(captured_params["subscription"]["customer_id"]).must_equal 6834670
+        _(captured_params["subscription"]["customer"]["id"]).must_equal 6834670
         _(captured_company).must_equal @company
       end
     end
