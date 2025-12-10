@@ -25,10 +25,29 @@ protected
       raise ArgumentError, "customer_type cannot be blank"
     end
 
+    client = FluidClient.new(@company.authentication_token)
+    client.metafields.ensure_definition(
+      namespace: "custom",
+      key: "customer_type",
+      value_type: "json",
+      description: "Customer type for pricing (preferred_customer, retail, null)",
+      owner_resource: "Customer"
+    )
+
     json_value = { "customer_type" => customer_type.to_s }
 
-    client = FluidClient.new(@company.authentication_token)
     client.metafields.update(
+      resource_type: "customer",
+      resource_id: customer_id.to_i,
+      namespace: "custom",
+      key: "customer_type",
+      value: json_value,
+      value_type: "json",
+      description: "Customer type for pricing (preferred_customer, retail, null)"
+    )
+  rescue FluidClient::ResourceNotFoundError => e
+    Rails.logger.warn "Metafield not found for customer #{customer_id}; attempting create (#{e.message})"
+    client.metafields.create(
       resource_type: "customer",
       resource_id: customer_id.to_i,
       namespace: "custom",

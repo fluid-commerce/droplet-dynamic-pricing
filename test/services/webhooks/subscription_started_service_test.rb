@@ -6,13 +6,15 @@ class Webhooks::SubscriptionStartedServiceTest < ActiveSupport::TestCase
   def setup
     @company = companies(:acme)
     @webhook_params = {
-      "subscription" => {
-        "id" => 12345,
-        "customer" => {
-          "id" => 6834670,
+      "payload" => {
+        "subscription" => {
+          "id" => 12345,
+          "customer" => {
+            "id" => 6834670,
+          },
         },
+        "company_id" => @company.fluid_company_id,
       },
-      "company_id" => @company.fluid_company_id,
     }
   end
 
@@ -29,7 +31,7 @@ class Webhooks::SubscriptionStartedServiceTest < ActiveSupport::TestCase
   end
 
   test "returns error when customer_id is missing" do
-    webhook_params = { "company_id" => @company.fluid_company_id }
+    webhook_params = { "payload" => { "company_id" => @company.fluid_company_id } }
 
     result = Webhooks::SubscriptionStartedService.call(webhook_params, @company)
 
