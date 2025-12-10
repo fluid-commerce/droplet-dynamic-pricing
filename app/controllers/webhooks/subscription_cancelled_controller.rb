@@ -18,7 +18,14 @@ private
 
   def permitted_params
     params.permit(
-      :event_name, :schema_version, :schema_hash, :company_id, :resource_name, :resource, :event,
+      :event_name,
+      :schema_version,
+      :schema_hash,
+      :company_id,
+      :resource_name,
+      :resource,
+      :event,
+      payload: {},
       subscription: {},
       subscription_cancelled: {}
     )

@@ -8,7 +8,9 @@ protected
 
   def customer_id
     @webhook_params.dig("subscription", "customer", "id") ||
-      @webhook_params.dig(:subscription, :customer, :id)
+      @webhook_params.dig(:subscription, :customer, :id) ||
+      @webhook_params.dig("payload", "customer", "id") ||
+      @webhook_params.dig(:payload, :customer, :id)
   end
 
   def subscription_id
