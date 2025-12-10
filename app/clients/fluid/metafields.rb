@@ -45,12 +45,12 @@ module Fluid
           "metafield_definition" => {
             "namespace" => namespace.to_s,
             "key" => key.to_s,
-            "name" => key.to_s, # minimal name; adjust if needed
+            "name" => key.to_s,
             "value_type" => value_type.to_s,
             "owner_resource" => owner_resource.to_s,
             "description" => description.to_s,
             "pinned" => false,
-            "locked" => false,
+          "locked" => false,
           }.compact
         }
 
