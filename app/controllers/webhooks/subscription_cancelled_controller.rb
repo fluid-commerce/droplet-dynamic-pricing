@@ -25,7 +25,7 @@ private
       :resource_name,
       :resource,
       :event,
-      payload: {}, # production payload comes nested under :payload
+      payload: {},
       subscription: {},
       subscription_cancelled: {}
     )
