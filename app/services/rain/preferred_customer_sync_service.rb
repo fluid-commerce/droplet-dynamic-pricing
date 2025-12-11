@@ -11,6 +11,20 @@ module Rain
       @company = company
     end
 
+    def call
+      synchronize
+    end
+
+  private
+
+    def fluid_client
+      @fluid_client ||= FluidClient.new(@company.authentication_token)
+    end
+
+    def exigo_client
+      @exigo_client ||= ExigoClient.for_company(@company.name)
+    end
+
     def synchronize
       Rails.logger.info("[PreferredSync] synchronize_preferred_customers start")
 
@@ -35,61 +49,49 @@ module Rain
         next unless customer_id.present?
 
         begin
+          has_exigo_autoship =
+            exigo_active_autoship_ids.include?(customer_id) ||
+            exigo_client.customer_has_active_autoship?(customer_id)
+        rescue ExigoClient::Error => e
+          Rails.logger.error("[PreferredSync] Failed to check Exigo autoship for #{customer_id}:#{e.message}")
+          Rails.logger.info("[PreferredSync] Skipping customer #{customer_id} due to Exigo error")
+          next
+        end
+
+        Rails.logger.info("[PreferredSync] exigo_autoship=#{has_exigo_autoship}")
+
+        if has_exigo_autoship
           begin
-            has_exigo_autoship =
-              exigo_active_autoship_ids.include?(customer_id) ||
-              exigo_client.customer_has_active_autoship?(customer_id)
-          rescue ExigoClient::Error => e
-            Rails.logger.error("[PreferredSync] Failed to check Exigo autoship for #{customer_id}:#{e.message}")
-            Rails.logger.info("[PreferredSync] Skipping customer #{customer_id} due to Exigo error")
-            next
-          end
-
-          Rails.logger.info("[PreferredSync] exigo_autoship=#{has_exigo_autoship}")
-
-          if has_exigo_autoship
             ensure_fluid_preferred(customer_id)
-            update_exigo_customer_type(customer_id, preferred_type_id)
-            kept += 1
-            next
-          end
-
-          begin
-            fluid_autoship = fluid_client.customers.active_autoship?(customer_id)
-            Rails.logger.info("[PreferredSync] fluid_autoship=#{fluid_autoship}")
           rescue FluidClient::Error => e
-            Rails.logger.error("[PreferredSync] Failed to check Fluid autoship for #{customer_id}:#{e.message}")
-            Rails.logger.info("[PreferredSync] Skipping customer #{customer_id} due to Fluid error")
+            Rails.logger.error("[PreferredSync] Failed to update Fluid preferred status for #{customer_id}: #{e.message}")
             next
           end
+          update_exigo_customer_type(customer_id, preferred_type_id)
+          kept += 1
+          next
+        end
 
-          if fluid_autoship
-            kept += 1
-            next
-          end
-
-          demote_customer(customer_id, retail_type_id)
-          demoted += 1
-
+        begin
+          fluid_autoship = fluid_client.customers.active_autoship?(customer_id)
+          Rails.logger.info("[PreferredSync] fluid_autoship=#{fluid_autoship}")
         rescue FluidClient::Error => e
-          Rails.logger.error("[PreferredSync] Failed to process customer #{customer_id}: #{e.message}")
+          Rails.logger.error("[PreferredSync] Failed to check Fluid autoship for #{customer_id}:#{e.message}")
           Rails.logger.info("[PreferredSync] Skipping customer #{customer_id} due to Fluid error")
           next
         end
+
+        if fluid_autoship
+          kept += 1
+          next
+        end
+
+        demote_customer(customer_id, retail_type_id)
+        demoted += 1
       end
 
       Rails.logger.info("[PreferredSync] summary kept=#{kept} demoted=#{demoted}")
       true
-    end
-
-  private
-
-    def fluid_client
-      @fluid_client ||= FluidClient.new(@company.authentication_token)
-    end
-
-    def exigo_client
-      @exigo_client ||= ExigoClient.for_company(@company.name)
     end
 
     def ensure_fluid_preferred(customer_id)
@@ -118,7 +120,7 @@ module Rain
         Rails.logger.info("[PreferredSync] Updated Fluid customer #{customer_id} to retail")
       rescue FluidClient::Error => e
         Rails.logger.error("[PreferredSync] Failed to update Fluid retail status for #{customer_id}: #{e.message}")
-        raise
+        return
       end
 
       update_exigo_customer_type(customer_id, retail_type_id)

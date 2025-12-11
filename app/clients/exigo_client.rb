@@ -6,8 +6,6 @@ class ExigoClient
   Error = Class.new(StandardError)
   ConnectionError = Class.new(Error)
 
-  attr_reader :credentials
-
   def initialize(company_name)
     raise ArgumentError, "company_name must be present" unless company_name.present?
     @credentials = build_credentials_from_company(company_name)
@@ -65,18 +63,39 @@ class ExigoClient
     execute_non_query(query, [ customer_type_id, customer_id ])
   end
 
-  def establish_connection
-    TinyTds::Client.new(
-      host: credentials["exigo_db_host"],
-      username: credentials["exigo_db_username"],
-      password: credentials["exigo_db_password"],
-      database: credentials["exigo_db_name"],
-      azure: true,
-      login_timeout: 5,
-      timeout: 15,
-    )
-  rescue StandardError => e
-    raise ConnectionError, "Failed to connect to Exigo SQL Server database: #{e.message}"
+private
+
+  attr_reader :credentials
+
+  def execute_non_query(query, params = [])
+    connection = establish_connection
+
+    if params.any?
+      parameterized_query = query.dup
+      params.each_with_index do |_, index|
+        parameterized_query = parameterized_query.sub("?", "@param#{index}")
+      end
+
+      declare_statements = params.each_with_index.map do |param, index|
+        sql_type = case param
+        when Integer
+          "INT"
+        when Float
+          "FLOAT"
+        else
+          "NVARCHAR(MAX)"
+        end
+        "DECLARE @param#{index} #{sql_type} = #{quote_value(param)}"
+      end
+
+      full_query = declare_statements.join("; ") + "; " + parameterized_query
+      result = connection.execute(full_query)
+    else
+      result = connection.execute(query)
+    end
+    result.to_a if result.respond_to?(:to_a)
+  ensure
+    connection&.close
   end
 
   def execute_query(query, params = [])
@@ -106,43 +125,24 @@ class ExigoClient
       result = connection.execute(query)
     end
 
-    rows = result.map { |row| row }
-    rows
+    result.to_a
   ensure
     connection&.close
   end
 
-  def execute_non_query(query, params = [])
-    connection = establish_connection
-
-    if params.any?
-      parameterized_query = query.dup
-      params.each_with_index do |_, index|
-        parameterized_query = parameterized_query.sub("?", "@param#{index}")
-      end
-
-      declare_statements = params.each_with_index.map do |param, index|
-        sql_type = case param
-        when Integer
-          "INT"
-        when Float
-          "FLOAT"
-        else
-          "NVARCHAR(MAX)"
-        end
-        "DECLARE @param#{index} #{sql_type} = #{quote_value(param)}"
-      end
-
-      full_query = declare_statements.join("; ") + "; " + parameterized_query
-      connection.execute(full_query)
-    else
-      connection.execute(query)
-    end
-  ensure
-    connection&.close
+  def establish_connection
+    TinyTds::Client.new(
+      host: credentials["exigo_db_host"],
+      username: credentials["exigo_db_username"],
+      password: credentials["exigo_db_password"],
+      database: credentials["exigo_db_name"],
+      azure: true,
+      login_timeout: 5,
+      timeout: 15,
+    )
+  rescue StandardError => e
+    raise ConnectionError, "Failed to connect to Exigo SQL Server database: #{e.message}"
   end
-
-private
 
   def build_credentials_from_company(company_name)
     return {} unless company_name.present?

@@ -27,7 +27,7 @@ module Rain
 
       service.stub(:exigo_client, exigo_client_stub) do
         service.stub(:fluid_client, build_fluid_client(fluid_customers_resource)) do
-          result = service.synchronize
+          result = service.call
           assert_equal(true, result)
         end
       end
@@ -59,7 +59,7 @@ module Rain
 
       service.stub(:exigo_client, exigo_client_stub) do
         service.stub(:fluid_client, build_fluid_client(fluid_customers_resource)) do
-          result = service.synchronize
+          result = service.call
           assert_equal(true, result)
         end
       end
@@ -91,7 +91,7 @@ module Rain
 
       service.stub(:exigo_client, exigo_client_stub) do
         service.stub(:fluid_client, build_fluid_client(fluid_customers_resource)) do
-          result = service.synchronize
+          result = service.call
           assert_equal(true, result)
         end
       end
@@ -125,7 +125,7 @@ module Rain
       service = PreferredCustomerSyncService.new(company: company)
 
       service.stub(:exigo_client, exigo_client_stub) do
-        result = service.synchronize
+        result = service.call
         assert_equal(false, result)
       end
     end
@@ -164,7 +164,7 @@ module Rain
 
       service.stub(:exigo_client, exigo_client_stub) do
         service.stub(:fluid_client, build_fluid_client(fluid_customers_resource)) do
-          result = service.synchronize
+          result = service.call
           assert_equal(true, result)
         end
       end
@@ -204,7 +204,7 @@ module Rain
 
       service.stub(:exigo_client, exigo_client_stub) do
         service.stub(:fluid_client, build_fluid_client(fluid_customers_resource)) do
-          result = service.synchronize
+          result = service.call
           # Should still succeed even though Exigo update failed
           assert_equal(true, result)
         end
@@ -247,7 +247,7 @@ module Rain
 
       service.stub(:exigo_client, exigo_client_stub) do
         service.stub(:fluid_client, build_fluid_client(fluid_customers_resource)) do
-          result = service.synchronize
+          result = service.call
           # Should still succeed overall even though one customer failed
           assert_equal(true, result)
         end
@@ -287,7 +287,7 @@ module Rain
 
       service.stub(:exigo_client, exigo_client_stub) do
         service.stub(:fluid_client, build_fluid_client(fluid_customers_resource)) do
-          result = service.synchronize
+          result = service.call
           # Should still succeed overall even though one customer failed
           assert_equal(true, result)
         end
@@ -324,7 +324,7 @@ module Rain
 
       service.stub(:exigo_client, exigo_client_stub) do
         service.stub(:fluid_client, build_fluid_client(fluid_customers_resource)) do
-          result = service.synchronize
+          result = service.call
           # Should still succeed overall even though customer was skipped
           assert_equal(true, result)
         end

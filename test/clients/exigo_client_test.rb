@@ -1,13 +1,23 @@
 require "test_helper"
 
 class ExigoClientTest < ActiveSupport::TestCase
+  class FakeResult
+    def initialize(rows)
+      @rows = rows
+    end
+
+    def to_a
+      @rows
+    end
+  end
+
   class FakeConnection
     def initialize(rows)
       @rows = rows
     end
 
     def execute(_query)
-      @rows
+      FakeResult.new(@rows)
     end
 
     def close; end
@@ -53,6 +63,24 @@ class ExigoClientTest < ActiveSupport::TestCase
     refute client.stub(:establish_connection, without_autoship) { client.customer_has_active_autoship?(123) }
   end
 
+  test "execute_non_query consumes result to_a" do
+    client = ExigoClient.new("TEST")
+
+    fake_connection = Minitest::Mock.new
+    fake_result = Minitest::Mock.new
+    fake_result.expect(:to_a, [])
+    fake_connection.expect(:execute, fake_result, [String])
+    fake_connection.expect(:close, nil)
+
+    client.stub(:establish_connection, fake_connection) do
+      client.send(:execute_non_query, "UPDATE dbo.Customers SET CustomerTypeID = 1 WHERE CustomerID = 2")
+    end
+
+    fake_result.verify
+    fake_connection.verify
+    assert fake_result.respond_to?(:to_a)
+  end
+
   test "for_company creates client with company-based credentials" do
     ENV["ACME_EXIGO_DB_HOST"] = "acme.host.com"
     ENV["ACME_EXIGO_DB_USERNAME"] = "acme_user"
@@ -68,7 +96,7 @@ class ExigoClientTest < ActiveSupport::TestCase
       "exigo_db_name" => "acme_db",
     }
 
-    assert_equal expected_credentials, client.credentials
+    assert_equal expected_credentials, client.instance_variable_get(:@credentials)
   end
 
   test "for_company raises error when company_name is blank" do
@@ -90,7 +118,7 @@ class ExigoClientTest < ActiveSupport::TestCase
 
     client = ExigoClient.for_company("TEST")
 
-    assert_equal({}, client.credentials)
+    assert_equal({}, client.instance_variable_get(:@credentials))
   end
 
   test "quote_value safely escapes SQL injection attempts" do
