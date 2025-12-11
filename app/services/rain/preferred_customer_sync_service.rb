@@ -62,12 +62,12 @@ module Rain
 
         if has_exigo_autoship
           begin
-            ensure_fluid_preferred(customer_id)
+            set_fluid_customer_type(customer_id, "preferred_customer")
           rescue FluidClient::Error => e
             Rails.logger.error("[PreferredSync] Failed to update Fluid preferred status for #{customer_id}: #{e.message}")
             next
           end
-          update_exigo_customer_type(customer_id, preferred_type_id)
+          update_exigo_customer_type(customer_id, preferred_type_id) # commented for testing
           kept += 1
           next
         end
@@ -94,36 +94,54 @@ module Rain
       true
     end
 
-    def ensure_fluid_preferred(customer_id)
-      begin
-        fluid_client.customers.append_metadata(
-          customer_id,
-          { "customer_type" => "preferred_customer" }
-        )
-        Rails.logger.info("[PreferredSync] Updated Fluid customer #{customer_id} to preferred_customer")
-      rescue FluidClient::Error => e
-        Rails.logger.error("[PreferredSync] Failed to update Fluid preferred status for #{customer_id}: #{e.message}")
-        raise
-      end
-    end
-
     def demote_customer(customer_id, retail_type_id)
       Rails.logger.info(
         "[PreferredSync] demote_customer customer_id=#{customer_id} retail_type_id=#{retail_type_id}"
       )
 
       begin
-        fluid_client.customers.append_metadata(
-          customer_id,
-          { "customer_type" => "retail" }
-        )
+        set_fluid_customer_type(customer_id, "retail")
         Rails.logger.info("[PreferredSync] Updated Fluid customer #{customer_id} to retail")
       rescue FluidClient::Error => e
         Rails.logger.error("[PreferredSync] Failed to update Fluid retail status for #{customer_id}: #{e.message}")
         return
       end
 
-      update_exigo_customer_type(customer_id, retail_type_id)
+      update_exigo_customer_type(customer_id, retail_type_id) # commented for testing
+    end
+
+    def set_fluid_customer_type(customer_id, customer_type)
+      client = fluid_client
+      client.metafields.ensure_definition(
+        namespace: "custom",
+        key: "customer_type",
+        value_type: "json",
+        description: "Customer type for pricing (preferred_customer, retail, null)",
+        owner_resource: "Customer"
+      )
+
+      json_value = { "customer_type" => customer_type.to_s }
+
+      client.metafields.update(
+        resource_type: "customer",
+        resource_id: customer_id.to_i,
+        namespace: "custom",
+        key: "customer_type",
+        value: json_value,
+        value_type: "json",
+        description: "Customer type for pricing (preferred_customer, retail, null)"
+      )
+    rescue FluidClient::ResourceNotFoundError => e
+      Rails.logger.warn "Metafield not found for customer #{customer_id}; attempting create (#{e.message})"
+      client.metafields.create(
+        resource_type: "customer",
+        resource_id: customer_id.to_i,
+        namespace: "custom",
+        key: "customer_type",
+        value: json_value,
+        value_type: "json",
+        description: "Customer type for pricing (preferred_customer, retail, null)"
+      )
     end
 
     def update_exigo_customer_type(customer_id, customer_type_id)
