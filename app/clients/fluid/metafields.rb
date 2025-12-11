@@ -50,8 +50,8 @@ module Fluid
             "owner_resource" => owner_resource.to_s,
             "description" => description.to_s,
             "pinned" => false,
-          "locked" => false,
-          }.compact
+            "locked" => false,
+        }.compact,
         }
 
         @client.post("/api/v2/metafield_definitions", body: payload)
