@@ -64,7 +64,9 @@ module Rain
           begin
             set_fluid_customer_type(customer_id, "preferred_customer")
           rescue FluidClient::Error => e
-            Rails.logger.error("[PreferredSync] Failed to update Fluid preferred status for #{customer_id}: #{e.message}")
+            Rails.logger.error(
+              "[PreferredSync] Failed to update Fluid preferred status for #{customer_id}: #{e.message}"
+            )
             next
           end
           update_exigo_customer_type(customer_id, preferred_type_id) # commented for testing

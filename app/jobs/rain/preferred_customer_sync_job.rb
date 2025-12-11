@@ -7,7 +7,7 @@ module Rain
     def perform
       return unless rain_company
 
-    Rain::PreferredCustomerSyncService.new(company: rain_company).call
+      Rain::PreferredCustomerSyncService.new(company: rain_company).call
     end
 
   private

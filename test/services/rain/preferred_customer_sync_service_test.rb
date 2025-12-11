@@ -273,12 +273,12 @@ module Rain
       ENV["RAIN_PREFERRED_CUSTOMER_TYPE_ID"] = "2"
       ENV["RAIN_RETAIL_CUSTOMER_TYPE_ID"] = "1"
 
-    metadata_calls = []
-    fluid_customers_resource = build_fluid_resource(
-      customers: [ { "id" => 101 } ],
-      active_autoship_proc: ->(_) { false },
-      metadata_calls: metadata_calls
-    )
+      metadata_calls = []
+      fluid_customers_resource = build_fluid_resource(
+        customers: [ { "id" => 101 } ],
+        active_autoship_proc: ->(_) { false },
+        metadata_calls: metadata_calls
+      )
 
       exigo_client_stub = build_exigo_client(
         active_autoship_ids: [],  # No Exigo autoships
@@ -289,16 +289,17 @@ module Rain
       service = PreferredCustomerSyncService.new(company: company)
 
       service.stub(:exigo_client, exigo_client_stub) do
-      service.stub(:fluid_client,
-        build_fluid_client(
-          fluid_customers_resource,
-          metadata_calls: metadata_calls,
-          metafields_update_proc: ->(args) {
-            raise FluidClient::Error, "API Error" if args[:value]["customer_type"] == "retail"
-            metadata_calls << [ :update, args ]
-          }
-        )
-      ) do
+        service.stub(
+          :fluid_client,
+          build_fluid_client(
+            fluid_customers_resource,
+            metadata_calls: metadata_calls,
+            metafields_update_proc: ->(args) {
+              raise FluidClient::Error, "API Error" if args[:value]["customer_type"] == "retail"
+              metadata_calls << [ :update, args ]
+            }
+          )
+        ) do
           result = service.call
           # Should still succeed overall even though one customer failed
           assert_equal(true, result)
@@ -311,13 +312,13 @@ module Rain
       ENV["RAIN_PREFERRED_CUSTOMER_TYPE_ID"] = "2"
       ENV["RAIN_RETAIL_CUSTOMER_TYPE_ID"] = "1"
 
-    metadata_calls = []
-    # Mock Fluid client where active_autoship? fails
-    fluid_customers_resource = build_fluid_resource(
-      customers: [ { "id" => 101 } ],
-      active_autoship_proc: ->(_customer_id) { raise FluidClient::Error, "API timeout" },
-      metadata_calls: metadata_calls
-    )
+      metadata_calls = []
+      # Mock Fluid client where active_autoship? fails
+      fluid_customers_resource = build_fluid_resource(
+        customers: [ { "id" => 101 } ],
+        active_autoship_proc: ->(_customer_id) { raise FluidClient::Error, "API timeout" },
+        metadata_calls: metadata_calls
+      )
 
       exigo_client_stub = build_exigo_client(
         active_autoship_ids: [],  # No Exigo autoships
@@ -328,7 +329,7 @@ module Rain
       service = PreferredCustomerSyncService.new(company: company)
 
       service.stub(:exigo_client, exigo_client_stub) do
-      service.stub(:fluid_client, build_fluid_client(fluid_customers_resource, metadata_calls: metadata_calls)) do
+        service.stub(:fluid_client, build_fluid_client(fluid_customers_resource, metadata_calls: metadata_calls)) do
           result = service.call
           # Should still succeed overall even though customer was skipped
           assert_equal(true, result)
@@ -346,32 +347,32 @@ module Rain
       end.new
     end
 
-  def build_fluid_resource(customers:, active_autoship_proc:, metadata_calls:)
+    def build_fluid_resource(customers:, active_autoship_proc:, metadata_calls:)
       Class.new do
         define_method(:get) { |_params = nil| { "customers" => customers } }
         define_method(:active_autoship?, &active_autoship_proc)
-      # append_metadata no longer used; metafields.update/create capture calls
-      define_method(:append_metadata) { |_id, _payload| }
+        # append_metadata no longer used; metafields.update/create capture calls
+        define_method(:append_metadata) { |_id, _payload| nil }
       end.new
     end
 
-  def build_fluid_client(resource, metadata_calls:, metafields_update_proc: nil, metafields_create_proc: nil)
+    def build_fluid_client(resource, metadata_calls:, metafields_update_proc: nil, metafields_create_proc: nil)
       Class.new do
         define_method(:customers) { resource }
-      define_method(:metafields) do
-        calls = metadata_calls
-        update_proc = metafields_update_proc
-        create_proc = metafields_create_proc
-        Class.new do
-          define_method(:ensure_definition) { |_args = nil| true }
-          define_method(:update) do |**args|
-            update_proc ? update_proc.call(args) : calls << [ :update, args ]
-          end
-          define_method(:create) do |**args|
-            create_proc ? create_proc.call(args) : calls << [ :create, args ]
-          end
-        end.new
-      end
+        define_method(:metafields) do
+          calls = metadata_calls
+          update_proc = metafields_update_proc
+          create_proc = metafields_create_proc
+          Class.new do
+            define_method(:ensure_definition) { |_args = nil| true }
+            define_method(:update) do |**args|
+              update_proc ? update_proc.call(args) : calls << [ :update, args ]
+            end
+            define_method(:create) do |**args|
+              create_proc ? create_proc.call(args) : calls << [ :create, args ]
+            end
+          end.new
+        end
       end.new
     end
   end

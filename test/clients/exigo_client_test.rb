@@ -69,7 +69,7 @@ class ExigoClientTest < ActiveSupport::TestCase
     fake_connection = Minitest::Mock.new
     fake_result = Minitest::Mock.new
     fake_result.expect(:to_a, [])
-    fake_connection.expect(:execute, fake_result, [String])
+    fake_connection.expect(:execute, fake_result, [ String ])
     fake_connection.expect(:close, nil)
 
     client.stub(:establish_connection, fake_connection) do

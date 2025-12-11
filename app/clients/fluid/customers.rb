@@ -29,6 +29,7 @@ module Fluid
         response = find(customer_id)
         count = response["active_subscriptions_count"] || response.dig("customer", "active_subscriptions_count")
         return count.to_i.positive? if count
+        false
       rescue FluidClient::Error => e
         Rails.logger.warn("Failed to check Fluid autoship for customer #{customer_id}: #{e.message}")
         true

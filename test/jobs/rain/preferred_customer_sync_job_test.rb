@@ -15,7 +15,7 @@ module Rain
       Rain::PreferredCustomerSyncService.stub(:new, ->(company:) {
         service_company = company
         mock_service = Object.new
-      mock_service.define_singleton_method(:call) do
+        mock_service.define_singleton_method(:call) do
           service_called = true
           true
         end
