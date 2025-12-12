@@ -69,6 +69,7 @@ private
       { event: "started", url: subscription_webhook_url(base_url, "subscription_started") },
       { event: "paused", url: subscription_webhook_url(base_url, "subscription_paused") },
       { event: "cancelled", url: subscription_webhook_url(base_url, "subscription_cancelled") },
+      { event: "resumed", url: subscription_webhook_url(base_url, "subscription_resumed") },
     ]
   end
 
