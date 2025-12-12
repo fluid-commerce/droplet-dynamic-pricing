@@ -16,9 +16,23 @@ module Fluid
         @client.get("/api/customers#{query}")
       end
 
+      def find(customer_id)
+        @client.get("/api/customers/#{customer_id}")
+      end
+
       def append_metadata(customer_id, metadata)
         payload = { "metadata" => metadata }
         @client.patch("/api/customers/#{customer_id}/append_metadata", body: payload)
+      end
+
+      def active_autoship?(customer_id)
+        response = find(customer_id)
+        count = response["active_subscriptions_count"] || response.dig("customer", "active_subscriptions_count")
+        return count.to_i.positive? if count
+        false
+      rescue FluidClient::Error => e
+        Rails.logger.warn("Failed to check Fluid autoship for customer #{customer_id}: #{e.message}")
+        true
       end
 
     private
@@ -38,6 +52,13 @@ module Fluid
           raw_metadata = params[:by_metadata]
           json_metadata = raw_metadata.is_a?(String) ? raw_metadata : raw_metadata.to_json
           query_params << "by_metadata=#{CGI.escape(json_metadata)}"
+        end
+
+        if params.key?(:country_code)
+          country_codes = Array(params[:country_code])
+          country_codes.each do |code|
+            query_params << "country_code[]=#{CGI.escape(code.to_s)}"
+          end
         end
 
         "?#{query_params.join('&')}"
