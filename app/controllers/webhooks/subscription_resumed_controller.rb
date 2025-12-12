@@ -3,11 +3,7 @@ class Webhooks::SubscriptionResumedController < Webhooks::BaseController
     company = find_company
     result = Webhooks::SubscriptionResumedService.call(webhook_params, company)
 
-    if result[:success]
-      render json: result, status: :ok
-    else
-      render json: result, status: :bad_request
-    end
+    render json: result, status: (result[:success] ? :ok : :bad_request)
   rescue StandardError => e
     Rails.logger.error "Webhook error for SubscriptionResumed: #{e.message}"
     Rails.logger.error e.backtrace.join("\n")
