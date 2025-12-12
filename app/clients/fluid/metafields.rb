@@ -29,13 +29,14 @@ module Fluid
       end
 
       def find_definition_by_key(owner_resource:, key:, page: 1, per_page: 50)
-        query_params = []
-        query_params << "owner_resource=#{CGI.escape(owner_resource.to_s)}"
-        query_params << "search_query=#{CGI.escape(key.to_s)}"
-        query_params << "page=#{page}"
-        query_params << "per_page=#{per_page}"
+        query_params = {
+          owner_resource: owner_resource.to_s,
+          search_query: key.to_s,
+          page: page,
+          per_page: per_page,
+        }
 
-        response = @client.get("/api/v2/metafield_definitions?#{query_params.join('&')}")
+        response = @client.get("/api/v2/metafield_definitions?#{URI.encode_www_form(query_params)}")
         defs = (response["metafield_definitions"] || []).map { |definition| definition.deep_symbolize_keys }
         defs.find { |definition| definition[:key] == key.to_s }
       end
