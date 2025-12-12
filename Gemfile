@@ -21,6 +21,7 @@ gem "solid_cache"
 gem "solid_queue"
 gem "thruster", require: false
 gem "vite_rails", "~> 3.0", ">= 3.0.19"
+gem "tiny_tds", github: "ezedepetris/tiny_tds" # It fixes the issue with the Exigo Sandbox connection
 
 group :development, :test do
   gem "brakeman", require: false
