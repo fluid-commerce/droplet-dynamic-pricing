@@ -36,8 +36,8 @@ module Fluid
         query_params << "per_page=#{per_page}"
 
         response = @client.get("/api/v2/metafield_definitions?#{query_params.join('&')}")
-        defs = response["metafield_definitions"] || []
-        defs.find { |definition| definition["key"] == key.to_s || definition[:key] == key.to_sym }
+        defs = (response["metafield_definitions"] || []).map { |definition| definition.deep_symbolize_keys }
+        defs.find { |definition| definition[:key] == key.to_s }
       end
 
       def create_definition(namespace:, key:, value_type:, description: nil, owner_resource: "Customer")
@@ -48,11 +48,14 @@ module Fluid
             "name" => key.to_s,
             "value_type" => value_type.to_s,
             "owner_resource" => owner_resource.to_s,
-            "description" => description.to_s,
             "pinned" => false,
             "locked" => false,
-        }.compact,
+          },
         }
+
+        if description.present?
+          payload["metafield_definition"]["description"] = description.to_s
+        end
 
         @client.post("/api/v2/metafield_definitions", body: payload)
       end
