@@ -133,6 +133,42 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     assert_equal 72.0, item1[:price].to_f
   end
 
+  test "does not remove subscription pricing when customer has preferred_customer metafield" do
+    fake_carts = FakeCartsResource.new
+    fake_customers = FakeCustomersResource.new([ { "id" => 123 } ])
+
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+    mock_client.define_singleton_method(:customers) { fake_customers }
+
+    service = Callbacks::SubscriptionRemovedService.new(callback_params)
+
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    service.stub(:has_active_subscriptions?, false) do
+      service.stub(:get_customer_type_from_metafields, "preferred_customer") do
+        service.stub(:has_another_subscription_in_cart?, false) do
+          result = service.call
+          assert result[:success]
+        end
+      end
+    end
+
+    assert_equal 1, fake_carts.metadata_calls.size, "append_metadata should be called once"
+    call = fake_carts.metadata_calls.first
+
+    if call
+      assert_equal "preferred_customer", call[:metadata].with_indifferent_access[:price_type]
+    else
+      flunk "append_metadata was not called"
+    end
+
+    items = fake_carts.items_prices_calls.first[:items].map(&:with_indifferent_access)
+    item1 = items.find { |i| i[:id].to_s == "674137" }
+
+    assert_equal 72.0, item1[:price].to_f
+  end
+
   test "removes subscription pricing when email is blank and no subscription items in cart" do
     fake_carts = FakeCartsResource.new
 
