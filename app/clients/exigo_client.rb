@@ -147,7 +147,8 @@ private
   def build_credentials_from_company(company_name)
     return {} unless company_name.present?
 
-    company_prefix = company_name.upcase
+    company_prefix = company_name.upcase.gsub(" ", "_")
+
     {
       "exigo_db_host"      => ENV.fetch("#{company_prefix}_EXIGO_DB_HOST", nil),
       "exigo_db_username"  => ENV.fetch("#{company_prefix}_EXIGO_DB_USERNAME", nil),
