@@ -43,7 +43,7 @@ private
 
     webhooks.select do |webhook|
       webhook["resource"] == "subscription" &&
-        %w[started paused cancelled resumed].include?(webhook["event"])
+        %w[started paused cancelled resumed reactivated].include?(webhook["event"])
     end
   end
 

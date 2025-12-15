@@ -8,6 +8,7 @@ Rails.application.routes.draw do
   post "webhook/subscription_paused", to: "webhooks/subscription_paused#create"
   post "webhook/subscription_cancelled", to: "webhooks/subscription_cancelled#create"
   post "webhook/subscription_resumed", to: "webhooks/subscription_resumed#create"
+  post "webhook/subscription_reactivated", to: "webhooks/subscription_reactivated#create"
 
   namespace :callbacks do
     resources :subscription_added, only: :create
