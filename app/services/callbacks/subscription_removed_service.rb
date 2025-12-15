@@ -40,6 +40,6 @@ private
     customer_id = get_customer_id_by_email(customer_email)
     return false if customer_id.blank?
 
-    has_subscriptions?(customer_id)
+    has_subscriptions?(customer_id) || get_customer_type_from_metafields(customer_id) == PREFERRED_CUSTOMER_TYPE
   end
 end
