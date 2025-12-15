@@ -11,7 +11,7 @@ module Rain
 
       metadata_calls = []
       fluid_customers_resource = build_fluid_resource(
-        customers: [ { "id" => 101 } ],
+        customers: [ { "id" => 101, "external_id" => 101 } ],
         active_autoship_proc: ->(_) { false },
         metadata_calls: metadata_calls
       )
@@ -47,7 +47,7 @@ module Rain
 
       metadata_calls = []
       fluid_customers_resource = build_fluid_resource(
-        customers: [ { "id" => 202 } ],
+        customers: [ { "id" => 202, "external_id" => 202 } ],
         active_autoship_proc: ->(_) { false },
         metadata_calls: metadata_calls
       )
@@ -83,7 +83,7 @@ module Rain
 
       metadata_calls = []
       fluid_customers_resource = build_fluid_resource(
-        customers: [ { "id" => 303 } ],
+        customers: [ { "id" => 303, "external_id" => 303 } ],
         active_autoship_proc: ->(_) { true },
         metadata_calls: metadata_calls
       )
@@ -145,7 +145,7 @@ module Rain
 
       metadata_calls = []
       fluid_customers_resource = build_fluid_resource(
-        customers: [ { "id" => 101 }, { "id" => 102 } ],
+        customers: [ { "id" => 101, "external_id" => 101 }, { "id" => 102, "external_id" => 102 } ],
         active_autoship_proc: ->(_) { false },
         metadata_calls: metadata_calls
       )
@@ -192,7 +192,7 @@ module Rain
 
       metadata_calls = []
       fluid_customers_resource = build_fluid_resource(
-        customers: [ { "id" => 101 } ],
+        customers: [ { "id" => 101, "external_id" => 101 } ],
         active_autoship_proc: ->(_) { false },
         metadata_calls: metadata_calls
       )
@@ -237,7 +237,7 @@ module Rain
 
       metadata_calls = []
       fluid_customers_resource = build_fluid_resource(
-        customers: [ { "id" => 101 } ],
+        customers: [ { "id" => 101, "external_id" => 101 } ],
         active_autoship_proc: ->(_) { false },
         metadata_calls: metadata_calls
       )
@@ -275,7 +275,7 @@ module Rain
 
       metadata_calls = []
       fluid_customers_resource = build_fluid_resource(
-        customers: [ { "id" => 101 } ],
+        customers: [ { "id" => 101, "external_id" => 101 } ],
         active_autoship_proc: ->(_) { false },
         metadata_calls: metadata_calls
       )
@@ -315,7 +315,7 @@ module Rain
       metadata_calls = []
       # Mock Fluid client where active_autoship? fails
       fluid_customers_resource = build_fluid_resource(
-        customers: [ { "id" => 101 } ],
+        customers: [ { "id" => 101, "external_id" => 101 } ],
         active_autoship_proc: ->(_customer_id) { raise FluidClient::Error, "API timeout" },
         metadata_calls: metadata_calls
       )

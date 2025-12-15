@@ -45,16 +45,17 @@ module Rain
 
       fetch_fluid_customers.each do |customer|
         customer_id = customer["id"]
-        Rails.logger.info("[PreferredSync] processing customer_id=#{customer_id}")
-        next unless customer_id.present?
+        external_id = customer["external_id"]
+        Rails.logger.info("[PreferredSync] processing customer_id=#{customer_id} external_id=#{external_id}")
+        next unless customer_id.present? && external_id.present?
 
         begin
           has_exigo_autoship =
-            exigo_active_autoship_ids.include?(customer_id) ||
-            exigo_client.customer_has_active_autoship?(customer_id)
+            exigo_active_autoship_ids.include?(external_id) ||
+            exigo_client.customer_has_active_autoship?(external_id)
         rescue ExigoClient::Error => e
-          Rails.logger.error("[PreferredSync] Failed to check Exigo autoship for #{customer_id}:#{e.message}")
-          Rails.logger.info("[PreferredSync] Skipping customer #{customer_id} due to Exigo error")
+          Rails.logger.error("[PreferredSync] Failed to check Exigo autoship for #{external_id}:#{e.message}")
+          Rails.logger.info("[PreferredSync] Skipping customer #{external_id} due to Exigo error")
           next
         end
 
@@ -69,7 +70,7 @@ module Rain
             )
             next
           end
-          update_exigo_customer_type(customer_id, preferred_type_id) # commented for testing
+          update_exigo_customer_type(external_id, preferred_type_id)
           kept += 1
           next
         end
@@ -88,7 +89,7 @@ module Rain
           next
         end
 
-        demote_customer(customer_id, retail_type_id)
+        demote_customer(customer_id, external_id, retail_type_id)
         demoted += 1
       end
 
@@ -96,9 +97,10 @@ module Rain
       true
     end
 
-    def demote_customer(customer_id, retail_type_id)
+    def demote_customer(customer_id, external_id, retail_type_id)
       Rails.logger.info(
-        "[PreferredSync] demote_customer customer_id=#{customer_id} retail_type_id=#{retail_type_id}"
+        "[PreferredSync] demote_customer customer_id=#{customer_id} " \
+        "external_id=#{external_id} retail_type_id=#{retail_type_id}"
       )
 
       begin
@@ -106,10 +108,9 @@ module Rain
         Rails.logger.info("[PreferredSync] Updated Fluid customer #{customer_id} to retail")
       rescue FluidClient::Error => e
         Rails.logger.error("[PreferredSync] Failed to update Fluid retail status for #{customer_id}: #{e.message}")
-        return
       end
 
-      update_exigo_customer_type(customer_id, retail_type_id) # commented for testing
+      update_exigo_customer_type(external_id, retail_type_id)
     end
 
     def set_fluid_customer_type(customer_id, customer_type)
@@ -146,14 +147,14 @@ module Rain
       )
     end
 
-    def update_exigo_customer_type(customer_id, customer_type_id)
+    def update_exigo_customer_type(external_id, customer_type_id)
       return unless customer_type_id.present?
 
       begin
-        exigo_client.update_customer_type(customer_id, customer_type_id)
-        Rails.logger.info("[PreferredSync] Updated Exigo customer type for #{customer_id} to #{customer_type_id}")
+        exigo_client.update_customer_type(external_id, customer_type_id)
+        Rails.logger.info("[PreferredSync] Updated Exigo customer type for #{external_id} to #{customer_type_id}")
       rescue ExigoClient::Error => e
-        Rails.logger.error("[PreferredSync] Failed to update Exigo customer type for #{customer_id}: #{e.message}")
+        Rails.logger.error("[PreferredSync] Failed to update Exigo customer type for #{external_id}: #{e.message}")
       end
     end
 
