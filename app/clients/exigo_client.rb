@@ -147,12 +147,11 @@ private
   def build_credentials_from_company(company_name)
     return {} unless company_name.present?
 
-    company_prefix = company_name.upcase
     {
-      "exigo_db_host"      => ENV.fetch("#{company_prefix}_EXIGO_DB_HOST", nil),
-      "exigo_db_username"  => ENV.fetch("#{company_prefix}_EXIGO_DB_USERNAME", nil),
-      "exigo_db_password"  => ENV.fetch("#{company_prefix}_EXIGO_DB_PASSWORD", nil),
-      "exigo_db_name"      => ENV.fetch("#{company_prefix}_EXIGO_DB_NAME", nil),
+      "exigo_db_host"      => ENV.fetch("RAIN_EXIGO_DB_HOST", nil),
+      "exigo_db_username"  => ENV.fetch("RAIN_EXIGO_DB_USERNAME", nil),
+      "exigo_db_password"  => ENV.fetch("RAIN_EXIGO_DB_PASSWORD", nil),
+      "exigo_db_name"      => ENV.fetch("RAIN_EXIGO_DB_NAME", nil),
     }.compact
   end
 
