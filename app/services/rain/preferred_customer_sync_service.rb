@@ -99,7 +99,8 @@ module Rain
 
     def demote_customer(customer_id, external_id, retail_type_id)
       Rails.logger.info(
-        "[PreferredSync] demote_customer customer_id=#{customer_id} external_id=#{external_id} retail_type_id=#{retail_type_id}"
+        "[PreferredSync] demote_customer customer_id=#{customer_id} " \
+        "external_id=#{external_id} retail_type_id=#{retail_type_id}"
       )
 
       begin
@@ -107,10 +108,9 @@ module Rain
         Rails.logger.info("[PreferredSync] Updated Fluid customer #{customer_id} to retail")
       rescue FluidClient::Error => e
         Rails.logger.error("[PreferredSync] Failed to update Fluid retail status for #{customer_id}: #{e.message}")
-        return
       end
 
-    update_exigo_customer_type(external_id, retail_type_id)
+      update_exigo_customer_type(external_id, retail_type_id)
     end
 
     def set_fluid_customer_type(customer_id, customer_type)
