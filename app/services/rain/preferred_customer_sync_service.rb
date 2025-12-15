@@ -46,7 +46,6 @@ module Rain
       fetch_fluid_customers.each do |customer|
         customer_id = customer["id"]
         external_id = customer["external_id"]
-        
         Rails.logger.info("[PreferredSync] processing customer_id=#{customer_id} external_id=#{external_id}")
         next unless customer_id.present? && external_id.present?
 
