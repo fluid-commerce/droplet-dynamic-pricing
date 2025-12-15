@@ -48,4 +48,3 @@ class Webhooks::SubscriptionReactivatedServiceTest < ActiveSupport::TestCase
     end
   end
 end
-

@@ -93,8 +93,8 @@ headers: { "X-Auth-Token" => @webhook_auth_token }, as: :json
         "company_id" => 999999999,
       }
 
-      post webhook_subscription_reactivated_path, params: invalid_params, headers: { "AUTH_TOKEN" => @webhook_auth_token },
-as: :json
+      post webhook_subscription_reactivated_path, params: invalid_params,
+        headers: { "AUTH_TOKEN" => @webhook_auth_token }, as: :json
 
       _(response.status).must_equal 404
       json_response = JSON.parse(response.body)
@@ -123,4 +123,3 @@ headers: { "AUTH_TOKEN" => @webhook_auth_token }, as: :json
     end
   end
 end
-
