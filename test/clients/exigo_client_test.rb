@@ -28,6 +28,9 @@ class ExigoClientTest < ActiveSupport::TestCase
     ENV["TEST_EXIGO_DB_USERNAME"] = "test_user"
     ENV["TEST_EXIGO_DB_PASSWORD"] = "test_pass"
     ENV["TEST_EXIGO_DB_NAME"] = "test_db"
+    ENV["TEST_EXIGO_API_BASE_URL"] = "https://test-api.exigo.com/3.0/"
+    ENV["TEST_EXIGO_API_USER"] = "api_test_user"
+    ENV["TEST_EXIGO_API_PASSWORD"] = "api_test_pass"
   end
 
   def teardown
@@ -35,6 +38,9 @@ class ExigoClientTest < ActiveSupport::TestCase
     ENV.delete("TEST_EXIGO_DB_USERNAME")
     ENV.delete("TEST_EXIGO_DB_PASSWORD")
     ENV.delete("TEST_EXIGO_DB_NAME")
+    ENV.delete("TEST_EXIGO_API_BASE_URL")
+    ENV.delete("TEST_EXIGO_API_USER")
+    ENV.delete("TEST_EXIGO_API_PASSWORD")
   end
 
   test "customer_types returns raw rows" do
@@ -61,24 +67,6 @@ class ExigoClientTest < ActiveSupport::TestCase
 
     assert client.stub(:establish_connection, with_autoship) { client.customer_has_active_autoship?(123) }
     refute client.stub(:establish_connection, without_autoship) { client.customer_has_active_autoship?(123) }
-  end
-
-  test "execute_non_query consumes result to_a" do
-    client = ExigoClient.new("TEST")
-
-    fake_connection = Minitest::Mock.new
-    fake_result = Minitest::Mock.new
-    fake_result.expect(:to_a, [])
-    fake_connection.expect(:execute, fake_result, [ String ])
-    fake_connection.expect(:close, nil)
-
-    client.stub(:establish_connection, fake_connection) do
-      client.send(:execute_non_query, "UPDATE dbo.Customers SET CustomerTypeID = 1 WHERE CustomerID = 2")
-    end
-
-    fake_result.verify
-    fake_connection.verify
-    assert fake_result.respond_to?(:to_a)
   end
 
   test "for_company creates client with company-based credentials" do
@@ -140,5 +128,161 @@ class ExigoClientTest < ActiveSupport::TestCase
     assert_equal "1", client.send(:quote_value, true)
     assert_equal "0", client.send(:quote_value, false)
     assert_equal "NULL", client.send(:quote_value, nil)
+  end
+
+  test "update_customer_type uses API REST successfully" do
+    client = ExigoClient.new("TEST")
+
+    # Mock successful HTTP response
+    mock_response = Minitest::Mock.new
+    mock_response.expect(:code, "200")
+    mock_response.expect(:body, "{}")
+    mock_response.expect(:body, "{}")
+
+    mock_http = Minitest::Mock.new
+    mock_http.expect(:use_ssl=, nil, [ true ])
+    mock_http.expect(:read_timeout=, nil, [ 30 ])
+    mock_http.expect(:open_timeout=, nil, [ 10 ])
+    mock_http.expect(:request, mock_response, [ Net::HTTP::Patch ])
+
+    Net::HTTP.stub(:new, ->(*_args) { mock_http }) do
+      result = client.update_customer_type(123, 2)
+      assert_equal({}, result)
+    end
+
+    mock_http.verify
+    mock_response.verify
+  end
+
+  test "update_customer_type raises ApiError when credentials missing" do
+    ENV.delete("TEST_EXIGO_API_BASE_URL")
+
+    client = ExigoClient.new("TEST")
+
+    error = assert_raises(ExigoClient::ApiError) do
+      client.update_customer_type(123, 2)
+    end
+
+    assert_match(/API credentials not configured/, error.message)
+  end
+
+  test "update_customer_type raises ApiError on 401 authentication failure" do
+    client = ExigoClient.new("TEST")
+
+    mock_response = Minitest::Mock.new
+    mock_response.expect(:code, "401")
+
+    mock_http = Minitest::Mock.new
+    mock_http.expect(:use_ssl=, nil, [ true ])
+    mock_http.expect(:read_timeout=, nil, [ 30 ])
+    mock_http.expect(:open_timeout=, nil, [ 10 ])
+    mock_http.expect(:request, mock_response, [ Net::HTTP::Patch ])
+
+    Net::HTTP.stub(:new, ->(*_args) { mock_http }) do
+      error = assert_raises(ExigoClient::ApiError) do
+        client.update_customer_type(123, 2)
+      end
+
+      assert_match(/authentication failed/, error.message)
+    end
+
+    mock_http.verify
+    mock_response.verify
+  end
+
+  test "update_customer_type raises ApiError on 404 customer not found" do
+    client = ExigoClient.new("TEST")
+
+    mock_response = Minitest::Mock.new
+    mock_response.expect(:code, "404")
+
+    mock_http = Minitest::Mock.new
+    mock_http.expect(:use_ssl=, nil, [ true ])
+    mock_http.expect(:read_timeout=, nil, [ 30 ])
+    mock_http.expect(:open_timeout=, nil, [ 10 ])
+    mock_http.expect(:request, mock_response, [ Net::HTTP::Patch ])
+
+    Net::HTTP.stub(:new, ->(*_args) { mock_http }) do
+      error = assert_raises(ExigoClient::ApiError) do
+        client.update_customer_type(123, 2)
+      end
+
+      assert_match(/customer not found/, error.message)
+    end
+
+    mock_http.verify
+    mock_response.verify
+  end
+
+  test "update_customer_type raises ApiError on timeout" do
+    client = ExigoClient.new("TEST")
+
+    mock_http = Minitest::Mock.new
+    mock_http.expect(:use_ssl=, nil, [ true ])
+    mock_http.expect(:read_timeout=, nil, [ 30 ])
+    mock_http.expect(:open_timeout=, nil, [ 10 ])
+
+    def mock_http.request(_req)
+      raise Net::ReadTimeout, "timeout"
+    end
+
+    Net::HTTP.stub(:new, ->(*_args) { mock_http }) do
+      error = assert_raises(ExigoClient::ApiError) do
+        client.update_customer_type(123, 2)
+      end
+
+      assert_match(/timeout/, error.message)
+    end
+
+    mock_http.verify
+  end
+
+  test "update_customer_type sends correct payload with camelCase" do
+    client = ExigoClient.new("TEST")
+    customer_id = 6834670
+    customer_type_id = 2
+
+    captured_request = nil
+
+    mock_response = Minitest::Mock.new
+    mock_response.expect(:code, "200")
+    mock_response.expect(:body, "{}")
+    mock_response.expect(:body, "{}")
+
+    mock_http = Minitest::Mock.new
+    mock_http.expect(:use_ssl=, nil, [ true ])
+    mock_http.expect(:read_timeout=, nil, [ 30 ])
+    mock_http.expect(:open_timeout=, nil, [ 10 ])
+    mock_http.expect(:request, mock_response) do |req|
+      captured_request = req
+      true
+    end
+
+    Net::HTTP.stub(:new, ->(*_args) { mock_http }) do
+      client.update_customer_type(customer_id, customer_type_id)
+    end
+
+    refute_nil captured_request
+    assert_instance_of Net::HTTP::Patch, captured_request
+
+    parsed_body = JSON.parse(captured_request.body)
+    assert_equal customer_id, parsed_body["customerID"]
+    assert_equal customer_type_id, parsed_body["customerType"]
+
+    mock_http.verify
+    mock_response.verify
+  end
+
+  test "api_credentials loads from environment variables" do
+    client = ExigoClient.new("TEST")
+
+    expected_api_credentials = {
+      "api_password" => "api_test_pass",
+      "api_username" => "api_test_user",
+      "api_base_url" => "https://test-api.exigo.com/3.0/",
+      "verify_ssl" => true,
+    }
+
+    assert_equal expected_api_credentials, client.instance_variable_get(:@api_credentials)
   end
 end
