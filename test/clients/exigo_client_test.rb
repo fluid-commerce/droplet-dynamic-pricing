@@ -280,7 +280,6 @@ class ExigoClientTest < ActiveSupport::TestCase
       "api_password" => "api_test_pass",
       "api_username" => "api_test_user",
       "api_base_url" => "https://test-api.exigo.com/3.0/",
-      "verify_ssl" => true,
     }
 
     assert_equal expected_api_credentials, client.instance_variable_get(:@api_credentials)

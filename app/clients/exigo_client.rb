@@ -129,23 +129,19 @@ private
     return {} unless company_name.present?
 
     company_prefix = company_name.upcase.gsub(" ", "_")
-    verify_ssl_value = ENV.fetch("#{company_prefix}_EXIGO_API_VERIFY_SSL", "true")
 
-    credentials = {
+    {
       "api_password" => ENV.fetch("#{company_prefix}_EXIGO_API_PASSWORD", nil),
       "api_username" => ENV.fetch("#{company_prefix}_EXIGO_API_USER", nil),
       "api_base_url" => ENV.fetch("#{company_prefix}_EXIGO_API_BASE_URL", nil),
     }.compact
-
-    credentials["verify_ssl"] = verify_ssl_value.downcase == "true"
-    credentials
   end
 
   def update_customer_via_api(customer_id, customer_type_id)
-    base_url, username, password, verify_ssl = extract_api_credentials
+    base_url, username, password = extract_api_credentials
 
     uri = URI.join(base_url, "customers")
-    http = configure_http_client(uri, verify_ssl)
+    http = configure_http_client(uri)
 
     request = Net::HTTP::Patch.new(uri.path, "Content-Type" => "application/json")
     request.basic_auth(username, password)
@@ -181,27 +177,21 @@ private
     base_url = api_credentials["api_base_url"]
     username = api_credentials["api_username"]
     password = api_credentials["api_password"]
-    verify_ssl = api_credentials["verify_ssl"]
 
     unless base_url.present? && username.present? && password.present?
       raise ApiError, "Exigo API credentials not configured for #{@company_name}"
     end
 
-    [ base_url, username, password, verify_ssl ]
+    [ base_url, username, password ]
   end
 
-  def configure_http_client(uri, verify_ssl)
+  def configure_http_client(uri)
     http = Net::HTTP.new(uri.host, uri.port)
     http.read_timeout = 30
     http.open_timeout = 10
 
     if uri.scheme == "https"
       http.use_ssl = true
-
-      # Disable SSL verification if configured (sandbox)
-      if verify_ssl == false
-        http.verify_mode = OpenSSL::SSL::VERIFY_NONE
-      end
     end
 
     http
