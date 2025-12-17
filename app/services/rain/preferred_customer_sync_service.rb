@@ -5,6 +5,12 @@ module Rain
     FLUID_CUSTOMERS_PER_PAGE = 100
     FLUID_CUSTOMERS_INITIAL_PAGE = 1
 
+    DELAY_BY_PAGE = [
+      { max_page: 10, delay: 0.5 },
+      { max_page: 30, delay: 1.0 },
+      { max_page: 50, delay: 1.5 },
+    ].freeze
+
     def initialize(company:)
       raise ArgumentError, "company must be a Company" unless company.is_a?(Company)
 
@@ -165,6 +171,8 @@ module Rain
       page = FLUID_CUSTOMERS_INITIAL_PAGE
 
       loop do
+        Rails.logger.info("[PreferredSync] Fetching page #{page} (total: #{customers.size})")
+
         response = fluid_client.customers.get(
           page: page,
           per_page: FLUID_CUSTOMERS_PER_PAGE,
@@ -174,14 +182,21 @@ module Rain
         page_customers = response["customers"] || []
         customers.concat(page_customers)
 
+        Rails.logger.info("[PreferredSync] Page #{page}: #{page_customers.size} customers (total: #{customers.size})")
+
         break if page_customers.size < FLUID_CUSTOMERS_PER_PAGE
+
+        delay = delay_for(page)
+        Rails.logger.info("[PreferredSync] Waiting #{delay} seconds before next request")
+        sleep(delay)
 
         page += 1
       end
 
+      Rails.logger.info("[PreferredSync] fetch_fluid_customers completed: #{customers.size} total customers")
       customers
     rescue FluidClient::Error => e
-      Rails.logger.warn("Failed to fetch Fluid customers: #{e.message}")
+      Rails.logger.warn("[PreferredSync] Failed to fetch Fluid customers: #{e.message}")
       []
     end
 
@@ -192,6 +207,10 @@ module Rain
 
     def retail_customer_type_id
       ENV.fetch("RAIN_RETAIL_CUSTOMER_TYPE_ID", nil)
+    end
+
+    def delay_for(page)
+      DELAY_BY_PAGE.find { |r| page <= r[:max_page] }&.fetch(:delay, 2.0) || 2.0
     end
   end
 end
