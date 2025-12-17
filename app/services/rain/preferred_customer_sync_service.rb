@@ -165,6 +165,8 @@ module Rain
       page = FLUID_CUSTOMERS_INITIAL_PAGE
 
       loop do
+        Rails.logger.info("[PreferredSync] Fetching page #{page} (total: #{customers.size})")
+        
         response = fluid_client.customers.get(
           page: page,
           per_page: FLUID_CUSTOMERS_PER_PAGE,
@@ -173,15 +175,31 @@ module Rain
 
         page_customers = response["customers"] || []
         customers.concat(page_customers)
+        
+        Rails.logger.info("[PreferredSync] Page #{page}: #{page_customers.size} customers (total: #{customers.size})")
 
         break if page_customers.size < FLUID_CUSTOMERS_PER_PAGE
+
+        if page <= 10
+          delay = 0.5
+        elsif page <= 30
+          delay = 1.0
+        elsif page <= 50
+          delay = 1.5
+        else
+          delay = 2.0
+        end
+        
+        Rails.logger.info("[PreferredSync] Waiting #{delay} seconds before next request")
+        sleep(delay)
 
         page += 1
       end
 
+      Rails.logger.info("[PreferredSync] fetch_fluid_customers completed: #{customers.size} total customers")
       customers
     rescue FluidClient::Error => e
-      Rails.logger.warn("Failed to fetch Fluid customers: #{e.message}")
+      Rails.logger.warn("[PreferredSync] Failed to fetch Fluid customers: #{e.message}")
       []
     end
 
