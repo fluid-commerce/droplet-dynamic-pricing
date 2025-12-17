@@ -5,18 +5,16 @@ class Callbacks::CartItemAddedService < Callbacks::BaseService
 
     price_type = cart.dig("metadata", "price_type")
 
-    if item_has_subscription? && price_type != PREFERRED_CUSTOMER_TYPE
-      update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
-      update_all_items_to_subscription_price
-      return { success: true, message: "Cart updated to preferred_customer pricing due to subscription item" }
+    has_another_subscription = has_another_subscription_in_cart?
+
+    if price_type != PREFERRED_CUSTOMER_TYPE && !has_another_subscription
+      return { success: true, message: "Cart does not have preferred_customer pricing" }
     end
 
-    if price_type == PREFERRED_CUSTOMER_TYPE
-      update_item_to_subscription_price
-      return { success: true, message: "Cart item updated to subscription price successfully" }
-    end
+    update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
+    update_item_to_subscription_price
 
-    { success: true, message: "Cart does not have preferred_customer pricing" }
+    { success: true, message: "Cart item updated to subscription price successfully" }
   rescue CallbackError => e
     handle_callback_error(e)
   rescue StandardError => e
@@ -29,10 +27,6 @@ private
 
   def cart_item
     @cart_item ||= callback_params[:cart_item]
-  end
-
-  def item_has_subscription?
-    cart_item["subscription"] == true
   end
 
   def update_item_to_subscription_price
@@ -51,11 +45,5 @@ private
     } ]
 
     update_cart_items_prices(item_data)
-  end
-
-  def update_all_items_to_subscription_price
-    return if cart_items.empty?
-
-    update_cart_items_prices(cart_items_with_subscription_price)
   end
 end
