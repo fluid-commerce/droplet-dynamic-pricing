@@ -166,7 +166,7 @@ module Rain
 
       loop do
         Rails.logger.info("[PreferredSync] Fetching page #{page} (total: #{customers.size})")
-        
+
         response = fluid_client.customers.get(
           page: page,
           per_page: FLUID_CUSTOMERS_PER_PAGE,
@@ -175,7 +175,7 @@ module Rain
 
         page_customers = response["customers"] || []
         customers.concat(page_customers)
-        
+
         Rails.logger.info("[PreferredSync] Page #{page}: #{page_customers.size} customers (total: #{customers.size})")
 
         break if page_customers.size < FLUID_CUSTOMERS_PER_PAGE
@@ -189,7 +189,7 @@ module Rain
         else
           delay = 2.0
         end
-        
+
         Rails.logger.info("[PreferredSync] Waiting #{delay} seconds before next request")
         sleep(delay)
 
