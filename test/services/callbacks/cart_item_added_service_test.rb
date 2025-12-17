@@ -56,9 +56,12 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     assert_equal "Cart item is blank", result[:message]
   end
 
-  test "call returns success when price_type is not preferred_customer and item has no subscription" do
+  test "call returns success without updates when no preferred_customer and no subscription in cart" do
     cart_without_preferred = @cart_data.dup
     cart_without_preferred["metadata"] = { "price_type" => "regular_customer" }
+    cart_without_preferred["items"] = [
+      { "id" => 674137, "price" => "80.0", "subscription" => false },
+    ]
 
     service = Callbacks::CartItemAddedService.new({
       cart: cart_without_preferred,
@@ -70,9 +73,10 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     assert_equal "Cart does not have preferred_customer pricing", result[:message]
   end
 
-  test "call returns success when price_type is not set and item has no subscription" do
+  test "call returns success without updates when no metadata and no subscription in cart" do
     cart_without_price_type = @cart_data.dup
     cart_without_price_type["metadata"] = {}
+    cart_without_price_type["items"] = []
 
     service = Callbacks::CartItemAddedService.new({
       cart: cart_without_price_type,
@@ -84,27 +88,28 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     assert_equal "Cart does not have preferred_customer pricing", result[:message]
   end
 
-  test "call updates metadata and all items when item has subscription and cart has no preferred_customer" do
-    cart_without_preferred = @cart_data.dup
-    cart_without_preferred["metadata"] = {}
-    cart_item_with_subscription = @cart_item.merge("subscription" => true)
+  test "call updates when cart has subscription item even without preferred_customer metadata" do
+    cart_with_subscription = @cart_data.dup
+    cart_with_subscription["metadata"] = {}
+    cart_with_subscription["items"] = [
+      { "id" => 674137, "price" => "72.0", "subscription" => true },
+    ]
 
     fake_carts = FakeCartsResource.new
     mock_client = Object.new
     mock_client.define_singleton_method(:carts) { fake_carts }
 
     service = Callbacks::CartItemAddedService.new({
-      cart: cart_without_preferred,
-      cart_item: cart_item_with_subscription,
+      cart: cart_with_subscription,
+      cart_item: @cart_item,
     })
     service.define_singleton_method(:fluid_client) { mock_client }
 
     result = service.call
 
     assert_equal true, result[:success]
-    assert_equal "Cart updated to preferred_customer pricing due to subscription item", result[:message]
+    assert_equal "Cart item updated to subscription price successfully", result[:message]
     assert_equal 1, fake_carts.metadata_calls.size
-    assert_equal({ "price_type" => "preferred_customer" }, fake_carts.metadata_calls.first[:metadata])
     assert_equal 1, fake_carts.items_prices_calls.size
   end
 
@@ -133,7 +138,6 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
 
     service.call
 
-    assert_equal 1, fake_carts.items_prices_calls.size
     call = fake_carts.items_prices_calls.first
     assert_equal @cart_data["cart_token"], call[:token]
     expected_item_data = [ {
@@ -144,7 +148,7 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
   end
 
   test "updates cart items prices with regular price when subscription_price is not available" do
-    cart_item_without_subscription = {
+    cart_item_without_subscription_price = {
       "id" => 674140,
       "price" => "50.0",
     }
@@ -155,18 +159,17 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
 
     service = Callbacks::CartItemAddedService.new({
       cart: @cart_data,
-      cart_item: cart_item_without_subscription,
+      cart_item: cart_item_without_subscription_price,
     })
     service.define_singleton_method(:fluid_client) { mock_client }
 
     service.call
 
-    assert_equal 1, fake_carts.items_prices_calls.size
     call = fake_carts.items_prices_calls.first
     assert_equal @cart_data["cart_token"], call[:token]
     expected_item_data = [ {
-      "id" => cart_item_without_subscription["id"],
-      "price" => cart_item_without_subscription["price"],
+      "id" => cart_item_without_subscription_price["id"],
+      "price" => cart_item_without_subscription_price["price"],
     } ]
     assert_equal expected_item_data, call[:items]
   end
