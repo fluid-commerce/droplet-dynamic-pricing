@@ -4,11 +4,11 @@ module Rain
   class PreferredCustomerSyncService
     FLUID_CUSTOMERS_PER_PAGE = 100
     FLUID_CUSTOMERS_INITIAL_PAGE = 1
-    
+
     DELAY_BY_PAGE = [
       { max_page: 10, delay: 0.5 },
       { max_page: 30, delay: 1.0 },
-      { max_page: 50, delay: 1.5 }
+      { max_page: 50, delay: 1.5 },
     ].freeze
 
     def initialize(company:)
