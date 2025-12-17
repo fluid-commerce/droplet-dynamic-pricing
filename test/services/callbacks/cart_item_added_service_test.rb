@@ -56,7 +56,7 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     assert_equal "Cart item is blank", result[:message]
   end
 
-  test "call returns success when price_type is not preferred_customer" do
+  test "call returns success when price_type is not preferred_customer and item has no subscription" do
     cart_without_preferred = @cart_data.dup
     cart_without_preferred["metadata"] = { "price_type" => "regular_customer" }
 
@@ -70,7 +70,7 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     assert_equal "Cart does not have preferred_customer pricing", result[:message]
   end
 
-  test "call returns success when price_type is not set" do
+  test "call returns success when price_type is not set and item has no subscription" do
     cart_without_price_type = @cart_data.dup
     cart_without_price_type["metadata"] = {}
 
@@ -82,6 +82,30 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
 
     assert_equal true, result[:success]
     assert_equal "Cart does not have preferred_customer pricing", result[:message]
+  end
+
+  test "call updates metadata and all items when item has subscription and cart has no preferred_customer" do
+    cart_without_preferred = @cart_data.dup
+    cart_without_preferred["metadata"] = {}
+    cart_item_with_subscription = @cart_item.merge("subscription" => true)
+
+    fake_carts = FakeCartsResource.new
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+
+    service = Callbacks::CartItemAddedService.new({
+      cart: cart_without_preferred,
+      cart_item: cart_item_with_subscription,
+    })
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    result = service.call
+
+    assert_equal true, result[:success]
+    assert_equal "Cart updated to preferred_customer pricing due to subscription item", result[:message]
+    assert_equal 1, fake_carts.metadata_calls.size
+    assert_equal({ "price_type" => "preferred_customer" }, fake_carts.metadata_calls.first[:metadata])
+    assert_equal 1, fake_carts.items_prices_calls.size
   end
 
   test "call processes cart_item_added successfully when price_type is preferred_customer" do
@@ -189,25 +213,6 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     service_instance.verify
   end
 
-  test "handles parameters with consistent key types" do
-    consistent_params = {
-      cart: @cart_data,
-      cart_item: @cart_item,
-    }
-
-    fake_carts = FakeCartsResource.new
-    mock_client = Object.new
-    mock_client.define_singleton_method(:carts) { fake_carts }
-
-    service = Callbacks::CartItemAddedService.new(consistent_params)
-    service.define_singleton_method(:fluid_client) { mock_client }
-
-    result = service.call
-
-    assert_equal true, result[:success]
-    assert_includes result[:message], "Cart item updated to subscription price successfully"
-  end
-
   test "handles StandardError gracefully" do
     service = Callbacks::CartItemAddedService.new(@callback_params)
 
@@ -222,14 +227,20 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
 end
 
 class FakeCartsResource
-  attr_reader :items_prices_calls
+  attr_reader :items_prices_calls, :metadata_calls
 
   def initialize
     @items_prices_calls = []
+    @metadata_calls = []
   end
 
   def update_items_prices(token, items)
     @items_prices_calls << { token: token, items: items }
+    { "success" => true }
+  end
+
+  def append_metadata(token, metadata)
+    @metadata_calls << { token: token, metadata: metadata }
     { "success" => true }
   end
 end
