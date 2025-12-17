@@ -4,6 +4,12 @@ module Rain
   class PreferredCustomerSyncService
     FLUID_CUSTOMERS_PER_PAGE = 100
     FLUID_CUSTOMERS_INITIAL_PAGE = 1
+    
+    DELAY_BY_PAGE = [
+      { max_page: 10, delay: 0.5 },
+      { max_page: 30, delay: 1.0 },
+      { max_page: 50, delay: 1.5 }
+    ].freeze
 
     def initialize(company:)
       raise ArgumentError, "company must be a Company" unless company.is_a?(Company)
@@ -180,16 +186,7 @@ module Rain
 
         break if page_customers.size < FLUID_CUSTOMERS_PER_PAGE
 
-        if page <= 10
-          delay = 0.5
-        elsif page <= 30
-          delay = 1.0
-        elsif page <= 50
-          delay = 1.5
-        else
-          delay = 2.0
-        end
-
+        delay = delay_for(page)
         Rails.logger.info("[PreferredSync] Waiting #{delay} seconds before next request")
         sleep(delay)
 
@@ -210,6 +207,10 @@ module Rain
 
     def retail_customer_type_id
       ENV.fetch("RAIN_RETAIL_CUSTOMER_TYPE_ID", nil)
+    end
+
+    def delay_for(page)
+      DELAY_BY_PAGE.find { |r| page <= r[:max_page] }&.fetch(:delay, 2.0) || 2.0
     end
   end
 end
