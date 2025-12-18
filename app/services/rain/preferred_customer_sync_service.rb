@@ -48,59 +48,76 @@ module Rain
 
       kept = 0
       demoted = 0
+      total_processed = 0
 
-      fetch_fluid_customers.each do |customer|
-        customer_id = customer["id"]
-        external_id = customer["external_id"]
-        Rails.logger.info("[PreferredSync] processing customer_id=#{customer_id} external_id=#{external_id}")
-        next unless customer_id.present? && external_id.present?
+      each_fluid_customer_page do |page_customers, page_number|
+        Rails.logger.info("[PreferredSync] Processing page #{page_number} with #{page_customers.size} customers")
 
-        begin
-          has_exigo_autoship =
-            exigo_active_autoship_ids.include?(external_id) ||
-            exigo_client.customer_has_active_autoship?(external_id)
-        rescue ExigoClient::Error => e
-          Rails.logger.error("[PreferredSync] Failed to check Exigo autoship for #{external_id}:#{e.message}")
-          Rails.logger.info("[PreferredSync] Skipping customer #{external_id} due to Exigo error")
-          next
-        end
+        page_customers.each do |customer|
+          customer_id = customer["id"]
+          external_id = customer["external_id"]
+          Rails.logger.info("[PreferredSync] processing customer_id=#{customer_id} external_id=#{external_id}")
+          next unless customer_id.present? && external_id.present?
 
-        Rails.logger.info("[PreferredSync] exigo_autoship=#{has_exigo_autoship}")
+          result = process_customer(
+            customer_id: customer_id,
+            external_id: external_id,
+            exigo_active_autoship_ids: exigo_active_autoship_ids,
+            preferred_type_id: preferred_type_id,
+            retail_type_id: retail_type_id
+          )
 
-        if has_exigo_autoship
-          begin
-            set_fluid_customer_type(customer_id, "preferred_customer")
-          rescue FluidClient::Error => e
-            Rails.logger.error(
-              "[PreferredSync] Failed to update Fluid preferred status for #{customer_id}: #{e.message}"
-            )
-            next
+          case result
+          when :kept then kept += 1
+          when :demoted then demoted += 1
           end
-          update_exigo_customer_type(external_id, preferred_type_id)
-          kept += 1
-          next
+
+          total_processed += 1
         end
 
-        begin
-          fluid_autoship = fluid_client.customers.active_autoship?(customer_id)
-          Rails.logger.info("[PreferredSync] fluid_autoship=#{fluid_autoship}")
-        rescue FluidClient::Error => e
-          Rails.logger.error("[PreferredSync] Failed to check Fluid autoship for #{customer_id}:#{e.message}")
-          Rails.logger.info("[PreferredSync] Skipping customer #{customer_id} due to Fluid error")
-          next
-        end
-
-        if fluid_autoship
-          kept += 1
-          next
-        end
-
-        demote_customer(customer_id, external_id, retail_type_id)
-        demoted += 1
+        Rails.logger.info("[PreferredSync] Page #{page_number} done. Total processed: #{total_processed}")
       end
 
-      Rails.logger.info("[PreferredSync] summary kept=#{kept} demoted=#{demoted}")
+      Rails.logger.info("[PreferredSync] summary total=#{total_processed} kept=#{kept} demoted=#{demoted}")
       true
+    end
+
+    def process_customer(customer_id:, external_id:, exigo_active_autoship_ids:, preferred_type_id:, retail_type_id:)
+      begin
+        has_exigo_autoship =
+          exigo_active_autoship_ids.include?(external_id)
+      rescue ExigoClient::Error => e
+        Rails.logger.error("[PreferredSync] Failed to check Exigo autoship for #{external_id}: #{e.message}")
+        return :skipped
+      end
+
+      Rails.logger.info("[PreferredSync] exigo_autoship=#{has_exigo_autoship}")
+
+      if has_exigo_autoship
+        begin
+          set_fluid_customer_type(customer_id, "preferred_customer")
+        rescue FluidClient::Error => e
+          Rails.logger.error("[PreferredSync] Failed to update Fluid preferred status for #{customer_id}: #{e.message}")
+          return :skipped
+        end
+        update_exigo_customer_type(external_id, preferred_type_id)
+        return :kept
+      end
+
+      begin
+        fluid_autoship = fluid_client.customers.active_autoship?(customer_id)
+        Rails.logger.info("[PreferredSync] fluid_autoship=#{fluid_autoship}")
+      rescue FluidClient::Error => e
+        Rails.logger.error("[PreferredSync] Failed to check Fluid autoship for #{customer_id}: #{e.message}")
+        return :skipped
+      end
+
+      if fluid_autoship
+        return :kept
+      end
+
+      demote_customer(customer_id, external_id, retail_type_id)
+      :demoted
     end
 
     def demote_customer(customer_id, external_id, retail_type_id)
@@ -164,14 +181,13 @@ module Rain
       end
     end
 
-    def fetch_fluid_customers
-      Rails.logger.info("[PreferredSync] fetch_fluid_customers start")
+    def each_fluid_customer_page
+      Rails.logger.info("[PreferredSync] Starting paginated customer fetch")
 
-      customers = []
       page = FLUID_CUSTOMERS_INITIAL_PAGE
 
       loop do
-        Rails.logger.info("[PreferredSync] Fetching page #{page} (total: #{customers.size})")
+        Rails.logger.info("[PreferredSync] Fetching page #{page}")
 
         response = fluid_client.customers.get(
           page: page,
@@ -180,24 +196,23 @@ module Rain
         )
 
         page_customers = response["customers"] || []
-        customers.concat(page_customers)
 
-        Rails.logger.info("[PreferredSync] Page #{page}: #{page_customers.size} customers (total: #{customers.size})")
+        Rails.logger.info("[PreferredSync] Page #{page}: #{page_customers.size} customers")
+
+        yield page_customers, page if page_customers.any?
 
         break if page_customers.size < FLUID_CUSTOMERS_PER_PAGE
 
         delay = delay_for(page)
-        Rails.logger.info("[PreferredSync] Waiting #{delay} seconds before next request")
+        Rails.logger.info("[PreferredSync] Waiting #{delay}s before next page")
         sleep(delay)
 
         page += 1
       end
 
-      Rails.logger.info("[PreferredSync] fetch_fluid_customers completed: #{customers.size} total customers")
-      customers
+      Rails.logger.info("[PreferredSync] Finished fetching all pages")
     rescue FluidClient::Error => e
-      Rails.logger.warn("[PreferredSync] Failed to fetch Fluid customers: #{e.message}")
-      []
+      Rails.logger.error("[PreferredSync] Failed to fetch Fluid customers: #{e.message}")
     end
 
 
