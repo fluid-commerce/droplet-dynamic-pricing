@@ -75,7 +75,7 @@ module Rain
           total_processed += 1
         end
 
-        Rails.logger.info("[PreferredSync] Page #{page_number} done. Total processed: #{total_processed}")
+        Rails.logger.info("[PreferredSync] Processed: #{total_processed} customers of #{page_customers.size} in page #{page_number}.")
       end
 
       Rails.logger.info("[PreferredSync] summary total=#{total_processed} kept=#{kept} demoted=#{demoted}")
