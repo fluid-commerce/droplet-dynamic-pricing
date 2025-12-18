@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 
-require 'faraday'
-require 'faraday/net_http_persistent'
+require "faraday"
+require "faraday/net_http_persistent"
 
 module Connections
   class Fluid
-    PUBLIC_BASE_URL = ENV.fetch('FLUID_API_BASE_URL', nil)
-    TIMEOUT = ENV.fetch('FLUID_API_TIMEOUT', 30).to_i
-    OPEN_TIMEOUT = ENV.fetch('FLUID_API_OPEN_TIMEOUT', 10).to_i
+    PUBLIC_BASE_URL = ENV.fetch("FLUID_API_BASE_URL", nil)
+    TIMEOUT = ENV.fetch("FLUID_API_TIMEOUT", 30).to_i
+    OPEN_TIMEOUT = ENV.fetch("FLUID_API_OPEN_TIMEOUT", 10).to_i
 
     # Shared, cached connection
     # Uses persistent connections with idle timeout for optimal performance.
@@ -25,7 +25,7 @@ module Connections
                      interval: 0.5,
                      backoff_factor: 2,
                      interval_randomness: 0.2,
-                     exceptions: [Faraday::TimeoutError]
+                     exceptions: [ Faraday::TimeoutError ]
         conn.request :json
         conn.response :json, content_type: /\bjson$/
         conn.adapter :net_http_persistent, pool_size: 5 do |http|
@@ -33,8 +33,8 @@ module Connections
         end
         conn.options.timeout = TIMEOUT
         conn.options.open_timeout = OPEN_TIMEOUT
-        conn.headers['Content-Type'] = 'application/json'
-        conn.headers['x-fluid-client'] = 'fluid-middleware'
+        conn.headers["Content-Type"] = "application/json"
+        conn.headers["x-fluid-client"] = "fluid-middleware"
       end
     end
   end

@@ -23,36 +23,32 @@ describe FluidClient do
     end
   end
 
-  describe "initialization and headers" do
-    it "sets headers with auth token when initialized with token" do
+  describe "initialization and connection" do
+    it "stores auth token when initialized with token" do
       client = FluidClient.new("test_token_123")
 
-      assert_equal "Bearer test_token_123", FluidClient.headers["Authorization"]
-      assert_equal "application/json", FluidClient.headers["Content-Type"]
+      assert_equal "test_token_123", client.instance_variable_get(:@auth_token)
     end
 
-    it "sets headers with nil token when initialized without token" do
+    it "stores nil token when initialized without token" do
       client = FluidClient.new
 
-      assert_equal "Bearer ", FluidClient.headers["Authorization"]
-      assert_equal "application/json", FluidClient.headers["Content-Type"]
+      assert_nil client.instance_variable_get(:@auth_token)
     end
 
-    it "updates headers when creating multiple instances with different tokens" do
+    it "creates separate instances with different tokens" do
       client1 = FluidClient.new("token1")
-      assert_equal "Bearer token1", FluidClient.headers["Authorization"]
-
       client2 = FluidClient.new("token2")
-      assert_equal "Bearer token2", FluidClient.headers["Authorization"]
 
       assert_equal "token1", client1.instance_variable_get(:@auth_token)
       assert_equal "token2", client2.instance_variable_get(:@auth_token)
     end
 
-    it "calls update_headers during initialization" do
+    it "uses Faraday connection" do
       client = FluidClient.new("test_token")
+      connection = client.send(:connection)
 
-      assert_equal "Bearer test_token", FluidClient.headers["Authorization"]
+      assert_instance_of Faraday::Connection, connection
     end
   end
   describe "#payload" do
