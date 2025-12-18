@@ -138,7 +138,7 @@ module Rain
       end
     end
 
-    def test_skips_customer_when_individual_exigo_check_fails
+    def test_demotes_multiple_customers_without_autoships
       company = companies(:acme)
       ENV["RAIN_PREFERRED_CUSTOMER_TYPE_ID"] = "2"
       ENV["RAIN_RETAIL_CUSTOMER_TYPE_ID"] = "1"
@@ -150,23 +150,12 @@ module Rain
         metadata_calls: metadata_calls
       )
 
-      # Mock ExigoClient where customer_has_active_autoship? fails for customer 101
-      exigo_client_stub = Class.new do
-        def customers_with_active_autoships
-          []
-        end
-
-        def customer_has_active_autoship?(customer_id)
-          if customer_id == 101
-            raise ExigoClient::Error, "Query timeout"
-          end
-          false
-        end
-
-        def update_customer_type(customer_id, customer_type_id)
-          # No-op for test
-        end
-      end.new
+      exigo_update_calls = []
+      exigo_client_stub = build_exigo_client(
+        active_autoship_ids: [],
+        has_autoship_proc: ->(_) { false },
+        update_customer_type_proc: ->(id, type_id) { exigo_update_calls << [ id, type_id ] }
+      )
 
       service = PreferredCustomerSyncService.new(company: company)
 
@@ -177,12 +166,9 @@ module Rain
         end
       end
 
-      # Should only process customer 102 (customer 101 was skipped due to error)
-      assert_equal 1, metadata_calls.size
-      op, args = metadata_calls.first
-      assert_equal :update, op
-      assert_equal 102, args[:resource_id]
-      assert_equal({ "customer_type" => "retail" }, args[:value])
+      # Both customers should be demoted
+      assert_equal 2, metadata_calls.size
+      assert_equal [ [ 101, "1" ], [ 102, "1" ] ], exigo_update_calls
     end
 
     def test_continues_when_exigo_update_fails
