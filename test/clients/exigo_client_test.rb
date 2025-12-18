@@ -59,16 +59,6 @@ class ExigoClientTest < ActiveSupport::TestCase
     end
   end
 
-  test "customer_has_active_autoship? returns boolean based on count" do
-    client = ExigoClient.new("TEST")
-
-    with_autoship = FakeConnection.new([ { "count" => 1 } ])
-    without_autoship = FakeConnection.new([ { "count" => 0 } ])
-
-    assert client.stub(:establish_connection, with_autoship) { client.customer_has_active_autoship?(123) }
-    refute client.stub(:establish_connection, without_autoship) { client.customer_has_active_autoship?(123) }
-  end
-
   test "for_company creates client with company-based credentials" do
     ENV["ACME_EXIGO_DB_HOST"] = "acme.host.com"
     ENV["ACME_EXIGO_DB_USERNAME"] = "acme_user"
