@@ -2,7 +2,7 @@
 
 module Rain
   class PreferredCustomerSyncService
-    FLUID_CUSTOMERS_PER_PAGE = 1
+    FLUID_CUSTOMERS_PER_PAGE = 100
     FLUID_CUSTOMERS_INITIAL_PAGE = 1
 
     DELAY_BY_PAGE = [
