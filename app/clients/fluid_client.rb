@@ -1,5 +1,6 @@
+# frozen_string_literal: true
+
 class FluidClient
-  include HTTParty
   include Fluid::Droplets
   include Fluid::Webhooks
   include Fluid::CallbackDefinitions
@@ -9,62 +10,58 @@ class FluidClient
   include Fluid::Subscriptions
   include Fluid::Metafields
 
-  base_uri Setting.fluid_api.base_url
-  format :json
-
   Error                 = Class.new(StandardError)
   AuthenticationError   = Class.new(Error)
   ResourceNotFoundError = Class.new(Error)
   APIError              = Class.new(Error)
+  TimeoutError          = Class.new(Error)
 
   def initialize(auth_token = nil)
-    @http = self.class
     @auth_token = auth_token
-    update_headers
   end
 
   def get(path, options = {})
-    handle_response(@http.get(path, format_options(options)))
+    handle_response(connection.get(path, options[:query]))
   end
 
   def post(path, options = {})
-    handle_response(@http.post(path, format_options(options)))
+    handle_response(connection.post(path, options[:body]))
   end
 
   def put(path, options = {})
-    handle_response(@http.put(path, format_options(options)))
+    handle_response(connection.put(path, options[:body]))
   end
 
   def patch(path, options = {})
-    handle_response(@http.patch(path, format_options(options)))
+    handle_response(connection.patch(path, options[:body]))
   end
 
   def delete(path, options = {})
-    handle_response(@http.delete(path, format_options(options)))
+    handle_response(connection.delete(path, options[:query]))
   end
 
 private
 
-  def update_headers
-    self.class.headers "Authorization" => "Bearer #{@auth_token}", "Content-Type" => "application/json"
-  end
-
-  def format_options(options)
-    options[:body] = options[:body].to_json if options[:body].is_a?(Hash)
-
-    options
+  def connection
+    @connection ||= Connections::Fluid.create_connection.tap do |conn|
+      conn.headers["Authorization"] = "Bearer #{@auth_token}"
+    end
   end
 
   def handle_response(response)
-    case response.code
+    case response.status
     when 200..299
-      response.parsed_response
+      response.body
     when 401
-      raise AuthenticationError, response
+      raise AuthenticationError, "Authentication failed: #{response.status}"
     when 404
-      raise ResourceNotFoundError, response
+      raise ResourceNotFoundError, "Resource not found: #{response.status}"
     else
-      raise APIError, response
+      raise APIError, "API error: #{response.status} - #{response.body}"
     end
+  rescue Faraday::TimeoutError => e
+    raise TimeoutError, "Request timed out: #{e.message}"
+  rescue Faraday::ConnectionFailed => e
+    raise Error, "Connection failed: #{e.message}"
   end
 end
