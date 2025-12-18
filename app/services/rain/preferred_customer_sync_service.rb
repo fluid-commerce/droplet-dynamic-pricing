@@ -2,7 +2,7 @@
 
 module Rain
   class PreferredCustomerSyncService
-    FLUID_CUSTOMERS_PER_PAGE = 100
+    FLUID_CUSTOMERS_PER_PAGE = 1
     FLUID_CUSTOMERS_INITIAL_PAGE = 1
 
     DELAY_BY_PAGE = [
@@ -46,141 +46,25 @@ module Rain
         return false
       end
 
-      kept = 0
-      demoted = 0
-      total_processed = 0
+      pages_enqueued = 0
 
       each_fluid_customer_page do |page_customers, page_number|
-        Rails.logger.info("[PreferredSync] Processing page #{page_number} with #{page_customers.size} customers")
+        Rails.logger.info("[PreferredSync] Enqueuing page #{page_number} with #{page_customers.size} customers")
 
-        page_customers.each do |customer|
-          customer_id = customer["id"]
-          external_id = customer["external_id"]
-          Rails.logger.info("[PreferredSync] processing customer_id=#{customer_id} external_id=#{external_id}")
-          next unless customer_id.present? && external_id.present?
+        Rain::CustomerSyncJob.perform_later(
+          company_id: @company.id,
+          customers: page_customers,
+          exigo_active_autoship_ids: exigo_active_autoship_ids,
+          preferred_type_id: preferred_type_id,
+          retail_type_id: retail_type_id
+        )
 
-          result = process_customer(
-            customer_id: customer_id,
-            external_id: external_id,
-            exigo_active_autoship_ids: exigo_active_autoship_ids,
-            preferred_type_id: preferred_type_id,
-            retail_type_id: retail_type_id
-          )
-
-          case result
-          when :kept then kept += 1
-          when :demoted then demoted += 1
-          end
-
-          total_processed += 1
-        end
-
-        Rails.logger.info(
-          "[PreferredSync] Processed: #{total_processed} customers of #{page_customers.size} in page #{page_number}."
-          )
+        pages_enqueued += 1
+        Rails.logger.info("[PreferredSync] Page #{page_number} enqueued. Total pages: #{pages_enqueued}")
       end
 
-      Rails.logger.info("[PreferredSync] summary total=#{total_processed} kept=#{kept} demoted=#{demoted}")
+      Rails.logger.info("[PreferredSync] Finished enqueuing #{pages_enqueued} page sync jobs")
       true
-    end
-
-    def process_customer(customer_id:, external_id:, exigo_active_autoship_ids:, preferred_type_id:, retail_type_id:)
-      begin
-        has_exigo_autoship =
-          exigo_active_autoship_ids.include?(external_id)
-      rescue ExigoClient::Error => e
-        Rails.logger.error("[PreferredSync] Failed to check Exigo autoship for #{external_id}: #{e.message}")
-        return :skipped
-      end
-
-      Rails.logger.info("[PreferredSync] exigo_autoship=#{has_exigo_autoship}")
-
-      if has_exigo_autoship
-        begin
-          set_fluid_customer_type(customer_id, "preferred_customer")
-        rescue FluidClient::Error => e
-          Rails.logger.error("[PreferredSync] Failed to update Fluid preferred status for #{customer_id}: #{e.message}")
-          return :skipped
-        end
-        update_exigo_customer_type(external_id, preferred_type_id)
-        return :kept
-      end
-
-      begin
-        fluid_autoship = fluid_client.customers.active_autoship?(customer_id)
-        Rails.logger.info("[PreferredSync] fluid_autoship=#{fluid_autoship}")
-      rescue FluidClient::Error => e
-        Rails.logger.error("[PreferredSync] Failed to check Fluid autoship for #{customer_id}: #{e.message}")
-        return :skipped
-      end
-
-      if fluid_autoship
-        return :kept
-      end
-
-      demote_customer(customer_id, external_id, retail_type_id)
-      :demoted
-    end
-
-    def demote_customer(customer_id, external_id, retail_type_id)
-      Rails.logger.info(
-        "[PreferredSync] demote_customer customer_id=#{customer_id} " \
-        "external_id=#{external_id} retail_type_id=#{retail_type_id}"
-      )
-
-      begin
-        set_fluid_customer_type(customer_id, "retail")
-        Rails.logger.info("[PreferredSync] Updated Fluid customer #{customer_id} to retail")
-      rescue FluidClient::Error => e
-        Rails.logger.error("[PreferredSync] Failed to update Fluid retail status for #{customer_id}: #{e.message}")
-      end
-
-      update_exigo_customer_type(external_id, retail_type_id)
-    end
-
-    def set_fluid_customer_type(customer_id, customer_type)
-      client = fluid_client
-      client.metafields.ensure_definition(
-        namespace: "custom",
-        key: "customer_type",
-        value_type: "json",
-        description: "Customer type for pricing (preferred_customer, retail, null)",
-        owner_resource: "Customer"
-      )
-
-      json_value = { "customer_type" => customer_type.to_s }
-
-      client.metafields.update(
-        resource_type: "customer",
-        resource_id: customer_id.to_i,
-        namespace: "custom",
-        key: "customer_type",
-        value: json_value,
-        value_type: "json",
-        description: "Customer type for pricing (preferred_customer, retail, null)"
-      )
-    rescue FluidClient::ResourceNotFoundError => e
-      Rails.logger.warn "Metafield not found for customer #{customer_id}; attempting create (#{e.message})"
-      client.metafields.create(
-        resource_type: "customer",
-        resource_id: customer_id.to_i,
-        namespace: "custom",
-        key: "customer_type",
-        value: json_value,
-        value_type: "json",
-        description: "Customer type for pricing (preferred_customer, retail, null)"
-      )
-    end
-
-    def update_exigo_customer_type(external_id, customer_type_id)
-      return unless customer_type_id.present?
-
-      begin
-        exigo_client.update_customer_type(external_id, customer_type_id)
-        Rails.logger.info("[PreferredSync] Updated Exigo customer type for #{external_id} to #{customer_type_id}")
-      rescue ExigoClient::Error => e
-        Rails.logger.error("[PreferredSync] Failed to update Exigo customer type for #{external_id}: #{e.message}")
-      end
     end
 
     def each_fluid_customer_page
@@ -216,7 +100,6 @@ module Rain
     rescue FluidClient::Error => e
       Rails.logger.error("[PreferredSync] Failed to fetch Fluid customers: #{e.message}")
     end
-
 
     def preferred_customer_type_id
       ENV.fetch("RAIN_PREFERRED_CUSTOMER_TYPE_ID", nil)
