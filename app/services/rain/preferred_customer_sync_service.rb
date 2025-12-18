@@ -51,7 +51,7 @@ module Rain
       each_fluid_customer_page do |page_customers, page_number|
         Rails.logger.info("[PreferredSync] Enqueuing page #{page_number} with #{page_customers.size} customers")
 
-        Rain::CustomerSyncJob.perform_later(
+        Rain::CustomerSyncPageJob.perform_later(
           company_id: @company.id,
           customers: page_customers,
           exigo_active_autoship_ids: exigo_active_autoship_ids,

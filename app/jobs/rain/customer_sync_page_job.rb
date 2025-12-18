@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Rain
-  class CustomerSyncJob < ApplicationJob
+  class CustomerSyncPageJob < ApplicationJob
     queue_as :default
 
     retry_on FluidClient::TimeoutError, wait: 30.seconds, attempts: 3
