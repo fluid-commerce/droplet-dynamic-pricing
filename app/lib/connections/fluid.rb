@@ -5,7 +5,6 @@ require "faraday/net_http_persistent"
 
 module Connections
   class Fluid
-    PUBLIC_BASE_URL = ENV.fetch("FLUID_API_BASE_URL", nil)
     TIMEOUT = ENV.fetch("FLUID_API_TIMEOUT", 30).to_i
     OPEN_TIMEOUT = ENV.fetch("FLUID_API_OPEN_TIMEOUT", 10).to_i
 
@@ -19,7 +18,7 @@ module Connections
     end
 
     def self.create_connection
-      Faraday.new(url: PUBLIC_BASE_URL) do |conn|
+      Faraday.new(url: Setting.fluid_api.base_url) do |conn|
         conn.request :retry,
                      max: 3,
                      interval: 0.5,

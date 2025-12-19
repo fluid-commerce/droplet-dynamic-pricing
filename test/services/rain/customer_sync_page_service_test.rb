@@ -106,8 +106,9 @@ module Rain
         end
       end
 
-      assert_equal [], metadata_calls
-      assert_equal [], exigo_update_calls
+      assert_equal 1, metadata_calls.size
+      assert_equal({ "customer_type" => "preferred_customer" }, metadata_calls.first[:value])
+      assert_equal [ %w[303 2] ], exigo_update_calls
     end
 
     def test_processes_multiple_customers

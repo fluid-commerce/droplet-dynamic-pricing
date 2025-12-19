@@ -26,6 +26,8 @@ module Rain
 
   private
 
+    attr_reader :preferred_type_id, :retail_type_id
+
     def process_customer(customer)
       customer_id = customer["id"]
       external_id = customer["external_id"]
@@ -39,22 +41,28 @@ module Rain
       if has_exigo_autoship
         keep_as_preferred(customer_id, external_id)
       elsif fluid_autoship?(customer_id)
-        Rails.logger.info("[CustomerSync] Customer #{customer_id} has Fluid autoship, keeping")
+        keep_as_preferred_fluid_autoship(customer_id, external_id)
       else
         demote_to_retail(customer_id, external_id)
       end
     end
 
     def keep_as_preferred(customer_id, external_id)
-      Rails.logger.info("[CustomerSync] Keeping customer #{customer_id} as preferred")
+      Rails.logger.info("[CustomerSync] Keeping customer #{customer_id} as preferred (Exigo autoship)")
       set_fluid_customer_type(customer_id, "preferred_customer")
-      update_exigo_customer_type(external_id, @preferred_type_id)
+      update_exigo_customer_type(external_id, preferred_type_id)
+    end
+
+    def keep_as_preferred_fluid_autoship(customer_id, external_id)
+      Rails.logger.info("[CustomerSync] Keeping customer #{customer_id} as preferred (Fluid autoship)")
+      set_fluid_customer_type(customer_id, "preferred_customer")
+      update_exigo_customer_type(external_id, preferred_type_id)
     end
 
     def demote_to_retail(customer_id, external_id)
       Rails.logger.info("[CustomerSync] Demoting customer #{customer_id} to retail")
       set_fluid_customer_type(customer_id, "retail")
-      update_exigo_customer_type(external_id, @retail_type_id)
+      update_exigo_customer_type(external_id, retail_type_id)
     end
 
     def fluid_autoship?(customer_id)
