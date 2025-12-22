@@ -2,6 +2,12 @@
 
 module Rain
   class CustomerSyncPageService
+    CUSTOMER_TYPE_PREFERRED = "preferred_customer"
+    CUSTOMER_TYPE_RETAIL = "retail"
+    METAFIELD_NAMESPACE = "custom"
+    METAFIELD_KEY = "customer_type"
+    METAFIELD_DESCRIPTION = "Customer type for pricing (preferred_customer, retail, null)"
+
     def initialize(company:, customers:, exigo_active_autoship_ids:, preferred_type_id:, retail_type_id:)
       @company = company
       @customers = customers
@@ -39,29 +45,23 @@ module Rain
       has_exigo_autoship = @exigo_active_autoship_ids.include?(external_id)
 
       if has_exigo_autoship
-        keep_as_preferred(customer_id, external_id)
+        keep_as_preferred(customer_id, external_id, reason: "Exigo autoship")
       elsif fluid_autoship?(customer_id)
-        keep_as_preferred_fluid_autoship(customer_id, external_id)
+        keep_as_preferred(customer_id, external_id, reason: "Fluid autoship")
       else
         demote_to_retail(customer_id, external_id)
       end
     end
 
-    def keep_as_preferred(customer_id, external_id)
-      Rails.logger.info("[CustomerSync] Keeping customer #{customer_id} as preferred (Exigo autoship)")
-      set_fluid_customer_type(customer_id, "preferred_customer")
-      update_exigo_customer_type(external_id, preferred_type_id)
-    end
-
-    def keep_as_preferred_fluid_autoship(customer_id, external_id)
-      Rails.logger.info("[CustomerSync] Keeping customer #{customer_id} as preferred (Fluid autoship)")
-      set_fluid_customer_type(customer_id, "preferred_customer")
+    def keep_as_preferred(customer_id, external_id, reason:)
+      Rails.logger.info("[CustomerSync] Keeping customer #{customer_id} as preferred (#{reason})")
+      set_fluid_customer_type(customer_id, CUSTOMER_TYPE_PREFERRED)
       update_exigo_customer_type(external_id, preferred_type_id)
     end
 
     def demote_to_retail(customer_id, external_id)
       Rails.logger.info("[CustomerSync] Demoting customer #{customer_id} to retail")
-      set_fluid_customer_type(customer_id, "retail")
+      set_fluid_customer_type(customer_id, CUSTOMER_TYPE_RETAIL)
       update_exigo_customer_type(external_id, retail_type_id)
     end
 
@@ -71,34 +71,34 @@ module Rain
 
     def set_fluid_customer_type(customer_id, customer_type)
       fluid_client.metafields.ensure_definition(
-        namespace: "custom",
-        key: "customer_type",
+        namespace: METAFIELD_NAMESPACE,
+        key: METAFIELD_KEY,
         value_type: "json",
-        description: "Customer type for pricing (preferred_customer, retail, null)",
+        description: METAFIELD_DESCRIPTION,
         owner_resource: "Customer"
       )
 
-      json_value = { "customer_type" => customer_type.to_s }
+      json_value = { METAFIELD_KEY => customer_type.to_s }
 
       fluid_client.metafields.update(
         resource_type: "customer",
         resource_id: customer_id.to_i,
-        namespace: "custom",
-        key: "customer_type",
+        namespace: METAFIELD_NAMESPACE,
+        key: METAFIELD_KEY,
         value: json_value,
         value_type: "json",
-        description: "Customer type for pricing (preferred_customer, retail, null)"
+        description: METAFIELD_DESCRIPTION
       )
     rescue FluidClient::ResourceNotFoundError
       Rails.logger.warn("[CustomerSync] Metafield not found for customer #{customer_id}, creating")
       fluid_client.metafields.create(
         resource_type: "customer",
         resource_id: customer_id.to_i,
-        namespace: "custom",
-        key: "customer_type",
+        namespace: METAFIELD_NAMESPACE,
+        key: METAFIELD_KEY,
         value: json_value,
         value_type: "json",
-        description: "Customer type for pricing (preferred_customer, retail, null)"
+        description: METAFIELD_DESCRIPTION
       )
     end
 
