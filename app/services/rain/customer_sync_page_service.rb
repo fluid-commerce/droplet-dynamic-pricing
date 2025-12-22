@@ -19,15 +19,25 @@ module Rain
     def call
       Rails.logger.info("[CustomerSync] Processing batch of #{@customers.size} customers")
 
+      processed = 0
+      skipped = 0
+      failed = 0
+
       @customers.each do |customer|
-        process_customer(customer)
+        if process_customer(customer)
+          processed += 1
+        else
+          skipped += 1
+        end
       rescue StandardError => e
+        failed += 1
         Rails.logger.error("[CustomerSync] Failed to process customer #{customer['id']}: #{e.message}")
         Sentry.capture_exception(e) if defined?(Sentry)
       end
 
-      Rails.logger.info("[CustomerSync] Batch complete")
-      true
+      Rails.logger.info("[CustomerSync] Batch complete: #{processed} processed, #{skipped} skipped, #{failed} failed")
+
+      { success: failed.zero?, processed: processed, skipped: skipped, failed: failed, total: @customers.size }
     end
 
   private
@@ -38,7 +48,7 @@ module Rain
       customer_id = customer["id"]
       external_id = customer["external_id"]
 
-      return if customer_id.blank? || external_id.blank?
+      return false if customer_id.blank? || external_id.blank?
 
       Rails.logger.info("[CustomerSync] Processing customer_id=#{customer_id} external_id=#{external_id}")
 
@@ -51,6 +61,8 @@ module Rain
       else
         demote_to_retail(customer_id, external_id)
       end
+
+      true
     end
 
     def keep_as_preferred(customer_id, external_id, reason:)

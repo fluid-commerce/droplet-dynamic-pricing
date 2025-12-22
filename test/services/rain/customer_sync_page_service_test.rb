@@ -32,7 +32,9 @@ module Rain
       service.stub(:fluid_client, fluid_client) do
         service.stub(:exigo_client, exigo_client) do
           result = service.call
-          assert_equal true, result
+          assert_equal true, result[:success]
+          assert_equal 1, result[:processed]
+          assert_equal 0, result[:failed]
         end
       end
 
@@ -67,7 +69,7 @@ module Rain
       service.stub(:fluid_client, fluid_client) do
         service.stub(:exigo_client, exigo_client) do
           result = service.call
-          assert_equal true, result
+          assert_equal true, result[:success]
         end
       end
 
@@ -102,7 +104,7 @@ module Rain
       service.stub(:fluid_client, fluid_client) do
         service.stub(:exigo_client, exigo_client) do
           result = service.call
-          assert_equal true, result
+          assert_equal true, result[:success]
         end
       end
 
@@ -140,7 +142,8 @@ module Rain
       service.stub(:fluid_client, fluid_client) do
         service.stub(:exigo_client, exigo_client) do
           result = service.call
-          assert_equal true, result
+          assert_equal true, result[:success]
+          assert_equal 2, result[:processed]
         end
       end
 
@@ -180,7 +183,9 @@ module Rain
       service.stub(:fluid_client, fluid_client) do
         service.stub(:exigo_client, exigo_client) do
           result = service.call
-          assert_equal true, result
+          assert_equal false, result[:success]
+          assert_equal 1, result[:processed]
+          assert_equal 1, result[:failed]
         end
       end
 
@@ -210,7 +215,9 @@ module Rain
       service.stub(:fluid_client, fluid_client) do
         service.stub(:exigo_client, exigo_client) do
           result = service.call
-          assert_equal true, result
+          assert_equal true, result[:success]
+          assert_equal 0, result[:processed]
+          assert_equal 1, result[:skipped]
         end
       end
 
