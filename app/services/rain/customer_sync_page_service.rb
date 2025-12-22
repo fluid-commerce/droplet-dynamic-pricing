@@ -19,6 +19,8 @@ module Rain
     def call
       Rails.logger.info("[CustomerSync] Processing batch of #{@customers.size} customers")
 
+      ensure_metafield_definition
+
       processed = 0
       skipped = 0
       failed = 0
@@ -81,7 +83,7 @@ module Rain
       fluid_client.customers.active_autoship?(customer_id)
     end
 
-    def set_fluid_customer_type(customer_id, customer_type)
+    def ensure_metafield_definition
       fluid_client.metafields.ensure_definition(
         namespace: METAFIELD_NAMESPACE,
         key: METAFIELD_KEY,
@@ -89,7 +91,9 @@ module Rain
         description: METAFIELD_DESCRIPTION,
         owner_resource: "Customer"
       )
+    end
 
+    def set_fluid_customer_type(customer_id, customer_type)
       json_value = { METAFIELD_KEY => customer_type.to_s }
 
       fluid_client.metafields.update(
