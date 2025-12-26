@@ -37,10 +37,12 @@ private
     return false if customer_email.blank?
 
     customer_id = get_customer_id_by_email(customer_email)
-    return false if customer_id.blank?
 
-    return true if has_subscriptions?(customer_id)
-    return true if get_customer_type_from_metafields(customer_id) == PREFERRED_CUSTOMER_TYPE
+    if customer_id.present?
+      return true if has_subscriptions?(customer_id)
+      return true if get_customer_type_from_metafields(customer_id) == PREFERRED_CUSTOMER_TYPE
+    end
+
     has_exigo_autoship_by_email?(customer_email)
   end
 end
