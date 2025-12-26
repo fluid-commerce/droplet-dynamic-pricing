@@ -5,6 +5,10 @@ module Rain
     PREFERRED_CUSTOMER_TYPE = "preferred_customer"
     RETAIL_CUSTOMER_TYPE = "retail"
 
+    API_DELAY_SECONDS = 0.3
+
+    DAILY_WARMUP_LIMIT = 10_000
+
     def initialize(company:)
       raise ArgumentError, "company must be a Company" unless company.is_a?(Company)
 
@@ -26,32 +30,62 @@ module Rain
     end
 
     def synchronize
-      Rails.logger.info("[PreferredSync] Starting delta sync")
+      Rails.logger.info("[PreferredSync] Starting sync")
 
-      # Get current autoships from Exigo
       today_ids = fetch_exigo_autoships
       return false if today_ids.nil?
 
-      # Get yesterday's snapshot
       yesterday_ids = fetch_yesterday_snapshot
 
-      # Calculate deltas
+      if warmup_needed?(today_ids, yesterday_ids)
+        return run_warmup_sync(today_ids, yesterday_ids)
+      end
+
+      run_delta_sync(today_ids, yesterday_ids)
+    end
+
+    def warmup_needed?(today_ids, yesterday_ids)
+      return true if yesterday_ids.empty?
+
+      new_ids_count = (today_ids - yesterday_ids).size
+      new_ids_count > DAILY_WARMUP_LIMIT
+    end
+
+    def run_warmup_sync(today_ids, yesterday_ids)
+      new_ids = today_ids - yesterday_ids
+
+      Rails.logger.info("[PreferredSync] WARMUP MODE - Total new: #{new_ids.size}, Limit: #{DAILY_WARMUP_LIMIT}")
+
+      ids_to_process = new_ids.first(DAILY_WARMUP_LIMIT)
+      ids_remaining = new_ids.size - ids_to_process.size
+
+      Rails.logger.info("[PreferredSync] Processing #{ids_to_process.size} today, #{ids_remaining} remaining for future days")
+
+      processed_count = process_new_autoships(ids_to_process)
+
+      updated_snapshot_ids = yesterday_ids + ids_to_process
+      save_snapshot(updated_snapshot_ids)
+
+      Rails.logger.info("[PreferredSync] Warmup day complete. Processed: #{processed_count}, Snapshot now: #{updated_snapshot_ids.size}")
+      Rails.logger.info("[PreferredSync] Days remaining: ~#{(ids_remaining.to_f / DAILY_WARMUP_LIMIT).ceil}") if ids_remaining > 0
+
+      true
+    end
+
+    def run_delta_sync(today_ids, yesterday_ids)
       new_autoships = today_ids - yesterday_ids
       lost_autoships = yesterday_ids - today_ids
 
-      Rails.logger.info("[PreferredSync] Today: #{today_ids.size}, Yesterday: #{yesterday_ids.size}")
+      Rails.logger.info("[PreferredSync] DELTA MODE - Today: #{today_ids.size}, Yesterday: #{yesterday_ids.size}")
       Rails.logger.info("[PreferredSync] New autoships: #{new_autoships.size}, Lost: #{lost_autoships.size}")
 
-      # Process new autoships → mark preferred
       processed_new = process_new_autoships(new_autoships)
 
-      # Process lost autoships → demote if no Fluid subscription
       processed_lost = process_lost_autoships(lost_autoships)
 
-      # Save today's snapshot for tomorrow
       save_snapshot(today_ids)
 
-      Rails.logger.info("[PreferredSync] Complete. New: #{processed_new}, Demoted: #{processed_lost}")
+      Rails.logger.info("[PreferredSync] Delta sync complete. New: #{processed_new}, Demoted: #{processed_lost}")
       true
     end
 
@@ -90,6 +124,7 @@ module Rain
 
         set_customer_preferred(customer_id, external_id)
         count += 1
+        sleep(API_DELAY_SECONDS)
       rescue StandardError => e
         Rails.logger.error("[PreferredSync] Error processing new autoship #{external_id}: #{e.message}")
       end
@@ -98,6 +133,8 @@ module Rain
     end
 
     def process_lost_autoships(external_ids)
+      return 0 if external_ids.empty?
+
       count = 0
 
       external_ids.each do |external_id|
@@ -114,6 +151,7 @@ module Rain
 
         set_customer_retail(customer_id, external_id)
         count += 1
+        sleep(API_DELAY_SECONDS)
       rescue StandardError => e
         Rails.logger.error("[PreferredSync] Error processing lost autoship #{external_id}: #{e.message}")
       end
