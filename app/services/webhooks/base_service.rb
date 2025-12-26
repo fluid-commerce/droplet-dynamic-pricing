@@ -12,7 +12,12 @@ class Webhooks::BaseService
 protected
 
   def customer_id
-    @webhook_params.dig("subscription", "customer", "id")
+    @webhook_params.dig("subscription", "customer", "id") ||
+      @webhook_params.dig(:subscription, :customer, :id) ||
+      @webhook_params.dig("payload", "subscription", "customer", "id") ||
+      @webhook_params.dig(:payload, :subscription, :customer, :id) ||
+      @webhook_params.dig("payload", "customer", "id") ||
+      @webhook_params.dig(:payload, :customer, :id)
   end
 
   def subscription_id
@@ -24,7 +29,10 @@ protected
   end
 
   def update_customer_type(customer_id, customer_type)
-    raise ArgumentError, "customer_type cannot be blank" if customer_type.blank?
+    if customer_type.blank?
+      Rails.logger.error "customer_type is blank, cannot update metafield"
+      raise ArgumentError, "customer_type cannot be blank"
+    end
 
     client = FluidClient.new(@company.authentication_token)
     client.metafields.ensure_definition(
@@ -46,7 +54,9 @@ protected
       value_type: "json",
       description: "Customer type for pricing (preferred_customer, retail, null)"
     )
-  rescue FluidClient::ResourceNotFoundError
+  rescue FluidClient::ResourceNotFoundError => e
+    Rails.logger.warn "Metafield not found for customer #{customer_id}; attempting create (#{e.message})"
+
     client.metafields.create(
       resource_type: "customer",
       resource_id: customer_id.to_i,
@@ -97,7 +107,7 @@ protected
     client = FluidClient.new(@company.authentication_token)
     client.customers.append_metadata(customer_id, { "customer_type" => customer_type })
   rescue StandardError
-    # Silently fail - metadata is secondary
+    Rails.logger.error "Failed to update customer metadata for customer #{customer_id}: #{e.message}"
   end
 
   def update_exigo_customer_type(external_id, customer_type)
@@ -110,7 +120,7 @@ protected
 
     exigo_client.update_customer_type(external_id, type_id)
   rescue StandardError
-    # Silently fail - Exigo update is secondary
+    Rails.logger.error "Failed to update Exigo customer type for external ID #{external_id}: #{e.message}"
   end
 
   def exigo_client

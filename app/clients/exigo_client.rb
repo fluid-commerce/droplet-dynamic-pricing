@@ -58,16 +58,6 @@ class ExigoClient
     result.first&.dig("count").to_i > 0
   end
 
-  def customer_autoships(customer_id)
-    query = <<-SQL.squish
-      SELECT AutoOrderID, CustomerID, AutoOrderStatusID, NextRunDate, StartDate, LastRunDate, Description
-      FROM dbo.AutoOrders
-      WHERE CustomerID = ?
-    SQL
-
-    execute_query(query, [ customer_id.to_i ])
-  end
-
   def get_customer_type(customer_id)
     query = <<-SQL.squish
       SELECT CustomerTypeID FROM dbo.Customers WHERE CustomerID = ?
