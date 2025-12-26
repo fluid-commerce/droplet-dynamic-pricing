@@ -94,6 +94,7 @@ protected
   end
 
   def has_exigo_autoship?(external_id)
+    return false unless is_rain_company?
     return false if external_id.blank?
 
     exigo_client.customer_has_active_autoship?(external_id)
@@ -104,11 +105,12 @@ protected
   def update_customer_metadata(customer_id, customer_type)
     client = FluidClient.new(@company.authentication_token)
     client.customers.append_metadata(customer_id, { "customer_type" => customer_type })
-  rescue StandardError
+  rescue StandardError => e
     Rails.logger.error "Failed to update customer metadata for customer #{customer_id}: #{e.message}"
   end
 
   def update_exigo_customer_type(external_id, customer_type)
+    return unless is_rain_company?
     return if external_id.blank?
 
     type_id = (customer_type == PREFERRED_CUSTOMER_TYPE ? preferred_type_id : retail_type_id).to_i
@@ -117,7 +119,7 @@ protected
     return if current_type_id == type_id
 
     exigo_client.update_customer_type(external_id, type_id)
-  rescue StandardError
+  rescue StandardError => e
     Rails.logger.error "Failed to update Exigo customer type for external ID #{external_id}: #{e.message}"
   end
 
@@ -131,6 +133,13 @@ protected
 
   def retail_type_id
     ENV.fetch("RAIN_RETAIL_CUSTOMER_TYPE_ID", "1")
+  end
+
+  def is_rain_company?
+    rain_company_id = ENV.fetch("RAIN_FLUID_COMPANY_ID", nil)
+    return false if rain_company_id.blank?
+
+    @company&.fluid_company_id.to_s == rain_company_id.to_s
   end
 
   def set_customer_preferred(customer_id)
