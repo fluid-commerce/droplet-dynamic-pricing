@@ -1,62 +1,10 @@
+# frozen_string_literal: true
+
 require "test_helper"
 
 module Rain
   class PreferredCustomerSyncServiceTest < ActiveSupport::TestCase
-    include ActiveJob::TestHelper
     fixtures(:companies)
-
-    def test_enqueues_page_job_for_customers
-      company = companies(:acme)
-      ENV["RAIN_PREFERRED_CUSTOMER_TYPE_ID"] = "2"
-      ENV["RAIN_RETAIL_CUSTOMER_TYPE_ID"] = "1"
-
-      fluid_customers_resource = build_fluid_resource(
-        customers: [ { "id" => 101, "external_id" => "101" } ]
-      )
-
-      exigo_client_stub = build_exigo_client(active_autoship_ids: [])
-      service = PreferredCustomerSyncService.new(company: company)
-
-      service.stub(:exigo_client, exigo_client_stub) do
-        service.stub(:fluid_client, build_fluid_client(fluid_customers_resource)) do
-          assert_enqueued_with(job: Rain::CustomerSyncPageJob) do
-            result = service.call
-            assert_equal(true, result)
-          end
-        end
-      end
-    end
-
-    def test_enqueues_job_with_correct_arguments
-      company = companies(:acme)
-      ENV["RAIN_PREFERRED_CUSTOMER_TYPE_ID"] = "2"
-      ENV["RAIN_RETAIL_CUSTOMER_TYPE_ID"] = "1"
-
-      customers = [ { "id" => 202, "external_id" => "202" } ]
-      fluid_customers_resource = build_fluid_resource(customers: customers)
-
-      exigo_client_stub = build_exigo_client(active_autoship_ids: [ "202" ])
-      service = PreferredCustomerSyncService.new(company: company)
-
-      service.stub(:exigo_client, exigo_client_stub) do
-        service.stub(:fluid_client, build_fluid_client(fluid_customers_resource)) do
-          result = service.call
-          assert_equal(true, result)
-
-          enqueued_jobs = ActiveJob::Base.queue_adapter.enqueued_jobs
-          job = enqueued_jobs.find { |j| j["job_class"] == "Rain::CustomerSyncPageJob" }
-          assert_not_nil job
-
-          args = job["arguments"].first
-          assert_equal company.id, args["company_id"]
-          assert_equal 202, args["customers"].first["id"]
-          assert_equal "202", args["customers"].first["external_id"]
-          assert_equal [ "202" ], args["exigo_active_autoship_ids"]
-          assert_equal "2", args["preferred_type_id"]
-          assert_equal "1", args["retail_type_id"]
-        end
-      end
-    end
 
     def test_validates_company_parameter
       assert_raises(ArgumentError, "company must be a Company") do
@@ -68,11 +16,8 @@ module Rain
       end
     end
 
-    def test_aborts_when_exigo_autoships_fetch_fails
+    def test_returns_false_when_exigo_fetch_fails
       company = companies(:acme)
-      ENV["RAIN_PREFERRED_CUSTOMER_TYPE_ID"] = "2"
-      ENV["RAIN_RETAIL_CUSTOMER_TYPE_ID"] = "1"
-
       exigo_client_stub = Class.new do
         def customers_with_active_autoships
           raise ExigoClient::Error, "Database connection failed"
@@ -87,44 +32,121 @@ module Rain
       end
     end
 
-    def test_enqueues_multiple_page_jobs
+    def test_returns_true_when_no_autoships
       company = companies(:acme)
-      ENV["RAIN_PREFERRED_CUSTOMER_TYPE_ID"] = "2"
-      ENV["RAIN_RETAIL_CUSTOMER_TYPE_ID"] = "1"
-
-      page1_customers = (1..100).map { |i| { "id" => i, "external_id" => i.to_s } }
-      page2_customers = (101..150).map { |i| { "id" => i, "external_id" => i.to_s } }
-
-      fluid_customers_resource = build_paginated_fluid_resource(
-        pages: [ page1_customers, page2_customers ]
-      )
-
       exigo_client_stub = build_exigo_client(active_autoship_ids: [])
+      fluid_client_stub = build_fluid_client(customers: [])
+
       service = PreferredCustomerSyncService.new(company: company)
 
       service.stub(:exigo_client, exigo_client_stub) do
-        service.stub(:fluid_client, build_fluid_client(fluid_customers_resource)) do
+        service.stub(:fluid_client, fluid_client_stub) do
           result = service.call
           assert_equal(true, result)
+        end
+      end
 
-          enqueued_jobs = ActiveJob::Base.queue_adapter.enqueued_jobs
-          page_jobs = enqueued_jobs.select { |j| j["job_class"] == "Rain::CustomerSyncPageJob" }
-          assert_equal 2, page_jobs.size
+      snapshot = ExigoAutoshipSnapshot.latest_for_company(company)
+      assert_not_nil(snapshot)
+      assert_equal([], snapshot.external_ids)
+    end
+
+    def test_saves_snapshot_after_sync
+      company = companies(:acme)
+      exigo_client_stub = build_exigo_client(active_autoship_ids: %w[101 102 103])
+      fluid_client_stub = build_fluid_client(customers: [])
+
+      service = PreferredCustomerSyncService.new(company: company)
+
+      service.stub(:exigo_client, exigo_client_stub) do
+        service.stub(:fluid_client, fluid_client_stub) do
+          service.call
+        end
+      end
+
+      snapshot = ExigoAutoshipSnapshot.latest_for_company(company)
+      assert_not_nil(snapshot)
+      assert_equal(%w[101 102 103], snapshot.external_ids)
+    end
+
+    def test_detects_new_autoships
+      company = companies(:acme)
+      ExigoAutoshipSnapshot.create!(
+        company: company,
+        external_ids: %w[101],
+        synced_at: 1.day.ago
+      )
+
+      exigo_client_stub = build_exigo_client(active_autoship_ids: %w[101 102])
+      customer_102 = { "id" => 102, "external_id" => "102", "metadata" => {} }
+      fluid_client_stub = build_fluid_client(
+        customers: [ customer_102 ],
+        metafields_updated: [],
+        metadata_updated: []
+      )
+
+      service = PreferredCustomerSyncService.new(company: company)
+
+      service.stub(:exigo_client, exigo_client_stub) do
+        service.stub(:fluid_client, fluid_client_stub) do
+          result = service.call
+          assert_equal(true, result)
         end
       end
     end
 
-    def test_returns_true_when_no_customers
+    def test_detects_lost_autoships
       company = companies(:acme)
-      ENV["RAIN_PREFERRED_CUSTOMER_TYPE_ID"] = "2"
-      ENV["RAIN_RETAIL_CUSTOMER_TYPE_ID"] = "1"
+      ExigoAutoshipSnapshot.create!(
+        company: company,
+        external_ids: %w[101 102],
+        synced_at: 1.day.ago
+      )
 
-      fluid_customers_resource = build_fluid_resource(customers: [])
-      exigo_client_stub = build_exigo_client(active_autoship_ids: [])
+      exigo_client_stub = build_exigo_client(active_autoship_ids: %w[101])
+      customer_102 = {
+        "id" => 102,
+        "external_id" => "102",
+        "metadata" => { "customer_type" => "preferred_customer" },
+      }
+      fluid_client_stub = build_fluid_client(
+        customers: [ customer_102 ],
+        subscriptions: []
+      )
+
       service = PreferredCustomerSyncService.new(company: company)
 
       service.stub(:exigo_client, exigo_client_stub) do
-        service.stub(:fluid_client, build_fluid_client(fluid_customers_resource)) do
+        service.stub(:fluid_client, fluid_client_stub) do
+          result = service.call
+          assert_equal(true, result)
+        end
+      end
+    end
+
+    def test_keeps_preferred_if_has_fluid_subscription
+      company = companies(:acme)
+      ExigoAutoshipSnapshot.create!(
+        company: company,
+        external_ids: %w[101],
+        synced_at: 1.day.ago
+      )
+
+      exigo_client_stub = build_exigo_client(active_autoship_ids: [])
+      customer_101 = {
+        "id" => 101,
+        "external_id" => "101",
+        "metadata" => { "customer_type" => "preferred_customer" },
+      }
+      fluid_client_stub = build_fluid_client(
+        customers: [ customer_101 ],
+        subscriptions: [ { "id" => 1, "status" => "active" } ]
+      )
+
+      service = PreferredCustomerSyncService.new(company: company)
+
+      service.stub(:exigo_client, exigo_client_stub) do
+        service.stub(:fluid_client, fluid_client_stub) do
           result = service.call
           assert_equal(true, result)
         end
@@ -133,32 +155,37 @@ module Rain
 
   private
 
-    def build_exigo_client(active_autoship_ids:)
+    def build_exigo_client(active_autoship_ids:, customer_types: {})
       Class.new do
         define_method(:customers_with_active_autoships) { active_autoship_ids }
+        define_method(:get_customer_type) { |id| customer_types[id.to_s] }
+        define_method(:update_customer_type) { |_id, _type| true }
       end.new
     end
 
-    def build_fluid_resource(customers:)
-      Class.new do
-        define_method(:get) { |_params = nil| { "customers" => customers } }
-      end.new
-    end
-
-    def build_paginated_fluid_resource(pages:)
-      page_index = 0
-      Class.new do
+    def build_fluid_client(customers: [], subscriptions: [], metafields_updated: [], metadata_updated: [])
+      filtered_customers = customers
+      customers_resource = Class.new do
         define_method(:get) do |params = {}|
-          current_page = page_index
-          page_index += 1
-          { "customers" => pages[current_page] || [] }
+          matched = filtered_customers.select { |c| c["external_id"].to_s == params[:search_query].to_s }
+          { "customers" => matched }
         end
+        define_method(:append_metadata) { |id, data| metadata_updated << { id: id, data: data } }
       end.new
-    end
 
-    def build_fluid_client(resource)
+      subscriptions_resource = Class.new do
+        define_method(:get_by_customer) { |_id, _opts = {}| { "subscriptions" => subscriptions } }
+      end.new
+
+      metafields_resource = Class.new do
+        define_method(:ensure_definition) { |**_args| true }
+        define_method(:update) { |**args| metafields_updated << args }
+      end.new
+
       Class.new do
-        define_method(:customers) { resource }
+        define_method(:customers) { customers_resource }
+        define_method(:subscriptions) { subscriptions_resource }
+        define_method(:metafields) { metafields_resource }
       end.new
     end
   end

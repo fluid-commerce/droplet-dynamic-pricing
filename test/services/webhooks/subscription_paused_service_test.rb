@@ -39,7 +39,7 @@ class Webhooks::SubscriptionPausedServiceTest < ActiveSupport::TestCase
       result = service.call
 
       _(result[:success]).must_equal true
-      _(result[:message]).must_equal "Customer has other active subscriptions, no action taken"
+      _(result[:message]).must_equal "Customer has other subscriptions or Exigo autoship, no action taken"
     end
   end
 

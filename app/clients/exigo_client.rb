@@ -46,6 +46,37 @@ class ExigoClient
     execute_query(query).map { |row| row["CustomerID"] }.uniq
   end
 
+  def customer_has_active_autoship?(customer_id)
+    query = <<-SQL.squish
+      SELECT COUNT(*) AS count FROM dbo.AutoOrders
+      WHERE CustomerID = ?
+      AND AutoOrderStatusID = 0
+      AND NextRunDate >= GETDATE()
+    SQL
+
+    result = execute_query(query, [ customer_id.to_i ])
+    result.first&.dig("count").to_i > 0
+  end
+
+  def customer_autoships(customer_id)
+    query = <<-SQL.squish
+      SELECT AutoOrderID, CustomerID, AutoOrderStatusID, NextRunDate, StartDate, LastRunDate, Description
+      FROM dbo.AutoOrders
+      WHERE CustomerID = ?
+    SQL
+
+    execute_query(query, [ customer_id.to_i ])
+  end
+
+  def get_customer_type(customer_id)
+    query = <<-SQL.squish
+      SELECT CustomerTypeID FROM dbo.Customers WHERE CustomerID = ?
+    SQL
+
+    result = execute_query(query, [ customer_id.to_i ])
+    result.first&.dig("CustomerTypeID")
+  end
+
   def update_customer_type(customer_id, customer_type_id)
     update_customer_via_api(customer_id, customer_type_id)
   end
