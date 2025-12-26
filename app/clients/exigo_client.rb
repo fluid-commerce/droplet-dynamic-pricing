@@ -58,6 +58,29 @@ class ExigoClient
     result.first&.dig("count").to_i > 0
   end
 
+  def customer_has_active_autoship_by_email?(email)
+    query = <<-SQL.squish
+      SELECT COUNT(*) AS count
+      FROM dbo.AutoOrders ao
+      INNER JOIN dbo.Customers c ON ao.CustomerID = c.CustomerID
+      WHERE c.Email = ?
+      AND ao.AutoOrderStatusID = 0
+      AND ao.NextRunDate >= GETDATE()
+    SQL
+
+    result = execute_query(query, [ email.to_s ])
+    result.first&.dig("count").to_i > 0
+  end
+
+  def find_customer_id_by_email(email)
+    query = <<-SQL.squish
+      SELECT CustomerID FROM dbo.Customers WHERE Email = ?
+    SQL
+
+    result = execute_query(query, [ email.to_s ])
+    result.first&.dig("CustomerID")
+  end
+
   def get_customer_type(customer_id)
     query = <<-SQL.squish
       SELECT CustomerTypeID FROM dbo.Customers WHERE CustomerID = ?
