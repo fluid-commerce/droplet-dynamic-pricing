@@ -93,23 +93,6 @@ private
     end
   end
 
-  def fetch_and_validate_customer_type(email)
-    customer_result = fetch_customer_by_email(email)
-
-    return customer_result unless customer_result[:success]
-    return success_with_message("Customer not found for #{email}") if customer_result[:data].blank?
-
-    customer_data = customer_result[:data]
-    customer_id = customer_data["id"] || customer_data[:id]
-
-    return success_with_message("Customer ID missing for #{email}") if customer_id.blank?
-
-    customer_type = get_customer_type_from_metafields(customer_id)
-    return success_with_message("Customer type not set for #{email}") if customer_type.blank?
-
-    { success: true, customer_type: customer_type }
-  end
-
   def get_customer_id_by_email(email)
     return nil if email.blank?
 
@@ -165,6 +148,49 @@ private
   rescue StandardError => e
     Rails.logger.error "Error checking active subscriptions for customer #{customer_id}: #{e.message}"
     false
+  end
+
+  def has_exigo_autoship_by_email?(email)
+    return false unless is_rain_company?
+    return false if email.blank?
+
+    exigo_client.customer_has_active_autoship_by_email?(email)
+  rescue StandardError => e
+    Rails.logger.error "Error checking Exigo autoship for email #{email}: #{e.message}"
+    false
+  end
+
+  def is_rain_company?
+    rain_company_id = ENV.fetch("RAIN_FLUID_COMPANY_ID", nil)
+    return false if rain_company_id.blank?
+
+    company = find_company
+    return false if company.blank?
+
+    company.fluid_company_id.to_s == rain_company_id.to_s
+  end
+
+  def exigo_client
+    @exigo_client ||= initialize_exigo_client
+  end
+
+  def initialize_exigo_client
+    company = find_company
+    raise CallbackError, "Company is blank" if company.blank?
+
+    ExigoClient.for_company(company.name)
+  end
+
+  def is_preferred_customer?(email)
+    return false if email.blank?
+
+    customer_id = get_customer_id_by_email(email)
+    if customer_id.present?
+      customer_type = get_customer_type_from_metafields(customer_id)
+      return true if customer_type == PREFERRED_CUSTOMER_TYPE
+    end
+
+    has_exigo_autoship_by_email?(email)
   end
 
   def success_with_message(msg)

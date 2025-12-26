@@ -21,8 +21,8 @@ class Webhooks::SubscriptionStartedServiceTest < ActiveSupport::TestCase
   test "updates customer_type to preferred_customer when subscription starts" do
     service = Webhooks::SubscriptionStartedService.new(@webhook_params, @company)
 
-    # Stub update_customer_type
-    service.stub :update_customer_type, ->(*args) { } do
+    # Stub set_customer_preferred (external API calls)
+    service.stub :set_customer_preferred, ->(*_args) { } do
       result = service.call
 
       _(result[:success]).must_equal true
@@ -42,7 +42,7 @@ class Webhooks::SubscriptionStartedServiceTest < ActiveSupport::TestCase
   test "handles errors gracefully" do
     service = Webhooks::SubscriptionStartedService.new(@webhook_params, @company)
 
-    service.stub :update_customer_type, ->(*args) { raise StandardError, "API Error" } do
+    service.stub :set_customer_preferred, ->(*_args) { raise StandardError, "API Error" } do
       result = service.call
 
       _(result[:success]).must_equal false
