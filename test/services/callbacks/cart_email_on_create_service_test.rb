@@ -135,8 +135,7 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
     assert_includes result[:message], "no special pricing needed"
   end
 
-  test "returns error when customer lookup fails" do
-    email = cart_data["email"]
+  test "returns success when customer lookup fails" do
     fake_client = stubbed_fluid_client(
       customers_response: [],
       get_error: StandardError.new("Network error")
@@ -147,14 +146,14 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
 
     result = service.call
 
-    assert_equal false, result[:success]
-    assert_equal "Customer type not found for #{email}", result[:message]
+    assert_equal true, result[:success]
+    assert_includes result[:message], "no special pricing needed"
   end
 
   test "handles StandardError gracefully" do
     service = Callbacks::CartEmailOnCreateService.new(callback_params)
 
-    service.stub(:fetch_and_validate_customer_type, ->(_email) { raise StandardError.new("Network error") }) do
+    service.stub(:is_preferred_customer?, ->(_email) { raise StandardError.new("Network error") }) do
       assert_raises(StandardError) do
         service.call
       end

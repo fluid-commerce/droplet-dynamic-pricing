@@ -59,15 +59,17 @@ module Rain
       ids_to_process = new_ids.first(DAILY_WARMUP_LIMIT)
       ids_remaining = new_ids.size - ids_to_process.size
 
-      Rails.logger.info("[PreferredSync] Processing #{ids_to_process.size} today, #{ids_remaining} remaining for future days")
+      Rails.logger.info("[PreferredSync] Processing #{ids_to_process.size} today, #{ids_remaining} remaining")
 
       processed_count = process_new_autoships(ids_to_process)
 
       updated_snapshot_ids = yesterday_ids + ids_to_process
       save_snapshot(updated_snapshot_ids)
 
-      Rails.logger.info("[PreferredSync] Warmup day complete. Processed: #{processed_count}, Snapshot now: #{updated_snapshot_ids.size}")
-      Rails.logger.info("[PreferredSync] Days remaining: ~#{(ids_remaining.to_f / DAILY_WARMUP_LIMIT).ceil}") if ids_remaining > 0
+      snapshot_size = updated_snapshot_ids.size
+      Rails.logger.info("[PreferredSync] Warmup complete. Processed: #{processed_count}, Snapshot: #{snapshot_size}")
+      days_remaining = (ids_remaining.to_f / DAILY_WARMUP_LIMIT).ceil
+      Rails.logger.info("[PreferredSync] Days remaining: ~#{days_remaining}") if ids_remaining > 0
 
       true
     end

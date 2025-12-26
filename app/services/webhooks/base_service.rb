@@ -78,9 +78,7 @@ protected
     end
 
     subscriptions.any?
-  rescue FluidClient::ResourceNotFoundError
-    false
-  rescue FluidClient::Error
+  rescue FluidClient::ResourceNotFoundError, FluidClient::Error
     false
   end
 

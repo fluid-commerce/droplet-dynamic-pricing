@@ -19,10 +19,10 @@ class Webhooks::SubscriptionCancelledServiceTest < ActiveSupport::TestCase
   test "updates customer_type to retail when no other active subscriptions" do
     service = Webhooks::SubscriptionCancelledService.new(@webhook_params, @company)
 
-    # Stub has_other_active_subscriptions? to return false
-    service.stub :has_other_active_subscriptions?, ->(*args) { false } do
-      # Stub update_customer_type
-      service.stub :update_customer_type, ->(*args) { } do
+    # Stub should_remain_preferred? to return false
+    service.stub :should_remain_preferred?, ->(*_args) { false } do
+      # Stub set_customer_retail (external API calls)
+      service.stub :set_customer_retail, ->(*_args) { } do
         result = service.call
 
         _(result[:success]).must_equal true
@@ -34,8 +34,8 @@ class Webhooks::SubscriptionCancelledServiceTest < ActiveSupport::TestCase
   test "does not update customer_type when customer has other active subscriptions" do
     service = Webhooks::SubscriptionCancelledService.new(@webhook_params, @company)
 
-    # Stub has_other_active_subscriptions? to return true
-    service.stub :has_other_active_subscriptions?, ->(*args) { true } do
+    # Stub should_remain_preferred? to return true (has other subscriptions or Exigo autoship)
+    service.stub :should_remain_preferred?, ->(*_args) { true } do
       result = service.call
 
       _(result[:success]).must_equal true
@@ -55,7 +55,7 @@ class Webhooks::SubscriptionCancelledServiceTest < ActiveSupport::TestCase
   test "handles errors gracefully" do
     service = Webhooks::SubscriptionCancelledService.new(@webhook_params, @company)
 
-    service.stub :has_other_active_subscriptions?, ->(*args) { raise StandardError, "API Error" } do
+    service.stub :should_remain_preferred?, ->(*_args) { raise StandardError, "API Error" } do
       result = service.call
 
       _(result[:success]).must_equal false
