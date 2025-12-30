@@ -5,9 +5,11 @@ module Rain
     PREFERRED_CUSTOMER_TYPE = "preferred_customer"
     RETAIL_CUSTOMER_TYPE = "retail"
 
-    API_DELAY_SECONDS = 0.3
+    SNAPSHOTS_TO_KEEP = ENV.fetch("RAIN_SNAPSHOTS_TO_KEEP", 5).to_i    
 
-    DAILY_WARMUP_LIMIT = 10_000
+    API_DELAY_SECONDS = ENV.fetch("RAIN_API_DELAY_SECONDS", 0.3).to_f
+
+    DAILY_WARMUP_LIMIT = ENV.fetch("RAIN_DAILY_WARMUP_LIMIT", 10_000).to_i
 
     def initialize(company:)
       raise ArgumentError, "company must be a Company" unless company.is_a?(Company)
@@ -93,6 +95,8 @@ module Rain
 
     def fetch_exigo_autoships
       autoship_ids = exigo_client.customers_with_active_autoships
+      return nil if autoship_ids.nil?
+
       autoship_ids.map(&:to_s)
     rescue ExigoClient::Error => e
       Rails.logger.error("[PreferredSync] Failed to fetch Exigo autoships: #{e.message}")
@@ -230,6 +234,21 @@ module Rain
         synced_at: Time.current
       )
       Rails.logger.info("[PreferredSync] Saved snapshot with #{external_ids.size} IDs")
+
+      cleanup_old_snapshots
+    end
+
+    def cleanup_old_snapshots
+      ids_to_keep = ExigoAutoshipSnapshot
+        .where(company: @company)
+        .order(synced_at: :desc)
+        .limit(SNAPSHOTS_TO_KEEP)
+        .pluck(:id)
+
+      ExigoAutoshipSnapshot
+        .where(company: @company)
+        .where.not(id: ids_to_keep)
+        .delete_all
     end
 
     def preferred_type_id

@@ -34,8 +34,7 @@ protected
       raise ArgumentError, "customer_type cannot be blank"
     end
 
-    client = FluidClient.new(@company.authentication_token)
-    client.metafields.ensure_definition(
+    fluid_client.metafields.ensure_definition(
       namespace: "custom",
       key: "customer_type",
       value_type: "json",
@@ -45,7 +44,7 @@ protected
 
     json_value = { "customer_type" => customer_type.to_s }
 
-    client.metafields.update(
+    fluid_client.metafields.update(
       resource_type: "customer",
       resource_id: customer_id.to_i,
       namespace: "custom",
@@ -57,7 +56,7 @@ protected
   rescue FluidClient::ResourceNotFoundError => e
     Rails.logger.warn "Metafield not found for customer #{customer_id}; attempting create (#{e.message})"
 
-    client.metafields.create(
+    fluid_client.metafields.create(
       resource_type: "customer",
       resource_id: customer_id.to_i,
       namespace: "custom",
@@ -69,8 +68,7 @@ protected
   end
 
   def has_other_active_subscriptions?(customer_id, exclude_subscription_id = nil)
-    client = FluidClient.new(@company.authentication_token)
-    response = client.subscriptions.get_by_customer(customer_id, status: "active")
+    response = fluid_client.subscriptions.get_by_customer(customer_id, status: "active")
     subscriptions = response["subscriptions"] || []
 
     if exclude_subscription_id.present?
@@ -86,8 +84,7 @@ protected
     external_id = customer_external_id_from_payload
     return external_id if external_id.present?
 
-    client = FluidClient.new(@company.authentication_token)
-    customer = client.customers.find(customer_id)
+    customer = fluid_client.customers.find(customer_id)
     customer["external_id"]
   rescue StandardError
     nil
@@ -103,8 +100,7 @@ protected
   end
 
   def update_customer_metadata(customer_id, customer_type)
-    client = FluidClient.new(@company.authentication_token)
-    client.customers.append_metadata(customer_id, { "customer_type" => customer_type })
+    fluid_client.customers.append_metadata(customer_id, { "customer_type" => customer_type })
   rescue StandardError => e
     Rails.logger.error "Failed to update customer metadata for customer #{customer_id}: #{e.message}"
   end
@@ -121,6 +117,10 @@ protected
     exigo_client.update_customer_type(external_id, type_id)
   rescue StandardError => e
     Rails.logger.error "Failed to update Exigo customer type for external ID #{external_id}: #{e.message}"
+  end
+
+  def fluid_client
+    @fluid_client ||= FluidClient.new(@company.authentication_token)
   end
 
   def exigo_client
@@ -143,19 +143,19 @@ protected
   end
 
   def set_customer_preferred(customer_id)
-    external_id = customer_external_id(customer_id)
-
-    update_customer_type(customer_id, PREFERRED_CUSTOMER_TYPE)
-    update_customer_metadata(customer_id, PREFERRED_CUSTOMER_TYPE)
-    update_exigo_customer_type(external_id, PREFERRED_CUSTOMER_TYPE)
+    set_customer_type(customer_id, PREFERRED_CUSTOMER_TYPE)
   end
 
   def set_customer_retail(customer_id)
+    set_customer_type(customer_id, RETAIL_CUSTOMER_TYPE)
+  end
+
+  def set_customer_type(customer_id, customer_type)
     external_id = customer_external_id(customer_id)
 
-    update_customer_type(customer_id, RETAIL_CUSTOMER_TYPE)
-    update_customer_metadata(customer_id, RETAIL_CUSTOMER_TYPE)
-    update_exigo_customer_type(external_id, RETAIL_CUSTOMER_TYPE)
+    update_customer_type(customer_id, customer_type)
+    update_customer_metadata(customer_id, customer_type)
+    update_exigo_customer_type(external_id, customer_type)
   end
 
   def should_remain_preferred?(customer_id, exclude_subscription_id = nil)
