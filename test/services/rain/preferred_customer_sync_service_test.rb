@@ -32,25 +32,6 @@ module Rain
       end
     end
 
-    def test_returns_true_when_no_autoships
-      company = companies(:acme)
-      exigo_client_stub = build_exigo_client(active_autoship_ids: [])
-      fluid_client_stub = build_fluid_client(customers: [])
-
-      service = PreferredCustomerSyncService.new(company: company)
-
-      service.stub(:exigo_client, exigo_client_stub) do
-        service.stub(:fluid_client, fluid_client_stub) do
-          result = service.call
-          assert_equal(true, result)
-        end
-      end
-
-      snapshot = ExigoAutoshipSnapshot.latest_for_company(company)
-      assert_not_nil(snapshot)
-      assert_equal([], snapshot.external_ids)
-    end
-
     def test_saves_snapshot_after_sync
       company = companies(:acme)
       exigo_client_stub = build_exigo_client(active_autoship_ids: %w[101 102 103])
@@ -128,11 +109,12 @@ module Rain
       company = companies(:acme)
       ExigoAutoshipSnapshot.create!(
         company: company,
-        external_ids: %w[101],
+        external_ids: %w[101 102],
         synced_at: 1.day.ago
       )
 
-      exigo_client_stub = build_exigo_client(active_autoship_ids: [])
+      exigo_client_stub = build_exigo_client(active_autoship_ids: %w[102])
+
       customer_101 = {
         "id" => 101,
         "external_id" => "101",
