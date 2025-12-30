@@ -5,7 +5,7 @@ module Rain
     PREFERRED_CUSTOMER_TYPE = "preferred_customer"
     RETAIL_CUSTOMER_TYPE = "retail"
 
-    SNAPSHOTS_TO_KEEP = ENV.fetch("RAIN_SNAPSHOTS_TO_KEEP", 5).to_i    
+    SNAPSHOTS_TO_KEEP = ENV.fetch("RAIN_SNAPSHOTS_TO_KEEP", 5).to_i
 
     API_DELAY_SECONDS = ENV.fetch("RAIN_API_DELAY_SECONDS", 0.3).to_f
 
