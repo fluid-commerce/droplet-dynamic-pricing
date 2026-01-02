@@ -1,4 +1,4 @@
-# production:
+production:
   # periodic_cleanup:
   #   class: CleanSoftDeletedRecordsJob
   #   queue: background
@@ -8,7 +8,7 @@
   #   command: "SoftDeletedRecord.due.delete_all"
   #   priority: 2
   #   schedule: at 5am every day
-  # preferred_customer_sync:
-  #   class: Rain::PreferredCustomerSyncJob
-  #   queue: default
-  #   schedule: "0 0 * * *"
+  preferred_customer_sync:
+    class: Rain::PreferredCustomerSyncJob
+    queue: default
+    schedule: "0 0 * * *"
