@@ -7,7 +7,7 @@ module Rain
 
     SNAPSHOTS_TO_KEEP = ENV.fetch("RAIN_SNAPSHOTS_TO_KEEP", 5).to_i
 
-    API_DELAY_SECONDS = ENV.fetch("RAIN_API_DELAY_SECONDS", 0.3).to_f
+    API_DELAY_SECONDS = ENV.fetch("RAIN_API_DELAY_SECONDS", 0.5).to_f
 
     DAILY_WARMUP_LIMIT = ENV.fetch("RAIN_DAILY_WARMUP_LIMIT", 10_000).to_i
 
@@ -18,6 +18,7 @@ module Rain
     end
 
     def call
+      prepare_sync
       synchronize
     end
 
@@ -29,6 +30,16 @@ module Rain
 
     def exigo_client
       @exigo_client ||= ExigoClient.for_company(@company.name)
+    end
+
+    def prepare_sync
+      fluid_client.metafields.ensure_definition(
+        namespace: "custom",
+        key: "customer_type",
+        value_type: "json",
+        description: "Customer type for pricing",
+        owner_resource: "Customer"
+      )
     end
 
     def synchronize
@@ -197,25 +208,31 @@ module Rain
     end
 
     def update_fluid_customer_type(customer_id, customer_type)
-      # Update metafield
-      fluid_client.metafields.ensure_definition(
-        namespace: "custom",
-        key: "customer_type",
-        value_type: "json",
-        description: "Customer type for pricing",
-        owner_resource: "Customer"
-      )
+      json_value = { "customer_type" => customer_type }
 
-      fluid_client.metafields.update(
-        resource_type: "customer",
-        resource_id: customer_id.to_i,
-        namespace: "custom",
-        key: "customer_type",
-        value: { "customer_type" => customer_type },
-        value_type: "json"
-      )
+      begin
+        fluid_client.metafields.update(
+          resource_type: "customer",
+          resource_id: customer_id.to_i,
+          namespace: "custom",
+          key: "customer_type",
+          value: json_value,
+          value_type: "json"
+        )
+      rescue FluidClient::ResourceNotFoundError
+        fluid_client.metafields.create(
+          resource_type: "customer",
+          resource_id: customer_id.to_i,
+          namespace: "custom",
+          key: "customer_type",
+          value: json_value,
+          value_type: "json"
+        )
+      end
 
-      fluid_client.customers.append_metadata(customer_id, { "customer_type" => customer_type })
+      fluid_client.customers.append_metadata(customer_id, json_value)
+    rescue FluidClient::ResourceNotFoundError => e
+      Rails.logger.warn("[PreferredSync] Customer #{customer_id} not found in Fluid: #{e.message}")
     end
 
     def update_exigo_customer_type(external_id, type_id)

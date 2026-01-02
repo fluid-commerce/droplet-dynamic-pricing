@@ -23,12 +23,15 @@ module Rain
           raise ExigoClient::Error, "Database connection failed"
         end
       end.new
+      fluid_client_stub = build_fluid_client(customers: [])
 
       service = PreferredCustomerSyncService.new(company: company)
 
       service.stub(:exigo_client, exigo_client_stub) do
-        result = service.call
-        assert_equal(false, result)
+        service.stub(:fluid_client, fluid_client_stub) do
+          result = service.call
+          assert_equal(false, result)
+        end
       end
     end
 
