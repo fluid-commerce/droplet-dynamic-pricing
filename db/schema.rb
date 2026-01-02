@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_10_08_180000) do
+ActiveRecord::Schema[8.0].define(version: 2025_12_26_141805) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -58,6 +58,16 @@ ActiveRecord::Schema[8.0].define(version: 2025_10_08_180000) do
     t.index ["company_id"], name: "index_events_on_company_id"
     t.index ["identifier"], name: "index_events_on_identifier"
     t.index ["name"], name: "index_events_on_name"
+  end
+
+  create_table "exigo_autoship_snapshots", force: :cascade do |t|
+    t.bigint "company_id", null: false
+    t.json "external_ids", default: [], null: false
+    t.datetime "synced_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["company_id", "synced_at"], name: "index_exigo_autoship_snapshots_on_company_id_and_synced_at"
+    t.index ["company_id"], name: "index_exigo_autoship_snapshots_on_company_id"
   end
 
   create_table "integration_settings", force: :cascade do |t|
@@ -111,6 +121,7 @@ ActiveRecord::Schema[8.0].define(version: 2025_10_08_180000) do
   end
 
   add_foreign_key "events", "companies"
+  add_foreign_key "exigo_autoship_snapshots", "companies"
   add_foreign_key "integration_settings", "companies"
   add_foreign_key "price_types", "companies"
 end
