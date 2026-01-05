@@ -63,21 +63,6 @@ steps:
     id: deploy-production
     entrypoint: gcloud
 
-  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
-    args:
-      [
-        "beta",
-        "run",
-        "worker-pools",
-        "update",
-        "${_APP_NAME}-solidqueue",
-        "--image=europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
-        "--region=europe-west1",
-        "--revision-suffix=${COMMIT_SHA}-${_TIMESTAMP}",
-      ]
-    id: deploy-production-solidqueue
-    entrypoint: gcloud
-
 substitutions:
   _APP_NAME: "fluid-droplet-dynamic-pricing"
   _APP_REPOSITORY: "fluid-droplets"
