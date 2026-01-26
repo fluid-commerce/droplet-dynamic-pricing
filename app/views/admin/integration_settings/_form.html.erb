@@ -1,0 +1,130 @@
+<%= form_with(model: @integration_setting, url: admin_integration_setting_path(dri: @dri), method: :patch, local: true, class: "space-y-6") do |form| %>
+  <% if @integration_setting.errors.any? %>
+    <div class="bg-red-50 border border-red-200 text-red-800 rounded-lg p-4">
+      <h3 class="font-semibold mb-2"><%= pluralize(@integration_setting.errors.count, "error") %> prohibited this integration from being saved:</h3>
+      <ul class="list-disc list-inside">
+        <% @integration_setting.errors.full_messages.each do |message| %>
+          <li><%= message %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <!-- Company Info (Read-only) -->
+  <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+    <h3 class="font-semibold text-gray-700 mb-2">Company Information</h3>
+    <div class="grid grid-cols-2 gap-4 text-sm">
+      <div>
+        <span class="text-gray-500">Name:</span>
+        <span class="text-gray-900 font-medium ml-2"><%= @company.name %></span>
+      </div>
+      <div>
+        <span class="text-gray-500">Shop:</span>
+        <span class="text-gray-900 font-medium ml-2"><%= @company.fluid_shop %></span>
+      </div>
+      <div>
+        <span class="text-gray-500">Fluid Company ID:</span>
+        <span class="text-gray-900 font-medium ml-2"><%= @company.fluid_company_id %></span>
+      </div>
+      <div>
+        <span class="text-gray-500">UUID:</span>
+        <span class="text-gray-900 font-mono text-xs ml-2"><%= @company.company_droplet_uuid %></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Enable Toggle -->
+  <div class="bg-white rounded-lg p-6 border border-gray-200">
+    <div class="flex items-center justify-between">
+      <div>
+        <h3 class="font-semibold text-gray-700">Enable Integration</h3>
+        <p class="text-sm text-gray-500 mt-1">Turn on to activate Exigo integration for this company</p>
+      </div>
+      <div class="flex items-center">
+        <%= form.check_box :enabled, class: "toggle-checkbox h-6 w-12 rounded-full" %>
+      </div>
+    </div>
+  </div>
+
+  <!-- Exigo Database Credentials -->
+  <div class="bg-white rounded-lg p-6 border border-gray-200">
+    <h3 class="font-semibold text-gray-700 mb-4">Exigo Database Credentials</h3>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <%= label_tag "integration_setting_credentials_exigo_db_host", "Database Host", class: "block text-sm font-medium text-gray-700 mb-1" %>
+        <%= text_field_tag "integration_setting[credentials][exigo_db_host]", @integration_setting.credentials["exigo_db_host"], class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500", placeholder: "db.example.com" %>
+      </div>
+      <div>
+        <%= label_tag "integration_setting_credentials_exigo_db_name", "Database Name", class: "block text-sm font-medium text-gray-700 mb-1" %>
+        <%= text_field_tag "integration_setting[credentials][exigo_db_name]", @integration_setting.credentials["exigo_db_name"], class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500", placeholder: "exigo_db" %>
+      </div>
+      <div>
+        <%= label_tag "integration_setting_credentials_exigo_db_username", "Database Username", class: "block text-sm font-medium text-gray-700 mb-1" %>
+        <%= text_field_tag "integration_setting[credentials][exigo_db_username]", @integration_setting.credentials["exigo_db_username"], class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500", placeholder: "db_user" %>
+      </div>
+      <div>
+        <%= label_tag "integration_setting_credentials_exigo_db_password", "Database Password", class: "block text-sm font-medium text-gray-700 mb-1" %>
+        <%= password_field_tag "integration_setting[credentials][exigo_db_password]", @integration_setting.credentials["exigo_db_password"], class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500", placeholder: "••••••••" %>
+      </div>
+    </div>
+  </div>
+
+  <!-- Exigo API Credentials -->
+  <div class="bg-white rounded-lg p-6 border border-gray-200">
+    <h3 class="font-semibold text-gray-700 mb-4">Exigo API Credentials</h3>
+    <div class="grid grid-cols-1 gap-4">
+      <div>
+        <%= label_tag "integration_setting_credentials_api_base_url", "API Base URL", class: "block text-sm font-medium text-gray-700 mb-1" %>
+        <%= text_field_tag "integration_setting[credentials][api_base_url]", @integration_setting.credentials["api_base_url"], class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500", placeholder: "https://api.exigo.com/3.0/" %>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <%= label_tag "integration_setting_credentials_api_username", "API Username", class: "block text-sm font-medium text-gray-700 mb-1" %>
+          <%= text_field_tag "integration_setting[credentials][api_username]", @integration_setting.credentials["api_username"], class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500", placeholder: "api_user" %>
+        </div>
+        <div>
+          <%= label_tag "integration_setting_credentials_api_password", "API Password", class: "block text-sm font-medium text-gray-700 mb-1" %>
+          <%= password_field_tag "integration_setting[credentials][api_password]", @integration_setting.credentials["api_password"], class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500", placeholder: "••••••••" %>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Integration Settings -->
+  <div class="bg-white rounded-lg p-6 border border-gray-200">
+    <h3 class="font-semibold text-gray-700 mb-4">Integration Settings</h3>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <%= label_tag "integration_setting_settings_preferred_customer_type_id", "Preferred Customer Type ID", class: "block text-sm font-medium text-gray-700 mb-1" %>
+        <%= text_field_tag "integration_setting[settings][preferred_customer_type_id]", @integration_setting.settings["preferred_customer_type_id"] || "2", class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" %>
+        <p class="text-xs text-gray-500 mt-1">Default: 2</p>
+      </div>
+      <div>
+        <%= label_tag "integration_setting_settings_retail_customer_type_id", "Retail Customer Type ID", class: "block text-sm font-medium text-gray-700 mb-1" %>
+        <%= text_field_tag "integration_setting[settings][retail_customer_type_id]", @integration_setting.settings["retail_customer_type_id"] || "1", class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" %>
+        <p class="text-xs text-gray-500 mt-1">Default: 1</p>
+      </div>
+      <div>
+        <%= label_tag "integration_setting_settings_api_delay_seconds", "API Delay (seconds)", class: "block text-sm font-medium text-gray-700 mb-1" %>
+        <%= number_field_tag "integration_setting[settings][api_delay_seconds]", @integration_setting.settings["api_delay_seconds"] || "0.5", step: "0.1", class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" %>
+        <p class="text-xs text-gray-500 mt-1">Delay between API requests</p>
+      </div>
+      <div>
+        <%= label_tag "integration_setting_settings_snapshots_to_keep", "Snapshots to Keep", class: "block text-sm font-medium text-gray-700 mb-1" %>
+        <%= number_field_tag "integration_setting[settings][snapshots_to_keep]", @integration_setting.settings["snapshots_to_keep"] || "5", class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" %>
+        <p class="text-xs text-gray-500 mt-1">Number of historical snapshots</p>
+      </div>
+      <div>
+        <%= label_tag "integration_setting_settings_daily_warmup_limit", "Daily Warmup Limit", class: "block text-sm font-medium text-gray-700 mb-1" %>
+        <%= number_field_tag "integration_setting[settings][daily_warmup_limit]", @integration_setting.settings["daily_warmup_limit"] || "10000", class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" %>
+        <p class="text-xs text-gray-500 mt-1">Maximum warmup items per day</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="flex justify-between items-center pt-4">
+    <%= link_to "Cancel", admin_integration_setting_path(dri: @dri), class: "px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md" %>
+    <%= form.submit "Save Settings", class: "px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md cursor-pointer" %>
+  </div>
+<% end %>

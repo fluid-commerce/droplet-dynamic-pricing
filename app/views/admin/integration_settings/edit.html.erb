@@ -1,0 +1,8 @@
+<div class="flex items-center justify-between mb-6">
+  <div class="flex flex-col gap-1">
+    <h1 class="font-custom text-3xl font-bold text-gray-600">Configure Integration</h1>
+    <h3 class="text-gray-400">Configure Exigo integration for <%= @company.name %></h3>
+  </div>
+</div>
+
+<%= render "form", integration_setting: @integration_setting %>
