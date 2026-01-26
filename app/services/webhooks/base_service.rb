@@ -153,6 +153,11 @@ protected
     external_id = customer_external_id(customer_id)
     previous_type = get_current_customer_type(customer_id)
 
+    if previous_type == customer_type
+      Rails.logger.info "Customer #{customer_id} already has type '#{customer_type}', skipping update"
+      return
+    end
+
     update_customer_type(customer_id, customer_type)
     update_customer_metadata(customer_id, customer_type)
     update_exigo_customer_type(external_id, customer_type)
@@ -167,9 +172,19 @@ protected
   end
 
   def get_current_customer_type(customer_id)
+    metafield = fluid_client.metafields.get_by_key(
+      resource_type: "customer",
+      resource_id: customer_id,
+      key: "customer_type"
+    )
+
+    metafield_value = metafield&.dig("value", "customer_type") || metafield&.dig(:value, :customer_type)
+    return metafield_value if metafield_value.present?
+
     customer = fluid_client.customers.find(customer_id)
     customer.dig("metadata", "customer_type")
-  rescue StandardError
+  rescue StandardError => e
+    Rails.logger.warn "Failed to get current customer type for #{customer_id}: #{e.message}"
     nil
   end
 
