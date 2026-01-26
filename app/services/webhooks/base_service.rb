@@ -91,7 +91,7 @@ protected
   end
 
   def has_exigo_autoship?(external_id)
-    return false unless is_rain_company?
+    return false unless exigo_integration_enabled?
     return false if external_id.blank?
 
     exigo_client.customer_has_active_autoship?(external_id)
@@ -106,7 +106,7 @@ protected
   end
 
   def update_exigo_customer_type(external_id, customer_type)
-    return unless is_rain_company?
+    return unless exigo_integration_enabled?
     return if external_id.blank?
 
     type_id = (customer_type == PREFERRED_CUSTOMER_TYPE ? preferred_type_id : retail_type_id).to_i
@@ -114,7 +114,9 @@ protected
 
     return if current_type_id == type_id
 
-    exigo_client.update_customer_type(external_id, type_id)
+    # COMMENTED FOR LOCAL TESTING - Uncomment to enable Exigo updates
+    # exigo_client.update_customer_type(external_id, type_id)
+    Rails.logger.info "[EXIGO UPDATE DISABLED] Would update customer #{external_id} to type #{type_id}"
   rescue StandardError => e
     Rails.logger.error "Failed to update Exigo customer type for external ID #{external_id}: #{e.message}"
   end
@@ -124,22 +126,19 @@ protected
   end
 
   def exigo_client
-    @exigo_client ||= ExigoClient.for_company(@company.name)
+    @exigo_client ||= ExigoClient.for_company(@company)
   end
 
   def preferred_type_id
-    ENV.fetch("RAIN_PREFERRED_CUSTOMER_TYPE_ID", "2")
+    @company.integration_setting&.preferred_customer_type_id || "2"
   end
 
   def retail_type_id
-    ENV.fetch("RAIN_RETAIL_CUSTOMER_TYPE_ID", "1")
+    @company.integration_setting&.retail_customer_type_id || "1"
   end
 
-  def is_rain_company?
-    rain_company_id = ENV.fetch("RAIN_FLUID_COMPANY_ID", nil)
-    return false if rain_company_id.blank?
-
-    @company&.fluid_company_id.to_s == rain_company_id.to_s
+  def exigo_integration_enabled?
+    @company&.integration_setting&.exigo_enabled? || false
   end
 
   def set_customer_preferred(customer_id)
@@ -152,10 +151,42 @@ protected
 
   def set_customer_type(customer_id, customer_type)
     external_id = customer_external_id(customer_id)
+    previous_type = get_current_customer_type(customer_id)
 
     update_customer_type(customer_id, customer_type)
     update_customer_metadata(customer_id, customer_type)
     update_exigo_customer_type(external_id, customer_type)
+
+    log_transaction(
+      customer_id: customer_id,
+      external_id: external_id,
+      previous_type: previous_type,
+      new_type: customer_type,
+      source: "webhook"
+    )
+  end
+
+  def get_current_customer_type(customer_id)
+    customer = fluid_client.customers.find(customer_id)
+    customer.dig("metadata", "customer_type")
+  rescue StandardError
+    nil
+  end
+
+  def log_transaction(customer_id:, external_id:, previous_type:, new_type:, source:)
+    CustomerTypeTransaction.create!(
+      company: @company,
+      customer_id: customer_id,
+      external_id: external_id,
+      previous_type: previous_type,
+      new_type: new_type,
+      source: source,
+      metadata: {
+        webhook_params: @webhook_params&.slice("subscription", "event_name"),
+      }
+    )
+  rescue StandardError => e
+    Rails.logger.error "Failed to log customer type transaction: #{e.message}"
   end
 
   def should_remain_preferred?(customer_id, exclude_subscription_id = nil)

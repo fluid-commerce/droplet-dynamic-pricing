@@ -5,16 +5,13 @@ module Rain
     PREFERRED_CUSTOMER_TYPE = "preferred_customer"
     RETAIL_CUSTOMER_TYPE = "retail"
 
-    SNAPSHOTS_TO_KEEP = ENV.fetch("RAIN_SNAPSHOTS_TO_KEEP", 5).to_i
-
-    API_DELAY_SECONDS = ENV.fetch("RAIN_API_DELAY_SECONDS", 0.5).to_f
-
-    DAILY_WARMUP_LIMIT = ENV.fetch("RAIN_DAILY_WARMUP_LIMIT", 10_000).to_i
-
     def initialize(company:)
       raise ArgumentError, "company must be a Company" unless company.is_a?(Company)
 
       @company = company
+      @integration = company.integration_setting
+
+      raise ArgumentError, "Exigo integration not enabled for #{company.name}" unless @integration&.exigo_enabled?
     end
 
     def call
@@ -29,7 +26,7 @@ module Rain
     end
 
     def exigo_client
-      @exigo_client ||= ExigoClient.for_company(@company.name)
+      @exigo_client ||= ExigoClient.for_company(@company)
     end
 
     def prepare_sync
@@ -61,15 +58,15 @@ module Rain
       return true if yesterday_ids.empty?
 
       new_ids_count = (today_ids - yesterday_ids).size
-      new_ids_count > DAILY_WARMUP_LIMIT
+      new_ids_count > daily_warmup_limit
     end
 
     def run_warmup_sync(today_ids, yesterday_ids)
       new_ids = today_ids - yesterday_ids
 
-      Rails.logger.info("[PreferredSync] WARMUP MODE - Total new: #{new_ids.size}, Limit: #{DAILY_WARMUP_LIMIT}")
+      Rails.logger.info("[PreferredSync] WARMUP MODE - Total new: #{new_ids.size}, Limit: #{daily_warmup_limit}")
 
-      ids_to_process = new_ids.first(DAILY_WARMUP_LIMIT)
+      ids_to_process = new_ids.first(daily_warmup_limit)
       ids_remaining = new_ids.size - ids_to_process.size
 
       Rails.logger.info("[PreferredSync] Processing #{ids_to_process.size} today, #{ids_remaining} remaining")
@@ -81,7 +78,7 @@ module Rain
 
       snapshot_size = updated_snapshot_ids.size
       Rails.logger.info("[PreferredSync] Warmup complete. Processed: #{processed_count}, Snapshot: #{snapshot_size}")
-      days_remaining = (ids_remaining.to_f / DAILY_WARMUP_LIMIT).ceil
+      days_remaining = (ids_remaining.to_f / daily_warmup_limit).ceil
       Rails.logger.info("[PreferredSync] Days remaining: ~#{days_remaining}") if ids_remaining > 0
 
       true
@@ -141,7 +138,7 @@ module Rain
 
         set_customer_preferred(customer_id, external_id)
         count += 1
-        sleep(API_DELAY_SECONDS)
+        sleep(api_delay_seconds)
       rescue StandardError => e
         Rails.logger.error("[PreferredSync] Error processing new autoship #{external_id}: #{e.message}")
       end
@@ -168,7 +165,7 @@ module Rain
 
         set_customer_retail(customer_id, external_id)
         count += 1
-        sleep(API_DELAY_SECONDS)
+        sleep(api_delay_seconds)
       rescue StandardError => e
         Rails.logger.error("[PreferredSync] Error processing lost autoship #{external_id}: #{e.message}")
       end
@@ -196,15 +193,33 @@ module Rain
     def set_customer_preferred(customer_id, external_id)
       Rails.logger.info("[PreferredSync] Setting customer #{customer_id} to preferred")
 
+      previous_type = get_current_customer_type(customer_id)
       update_fluid_customer_type(customer_id, PREFERRED_CUSTOMER_TYPE)
       update_exigo_customer_type(external_id, preferred_type_id)
+
+      log_transaction(
+        customer_id: customer_id,
+        external_id: external_id,
+        previous_type: previous_type,
+        new_type: PREFERRED_CUSTOMER_TYPE,
+        source: "sync_job"
+      )
     end
 
     def set_customer_retail(customer_id, external_id)
       Rails.logger.info("[PreferredSync] Setting customer #{customer_id} to retail")
 
+      previous_type = get_current_customer_type(customer_id)
       update_fluid_customer_type(customer_id, RETAIL_CUSTOMER_TYPE)
       update_exigo_customer_type(external_id, retail_type_id)
+
+      log_transaction(
+        customer_id: customer_id,
+        external_id: external_id,
+        previous_type: previous_type,
+        new_type: RETAIL_CUSTOMER_TYPE,
+        source: "sync_job"
+      )
     end
 
     def update_fluid_customer_type(customer_id, customer_type)
@@ -241,7 +256,9 @@ module Rain
       current_type = exigo_client.get_customer_type(external_id)
       return if current_type == type_id.to_i
 
-      exigo_client.update_customer_type(external_id, type_id)
+      # COMMENTED FOR LOCAL TESTING - Uncomment to enable Exigo updates
+      # exigo_client.update_customer_type(external_id, type_id)
+      Rails.logger.info("[EXIGO UPDATE DISABLED] Would update customer #{external_id} to type #{type_id}")
     end
 
     def save_snapshot(external_ids)
@@ -259,7 +276,7 @@ module Rain
       ids_to_keep = ExigoAutoshipSnapshot
         .where(company: @company)
         .order(synced_at: :desc)
-        .limit(SNAPSHOTS_TO_KEEP)
+        .limit(snapshots_to_keep)
         .pluck(:id)
 
       ExigoAutoshipSnapshot
@@ -269,11 +286,56 @@ module Rain
     end
 
     def preferred_type_id
-      ENV.fetch("RAIN_PREFERRED_CUSTOMER_TYPE_ID", "2")
+      @integration.preferred_customer_type_id
     end
 
     def retail_type_id
-      ENV.fetch("RAIN_RETAIL_CUSTOMER_TYPE_ID", "1")
+      @integration.retail_customer_type_id
+    end
+
+    def api_delay_seconds
+      @integration.api_delay_seconds
+    end
+
+    def snapshots_to_keep
+      @integration.snapshots_to_keep
+    end
+
+    def daily_warmup_limit
+      @integration.daily_warmup_limit
+    end
+
+    def get_current_customer_type(customer_id)
+      customer = find_fluid_customer_by_id(customer_id)
+      return nil if customer.blank?
+
+      customer.dig("metadata", "customer_type")
+    rescue StandardError
+      nil
+    end
+
+    def find_fluid_customer_by_id(customer_id)
+      fluid_client.customers.find(customer_id)
+    rescue StandardError => e
+      Rails.logger.error("[PreferredSync] Error finding customer #{customer_id}: #{e.message}")
+      nil
+    end
+
+    def log_transaction(customer_id:, external_id:, previous_type:, new_type:, source:)
+      CustomerTypeTransaction.create!(
+        company: @company,
+        customer_id: customer_id,
+        external_id: external_id,
+        previous_type: previous_type,
+        new_type: new_type,
+        source: source,
+        metadata: {
+          preferred_type_id: preferred_type_id,
+          retail_type_id: retail_type_id,
+        }
+      )
+    rescue StandardError => e
+      Rails.logger.error("[PreferredSync] Failed to log transaction: #{e.message}")
     end
   end
 end
