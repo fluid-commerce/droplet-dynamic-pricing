@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_12_26_141805) do
+ActiveRecord::Schema[8.0].define(version: 2026_01_26_194025) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -22,6 +22,23 @@ ActiveRecord::Schema[8.0].define(version: 2025_12_26_141805) do
     t.boolean "active"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+  end
+
+  create_table "cart_pricing_events", force: :cascade do |t|
+    t.bigint "company_id", null: false
+    t.integer "cart_id"
+    t.string "email"
+    t.string "event_type"
+    t.boolean "preferred_pricing_applied", default: false
+    t.integer "items_count"
+    t.decimal "cart_total", precision: 10, scale: 2
+    t.jsonb "metadata", default: {}
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["cart_id"], name: "index_cart_pricing_events_on_cart_id"
+    t.index ["company_id", "created_at"], name: "index_cart_pricing_events_on_company_id_and_created_at"
+    t.index ["company_id"], name: "index_cart_pricing_events_on_company_id"
+    t.index ["email"], name: "index_cart_pricing_events_on_email"
   end
 
   create_table "companies", force: :cascade do |t|
@@ -44,6 +61,22 @@ ActiveRecord::Schema[8.0].define(version: 2025_12_26_141805) do
     t.index ["company_droplet_uuid"], name: "index_companies_on_company_droplet_uuid"
     t.index ["fluid_company_id"], name: "index_companies_on_fluid_company_id"
     t.index ["fluid_shop"], name: "index_companies_on_fluid_shop"
+  end
+
+  create_table "customer_type_transactions", force: :cascade do |t|
+    t.bigint "company_id", null: false
+    t.integer "customer_id"
+    t.string "external_id"
+    t.string "previous_type"
+    t.string "new_type"
+    t.string "source"
+    t.jsonb "metadata", default: {}
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["company_id", "created_at"], name: "index_customer_type_transactions_on_company_id_and_created_at"
+    t.index ["company_id"], name: "index_customer_type_transactions_on_company_id"
+    t.index ["customer_id"], name: "index_customer_type_transactions_on_customer_id"
+    t.index ["external_id"], name: "index_customer_type_transactions_on_external_id"
   end
 
   create_table "events", force: :cascade do |t|
@@ -120,6 +153,8 @@ ActiveRecord::Schema[8.0].define(version: 2025_12_26_141805) do
     t.datetime "updated_at", null: false
   end
 
+  add_foreign_key "cart_pricing_events", "companies"
+  add_foreign_key "customer_type_transactions", "companies"
   add_foreign_key "events", "companies"
   add_foreign_key "exigo_autoship_snapshots", "companies"
   add_foreign_key "integration_settings", "companies"
