@@ -1,0 +1,19 @@
+# Read about fixtures at http://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  company: one
+  customer_id: 1
+  external_id: MyString
+  previous_type: MyString
+  new_type: MyString
+  source: MyString
+  metadata: 
+
+two:
+  company: two
+  customer_id: 1
+  external_id: MyString
+  previous_type: MyString
+  new_type: MyString
+  source: MyString
+  metadata: 
