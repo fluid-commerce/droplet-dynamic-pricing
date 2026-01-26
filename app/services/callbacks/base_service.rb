@@ -151,7 +151,7 @@ private
   end
 
   def has_exigo_autoship_by_email?(email)
-    return false unless is_rain_company?
+    return false unless exigo_integration_enabled?
     return false if email.blank?
 
     exigo_client.customer_has_active_autoship_by_email?(email)
@@ -160,14 +160,11 @@ private
     false
   end
 
-  def is_rain_company?
-    rain_company_id = ENV.fetch("RAIN_FLUID_COMPANY_ID", nil)
-    return false if rain_company_id.blank?
-
+  def exigo_integration_enabled?
     company = find_company
     return false if company.blank?
 
-    company.fluid_company_id.to_s == rain_company_id.to_s
+    company.integration_setting&.exigo_enabled? || false
   end
 
   def exigo_client
@@ -177,8 +174,9 @@ private
   def initialize_exigo_client
     company = find_company
     raise CallbackError, "Company is blank" if company.blank?
+    raise CallbackError, "Exigo integration not enabled" unless company.integration_setting&.exigo_enabled?
 
-    ExigoClient.for_company(company.name)
+    ExigoClient.for_company(company)
   end
 
   def is_preferred_customer?(email)
@@ -195,5 +193,29 @@ private
 
   def success_with_message(msg)
     { success: true, message: msg }
+  end
+
+  def log_cart_pricing_event(event_type:, preferred_applied:, additional_data: {})
+    company = find_company
+    return if company.blank?
+
+    CartPricingEvent.create!(
+      company: company,
+      cart_id: cart&.dig("id"),
+      email: cart&.dig("email"),
+      event_type: event_type,
+      preferred_pricing_applied: preferred_applied,
+      items_count: cart_items.count,
+      cart_total: calculate_cart_total,
+      metadata: additional_data
+    )
+  rescue StandardError => e
+    Rails.logger.error "[CartPricingEvent] Failed to log event: #{e.message}"
+  end
+
+  def calculate_cart_total
+    cart_items.sum { |item| (item["price"].to_f || 0) * (item["quantity"].to_i || 1) }
+  rescue StandardError
+    0.0
   end
 end
