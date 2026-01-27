@@ -4,19 +4,144 @@ module Rain
   class PreferredCustomerSyncJobTest < ActiveJob::TestCase
     fixtures(:companies)
 
-    def test_delegates_to_service
-      company = companies(:acme)
-      ENV["RAIN_FLUID_COMPANY_ID"] = company.fluid_company_id.to_s
+    def test_processes_all_companies_with_exigo_enabled
+      acme = companies(:acme)
+      globex = companies(:globex)
 
-      service_called = false
-      service_company = nil
+      # Create integration settings with Exigo enabled for acme
+      acme_integration = IntegrationSetting.create!(
+        company: acme,
+        enabled: true,
+        credentials: {
+          exigo_db_host: "db.example.com",
+          exigo_db_username: "user",
+          exigo_db_password: "pass",
+          exigo_db_name: "exigo_db",
+          api_base_url: "https://api.example.com",
+          api_username: "api_user",
+          api_password: "api_pass",
+        },
+        settings: {}
+      )
 
-      # Mock the service to capture the call
+      # Create integration settings with Exigo disabled for globex
+      IntegrationSetting.create!(
+        company: globex,
+        enabled: false,
+        credentials: {},
+        settings: {}
+      )
+
+      processed_companies = []
+
       Rain::PreferredCustomerSyncService.stub(:new, ->(company:) {
-        service_company = company
+        processed_companies << company
+        mock_service = Object.new
+        mock_service.define_singleton_method(:call) { true }
+        mock_service
+      }) do
+        perform_enqueued_jobs { PreferredCustomerSyncJob.perform_later }
+      end
+
+      assert_equal 1, processed_companies.size, "Should process only companies with Exigo enabled"
+      assert_includes processed_companies, acme, "Should process acme (Exigo enabled)"
+      refute_includes processed_companies, globex, "Should not process globex (Exigo disabled)"
+    end
+
+    def test_processes_multiple_companies_with_exigo_enabled
+      acme = companies(:acme)
+      globex = companies(:globex)
+
+      # Create integration settings with Exigo enabled for both
+      acme_integration = IntegrationSetting.create!(
+        company: acme,
+        enabled: true,
+        credentials: {
+          exigo_db_host: "db.example.com",
+          exigo_db_username: "user",
+          exigo_db_password: "pass",
+          exigo_db_name: "exigo_db",
+          api_base_url: "https://api.example.com",
+          api_username: "api_user",
+          api_password: "api_pass",
+        },
+        settings: {}
+      )
+
+      globex_integration = IntegrationSetting.create!(
+        company: globex,
+        enabled: true,
+        credentials: {
+          exigo_db_host: "db2.example.com",
+          exigo_db_username: "user2",
+          exigo_db_password: "pass2",
+          exigo_db_name: "exigo_db2",
+          api_base_url: "https://api2.example.com",
+          api_username: "api_user2",
+          api_password: "api_pass2",
+        },
+        settings: {}
+      )
+
+      processed_companies = []
+
+      Rain::PreferredCustomerSyncService.stub(:new, ->(company:) {
+        processed_companies << company
+        mock_service = Object.new
+        mock_service.define_singleton_method(:call) { true }
+        mock_service
+      }) do
+        perform_enqueued_jobs { PreferredCustomerSyncJob.perform_later }
+      end
+
+      assert_equal 2, processed_companies.size, "Should process both companies with Exigo enabled"
+      assert_includes processed_companies, acme, "Should process acme"
+      assert_includes processed_companies, globex, "Should process globex"
+    end
+
+    def test_continues_on_error_for_one_company
+      acme = companies(:acme)
+      globex = companies(:globex)
+
+      # Create integration settings with Exigo enabled for both
+      IntegrationSetting.create!(
+        company: acme,
+        enabled: true,
+        credentials: {
+          exigo_db_host: "db.example.com",
+          exigo_db_username: "user",
+          exigo_db_password: "pass",
+          exigo_db_name: "exigo_db",
+          api_base_url: "https://api.example.com",
+          api_username: "api_user",
+          api_password: "api_pass",
+        },
+        settings: {}
+      )
+
+      IntegrationSetting.create!(
+        company: globex,
+        enabled: true,
+        credentials: {
+          exigo_db_host: "db2.example.com",
+          exigo_db_username: "user2",
+          exigo_db_password: "pass2",
+          exigo_db_name: "exigo_db2",
+          api_base_url: "https://api2.example.com",
+          api_username: "api_user2",
+          api_password: "api_pass2",
+        },
+        settings: {}
+      )
+
+      processed_companies = []
+
+      Rain::PreferredCustomerSyncService.stub(:new, ->(company:) {
+        processed_companies << company
         mock_service = Object.new
         mock_service.define_singleton_method(:call) do
-          service_called = true
+          # Fail for acme, succeed for globex
+          raise StandardError, "Test error" if company == acme
           true
         end
         mock_service
@@ -24,38 +149,10 @@ module Rain
         perform_enqueued_jobs { PreferredCustomerSyncJob.perform_later }
       end
 
-      assert service_called, "Service should have been called"
-      assert_equal company, service_company, "Service should receive the correct company"
-    end
-
-    def test_skips_when_company_not_found
-      ENV["RAIN_FLUID_COMPANY_ID"] = "999999999"
-
-      service_called = false
-
-      Rain::PreferredCustomerSyncService.stub(:new, ->(_) {
-        service_called = true
-        Object.new
-      }) do
-        perform_enqueued_jobs { PreferredCustomerSyncJob.perform_later }
-      end
-
-      refute service_called, "Service should not be called when company not found"
-    end
-
-    def test_skips_when_fluid_company_id_missing
-      ENV.delete("RAIN_FLUID_COMPANY_ID")
-
-      service_called = false
-
-      Rain::PreferredCustomerSyncService.stub(:new, ->(_) {
-        service_called = true
-        Object.new
-      }) do
-        perform_enqueued_jobs { PreferredCustomerSyncJob.perform_later }
-      end
-
-      refute service_called, "Service should not be called when RAIN_FLUID_COMPANY_ID is missing"
+      # Should process both companies even if one fails
+      assert_equal 2, processed_companies.size, "Should attempt to process both companies"
+      assert_includes processed_companies, acme, "Should attempt acme (even if it fails)"
+      assert_includes processed_companies, globex, "Should process globex successfully"
     end
   end
 end

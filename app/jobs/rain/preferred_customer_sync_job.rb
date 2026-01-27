@@ -2,26 +2,26 @@ module Rain
   class PreferredCustomerSyncJob < ApplicationJob
     queue_as :default
 
-    before_perform :set_rain_company
-
     def perform
-      return unless rain_company
+      companies_to_sync.each do |company|
+        Rails.logger.info("[PreferredSyncJob] Processing company: #{company.name} (ID: #{company.id})")
 
-      Rain::PreferredCustomerSyncService.new(company: rain_company).call
+        begin
+          Rain::PreferredCustomerSyncService.new(company: company).call
+          Rails.logger.info("[PreferredSyncJob] Successfully synced company: #{company.name}")
+        rescue StandardError => e
+          Rails.logger.error("[PreferredSyncJob] Failed to sync company #{company.name}: #{e.message}")
+          Rails.logger.error(e.backtrace.join("\n"))
+        end
+      end
     end
 
   private
 
-    attr_reader :rain_company
-
-    def set_rain_company
-      fluid_company_id = ENV.fetch("RAIN_FLUID_COMPANY_ID", nil)
-      return unless fluid_company_id
-
-      company = Company.find_by(fluid_company_id: fluid_company_id)
-      return unless company.present?
-
-      @rain_company = company
+    def companies_to_sync
+      Company.active.includes(:integration_setting).select do |company|
+        company.integration_setting&.exigo_enabled?
+      end
     end
   end
 end
