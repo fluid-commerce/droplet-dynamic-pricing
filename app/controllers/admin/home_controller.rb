@@ -1,4 +1,4 @@
-class Admin::HomeController < AdminController
+class Admin::HomeController < PublicAdminController
   before_action :set_current_company
 
   def index
@@ -11,7 +11,7 @@ private
     @company = Company.find_by(droplet_installation_uuid: @dri)
 
     unless @company
-      redirect_to admin_dashboard_index_path, alert: "Company not found"
+      render plain: "Company not found", status: :not_found
     end
   end
 
