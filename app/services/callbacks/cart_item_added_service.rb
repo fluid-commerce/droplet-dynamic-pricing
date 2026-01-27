@@ -12,7 +12,10 @@ class Callbacks::CartItemAddedService < Callbacks::BaseService
     end
 
     # Only log if there's a state change (wasn't preferred before)
-    if current_price_type != PREFERRED_CUSTOMER_TYPE
+    if current_price_type == PREFERRED_CUSTOMER_TYPE
+      # Already preferred, just update the item price without logging
+      update_item_to_subscription_price
+    else
       update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
       update_item_to_subscription_price
 
@@ -25,9 +28,6 @@ class Callbacks::CartItemAddedService < Callbacks::BaseService
           regular_price: cart_item["price"],
         }
       )
-    else
-      # Already preferred, just update the item price without logging
-      update_item_to_subscription_price
     end
 
     { success: true, message: "Cart item updated to subscription price successfully" }

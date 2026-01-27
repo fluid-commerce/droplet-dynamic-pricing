@@ -32,21 +32,21 @@ private
   def integration_setting_params
     params.require(:integration_setting).permit(
       :enabled,
-      settings: [
-        :preferred_customer_type_id,
-        :retail_customer_type_id,
-        :api_delay_seconds,
-        :snapshots_to_keep,
-        :daily_warmup_limit
+      settings: %i[
+        preferred_customer_type_id
+        retail_customer_type_id
+        api_delay_seconds
+        snapshots_to_keep
+        daily_warmup_limit
       ],
-      credentials: [
-        :exigo_db_host,
-        :exigo_db_username,
-        :exigo_db_password,
-        :exigo_db_name,
-        :api_base_url,
-        :api_username,
-        :api_password
+      credentials: %i[
+        exigo_db_host
+        exigo_db_username
+        exigo_db_password
+        exigo_db_name
+        api_base_url
+        api_username
+        api_password
       ]
     )
   end
