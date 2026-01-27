@@ -3,7 +3,10 @@
     <h1 class="font-custom text-3xl font-bold text-gray-600">Integration Settings</h1>
     <h3 class="text-gray-400">Configure Exigo integration for <%= @company.name %></h3>
   </div>
-  <%= link_to "Edit Settings", edit_admin_integration_setting_path(dri: @dri), class: "px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md" %>
+  <div class="flex gap-3">
+    <%= link_to "← Back to Home", admin_home_index_path(dri: @dri), class: "px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-md" %>
+    <%= link_to "Edit Settings", edit_admin_integration_setting_path(dri: @dri), class: "px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md" %>
+  </div>
 </div>
 
 <!-- Company Info -->
