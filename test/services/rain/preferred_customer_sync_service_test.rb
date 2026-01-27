@@ -16,8 +16,32 @@ module Rain
       end
     end
 
+    def test_raises_error_when_exigo_integration_not_enabled
+      company = companies(:acme)
+      # No integration_setting created
+
+      assert_raises(ArgumentError, "Exigo integration not enabled") do
+        PreferredCustomerSyncService.new(company: company)
+      end
+    end
+
+    def test_raises_error_when_integration_setting_disabled
+      company = companies(:acme)
+      IntegrationSetting.create!(
+        company: company,
+        enabled: false,
+        credentials: {},
+        settings: {}
+      )
+
+      assert_raises(ArgumentError, "Exigo integration not enabled") do
+        PreferredCustomerSyncService.new(company: company)
+      end
+    end
+
     def test_returns_false_when_exigo_fetch_fails
       company = companies(:acme)
+      create_integration_setting(company: company)
       exigo_client_stub = Class.new do
         def customers_with_active_autoships
           raise ExigoClient::Error, "Database connection failed"
@@ -37,6 +61,7 @@ module Rain
 
     def test_saves_snapshot_after_sync
       company = companies(:acme)
+      create_integration_setting(company: company)
       exigo_client_stub = build_exigo_client(active_autoship_ids: %w[101 102 103])
       fluid_client_stub = build_fluid_client(customers: [])
 
@@ -55,6 +80,7 @@ module Rain
 
     def test_detects_new_autoships
       company = companies(:acme)
+      create_integration_setting(company: company)
       ExigoAutoshipSnapshot.create!(
         company: company,
         external_ids: %w[101],
@@ -81,6 +107,7 @@ module Rain
 
     def test_detects_lost_autoships
       company = companies(:acme)
+      create_integration_setting(company: company)
       ExigoAutoshipSnapshot.create!(
         company: company,
         external_ids: %w[101 102],
@@ -110,6 +137,7 @@ module Rain
 
     def test_keeps_preferred_if_has_fluid_subscription
       company = companies(:acme)
+      create_integration_setting(company: company)
       ExigoAutoshipSnapshot.create!(
         company: company,
         external_ids: %w[101 102],
@@ -139,6 +167,23 @@ module Rain
     end
 
   private
+
+    def create_integration_setting(company:)
+      IntegrationSetting.create!(
+        company: company,
+        enabled: true,
+        credentials: {
+          exigo_db_host: "db.example.com",
+          exigo_db_username: "user",
+          exigo_db_password: "pass",
+          exigo_db_name: "exigo_db",
+          api_base_url: "https://api.example.com",
+          api_username: "api_user",
+          api_password: "api_pass"
+        },
+        settings: {}
+      )
+    end
 
     def build_exigo_client(active_autoship_ids:, customer_types: {})
       Class.new do

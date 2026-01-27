@@ -15,7 +15,7 @@ describe WebhooksController do
         fluid_shop: "test-shop",
         name: "Test Company",
         fluid_company_id: 123456,
-        droplet_uuid: "existing-uuid",
+        droplet_uuid: "drp_existing_uuid_123",
         authentication_token: "secret-token-123",
         webhook_verification_token: "verify-token-456",
       }
@@ -34,7 +34,7 @@ describe WebhooksController do
       _(company.fluid_shop).must_equal "test-shop"
       _(company.name).must_equal "Test Company"
       _(company.fluid_company_id).must_equal 123456
-      _(company.company_droplet_uuid).must_equal "existing-uuid"
+      _(company.company_droplet_uuid).must_equal "drp_existing_uuid_123"
       _(company).must_be :active?
     end
 
@@ -48,7 +48,7 @@ describe WebhooksController do
         company: {
           droplet_installation_uuid: company.droplet_installation_uuid,
           fluid_company_id: company.fluid_company_id,
-          droplet_uuid: "existing-uuid",
+          droplet_uuid: "drp_existing_uuid_123",
         },
       }, headers: { "AUTH_TOKEN" => webhook_auth_token }, as: :json
 
@@ -71,7 +71,7 @@ describe WebhooksController do
           fluid_shop: company.fluid_shop,
           name: "Updated Company Name",
           fluid_company_id: company.fluid_company_id,
-          droplet_uuid: "existing-uuid",
+          droplet_uuid: "drp_existing_uuid_123",
           authentication_token: "updated-token-456",
           webhook_verification_token: company.webhook_verification_token,
         },
@@ -83,7 +83,7 @@ describe WebhooksController do
 
       company.reload
       _(company.name).must_equal "Updated Company Name"
-      _(company.company_droplet_uuid).must_equal "existing-uuid"
+      _(company.company_droplet_uuid).must_equal "drp_existing_uuid_123"
       _(company.authentication_token).must_equal "updated-token-456"
       _(company).must_be :active?
     end
@@ -104,7 +104,7 @@ describe WebhooksController do
         company: {
           droplet_installation_uuid: company.droplet_installation_uuid,
           fluid_company_id: company.fluid_company_id,
-          droplet_uuid: "existing-uuid",
+          droplet_uuid: "drp_existing_uuid_123",
           webhook_verification_token: company.webhook_verification_token,
         },
       }, headers: { "AUTH_TOKEN" => webhook_auth_token }, as: :json
@@ -122,7 +122,7 @@ describe WebhooksController do
         fluid_shop: "new-shop",
         name: "New Company",
         fluid_company_id: 999999,
-        droplet_uuid: "existing-uuid",
+        droplet_uuid: "drp_existing_uuid_123",
         authentication_token: "new-secret-token",
         webhook_verification_token: "new-verify-token",
       }
@@ -145,7 +145,7 @@ describe WebhooksController do
         fluid_shop: "test-shop",
         name: "Test Company",
         fluid_company_id: 123456,
-        droplet_uuid: "existing-uuid", # Matches Setting.droplet.uuid
+        droplet_uuid: "drp_valid_uuid_123", # Valid UUID starting with drp_
         authentication_token: "secret-token-123",
         webhook_verification_token: "verify-token-456",
       }
@@ -164,7 +164,7 @@ describe WebhooksController do
         fluid_shop: "test-shop",
         name: "Test Company",
         fluid_company_id: 123456,
-        droplet_uuid: "invalid-uuid", # Doesn't match Setting.droplet.uuid
+        droplet_uuid: "invalid-uuid", # Doesn't start with drp_
         authentication_token: "secret-token-123",
         webhook_verification_token: "verify-token-456",
       }
@@ -176,7 +176,7 @@ describe WebhooksController do
       }, as: :json
 
       _(response.status).must_equal 401
-      _(JSON.parse(response.body)["error"]).must_equal "Unauthorized"
+      _(JSON.parse(response.body)["error"]).must_equal "Invalid droplet UUID"
     end
 
     it "rejects droplet installed event with missing droplet_uuid" do
@@ -196,7 +196,7 @@ describe WebhooksController do
       }, as: :json
 
       _(response.status).must_equal 401
-      _(JSON.parse(response.body)["error"]).must_equal "Unauthorized"
+      _(JSON.parse(response.body)["error"]).must_equal "Invalid droplet UUID"
     end
 
     it "rejects droplet installed event with nil droplet_uuid" do
@@ -216,7 +216,7 @@ describe WebhooksController do
       }, as: :json
 
       _(response.status).must_equal 401
-      _(JSON.parse(response.body)["error"]).must_equal "Unauthorized"
+      _(JSON.parse(response.body)["error"]).must_equal "Invalid droplet UUID"
     end
 
     it "validates droplet authorization for uninstalled events" do
@@ -286,7 +286,7 @@ describe WebhooksController do
         company: {
           droplet_installation_uuid: company.droplet_installation_uuid,
           fluid_company_id: company.fluid_company_id,
-          droplet_uuid: "existing-uuid",
+          droplet_uuid: "drp_existing_uuid_123",
         },
       }, headers: { "AUTH_TOKEN" => webhook_auth_token }, as: :json
 
@@ -302,7 +302,7 @@ describe WebhooksController do
         company: {
           droplet_installation_uuid: company.droplet_installation_uuid,
           fluid_company_id: company.fluid_company_id,
-          droplet_uuid: "existing-uuid",
+          droplet_uuid: "drp_existing_uuid_123",
         },
       }, headers: { "AUTH_TOKEN" => company.webhook_verification_token }, as: :json
 
@@ -319,7 +319,7 @@ describe WebhooksController do
         company: {
           droplet_installation_uuid: company.droplet_installation_uuid,
           fluid_company_id: company.fluid_company_id,
-          droplet_uuid: "existing-uuid",
+          droplet_uuid: "drp_existing_uuid_123",
         },
       }, headers: { "X-Auth-Token" => webhook_auth_token }, as: :json
 
@@ -335,7 +335,7 @@ describe WebhooksController do
         company: {
           droplet_installation_uuid: company.droplet_installation_uuid,
           fluid_company_id: company.fluid_company_id,
-          droplet_uuid: "existing-uuid",
+          droplet_uuid: "drp_existing_uuid_123",
         },
       }, headers: { "X-Auth-Token" => company.webhook_verification_token }, as: :json
 
@@ -352,7 +352,7 @@ describe WebhooksController do
         company: {
           droplet_installation_uuid: company.droplet_installation_uuid,
           fluid_company_id: company.fluid_company_id,
-          droplet_uuid: "existing-uuid",
+          droplet_uuid: "drp_existing_uuid_123",
         },
       }, env: { "HTTP_AUTH_TOKEN" => webhook_auth_token }, as: :json
 
@@ -368,7 +368,7 @@ describe WebhooksController do
         company: {
           droplet_installation_uuid: company.droplet_installation_uuid,
           fluid_company_id: company.fluid_company_id,
-          droplet_uuid: "existing-uuid",
+          droplet_uuid: "drp_existing_uuid_123",
         },
       }, env: { "HTTP_AUTH_TOKEN" => company.webhook_verification_token }, as: :json
 
@@ -388,7 +388,7 @@ describe WebhooksController do
         company: {
           droplet_installation_uuid: company.droplet_installation_uuid,
           fluid_company_id: company.fluid_company_id,
-          droplet_uuid: "existing-uuid",
+          droplet_uuid: "drp_existing_uuid_123",
         },
       }, headers: { "AUTH_TOKEN" => company.webhook_verification_token }, as: :json
 
