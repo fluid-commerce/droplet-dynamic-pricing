@@ -9,13 +9,11 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
       if has_another_subscription_in_cart?
         update_cart_metadata({ "price_type" => "preferred_customer" })
         update_cart_items_prices(cart_items_with_subscription_price) if cart_items.any?
-        # No state change - still has subscription
         return result_success
       end
       update_cart_metadata({ "price_type" => nil })
       update_cart_items_prices(cart_items_with_regular_price) if cart_items.any?
 
-      # Only log if there was a state change (was preferred, now not)
       if was_preferred
         log_cart_pricing_event(
           event_type: "item_updated",
@@ -39,7 +37,6 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
       update_cart_items_prices(items_data)
     end
 
-    # Only log if there's a state change
     is_now_preferred = use_subscription_prices
     if was_preferred != is_now_preferred
       log_cart_pricing_event(

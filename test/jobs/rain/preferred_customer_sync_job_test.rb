@@ -8,7 +8,6 @@ module Rain
       acme = companies(:acme)
       globex = companies(:globex)
 
-      # Create integration settings with Exigo enabled for acme
       acme_integration = IntegrationSetting.create!(
         company: acme,
         enabled: true,
@@ -24,7 +23,6 @@ module Rain
         settings: {}
       )
 
-      # Create integration settings with Exigo disabled for globex
       IntegrationSetting.create!(
         company: globex,
         enabled: false,
@@ -52,7 +50,6 @@ module Rain
       acme = companies(:acme)
       globex = companies(:globex)
 
-      # Create integration settings with Exigo enabled for both
       acme_integration = IntegrationSetting.create!(
         company: acme,
         enabled: true,
@@ -103,7 +100,6 @@ module Rain
       acme = companies(:acme)
       globex = companies(:globex)
 
-      # Create integration settings with Exigo enabled for both
       IntegrationSetting.create!(
         company: acme,
         enabled: true,
@@ -140,7 +136,6 @@ module Rain
         processed_companies << company
         mock_service = Object.new
         mock_service.define_singleton_method(:call) do
-          # Fail for acme, succeed for globex
           raise StandardError, "Test error" if company == acme
           true
         end
@@ -149,7 +144,6 @@ module Rain
         perform_enqueued_jobs { PreferredCustomerSyncJob.perform_later }
       end
 
-      # Should process both companies even if one fails
       assert_equal 2, processed_companies.size, "Should attempt to process both companies"
       assert_includes processed_companies, acme, "Should attempt acme (even if it fails)"
       assert_includes processed_companies, globex, "Should process globex successfully"

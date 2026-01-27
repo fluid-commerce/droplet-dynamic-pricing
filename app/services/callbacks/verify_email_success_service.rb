@@ -5,7 +5,6 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
 
     clean_cart_metadata_before_update
 
-    # Capture state after cleaning
     state_after_cleaning = cart.dig("metadata", "price_type")
 
     customer_type_result = fetch_and_validate_customer_type(customer_email)
@@ -21,7 +20,6 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
       update_cart_items_prices(cart_items_with_subscription_price) if cart_items.any?
     end
 
-    # Only log if there's a state change
     state_changed = (state_after_cleaning == PREFERRED_CUSTOMER_TYPE) != final_is_preferred
     if state_changed
       log_cart_pricing_event(

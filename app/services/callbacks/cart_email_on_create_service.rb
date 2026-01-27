@@ -8,7 +8,6 @@ class Callbacks::CartEmailOnCreateService < Callbacks::BaseService
     current_price_type = cart.dig("metadata", "price_type")
 
     if is_preferred_customer?(email)
-      # Only log if there's a state change
       if current_price_type != PREFERRED_CUSTOMER_TYPE
         log_cart_pricing_event(
           event_type: "cart_created",
@@ -19,7 +18,6 @@ class Callbacks::CartEmailOnCreateService < Callbacks::BaseService
       return result_success
     end
 
-    # Only log if removing preferred pricing (state change)
     if current_price_type == PREFERRED_CUSTOMER_TYPE
       log_cart_pricing_event(
         event_type: "cart_created",

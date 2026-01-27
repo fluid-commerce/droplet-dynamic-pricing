@@ -7,9 +7,6 @@ class ApplicationController < ActionController::Base
   def validate_droplet_authorization
     droplet_uuid = params.dig(:company, :droplet_uuid)
 
-    # For installation events, validate format only (starts with drp_)
-    # We can't validate against a specific UUID since new installations
-    # may have different UUIDs in a multi-tenant environment
     unless droplet_uuid.present? && droplet_uuid.start_with?("drp_")
       render json: { error: "Invalid droplet UUID" }, status: :unauthorized
     end

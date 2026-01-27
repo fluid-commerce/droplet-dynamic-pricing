@@ -126,6 +126,8 @@ protected
   end
 
   def exigo_client
+    raise ArgumentError, "Exigo integration not enabled for #{@company.name}" unless exigo_integration_enabled?
+
     @exigo_client ||= ExigoClient.for_company(@company)
   end
 
