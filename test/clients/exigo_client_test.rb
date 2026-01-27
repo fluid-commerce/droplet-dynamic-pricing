@@ -37,7 +37,7 @@ class ExigoClientTest < ActiveSupport::TestCase
         exigo_db_name: "test_db",
         api_base_url: "https://test-api.exigo.com/3.0/",
         api_username: "api_test_user",
-        api_password: "api_test_pass"
+        api_password: "api_test_pass",
       },
       settings: {}
     )
@@ -71,7 +71,7 @@ class ExigoClientTest < ActiveSupport::TestCase
         exigo_db_name: "acme_db",
         api_base_url: "https://api.example.com",
         api_username: "api_user",
-        api_password: "api_pass"
+        api_password: "api_pass",
       },
       settings: {}
     )
@@ -85,7 +85,7 @@ class ExigoClientTest < ActiveSupport::TestCase
       db_name: "acme_db",
       api_base_url: "https://api.example.com",
       api_username: "api_user",
-      api_password: "api_pass"
+      api_password: "api_pass",
     }
 
     assert_equal expected_credentials, client.instance_variable_get(:@credentials)
@@ -173,7 +173,7 @@ class ExigoClientTest < ActiveSupport::TestCase
         exigo_db_name: "exigo_db",
         api_base_url: "https://api.example.com",
         api_username: "api_user",
-        api_password: "api_pass"
+        api_password: "api_pass",
       },
       settings: {}
     )
@@ -185,7 +185,7 @@ class ExigoClientTest < ActiveSupport::TestCase
       db_host: "db.example.com",
       db_username: "user",
       db_password: "pass",
-      db_name: "exigo_db"
+      db_name: "exigo_db",
       # API credentials missing
     }) do
       error = assert_raises(ExigoClient::ApiError) do
@@ -313,7 +313,7 @@ class ExigoClientTest < ActiveSupport::TestCase
       db_name: "test_db",
       api_base_url: "https://test-api.exigo.com/3.0/",
       api_username: "api_test_user",
-      api_password: "api_test_pass"
+      api_password: "api_test_pass",
     }
 
     assert_equal expected_credentials, client.instance_variable_get(:@credentials)

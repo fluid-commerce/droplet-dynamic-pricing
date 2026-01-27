@@ -179,7 +179,7 @@ module Rain
           exigo_db_name: "exigo_db",
           api_base_url: "https://api.example.com",
           api_username: "api_user",
-          api_password: "api_pass"
+          api_password: "api_pass",
         },
         settings: {}
       )
