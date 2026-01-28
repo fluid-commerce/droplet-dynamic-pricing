@@ -16,7 +16,7 @@ class ExigoClient
     @credentials = resolve_exigo_credentials
   end
 
-private
+
 
   def resolve_exigo_credentials
     if @integration&.exigo_enabled?
@@ -33,8 +33,7 @@ private
         api_password: ENV.fetch("#{company_prefix}_EXIGO_API_PASSWORD", nil),
       }.compact
       if env_credentials.values.any?(&:nil?)
-        raise ArgumentError,
-"Exigo integration not configured for #{@company.name} (missing integration_setting and/or ENV vars)"
+        raise ArgumentError, "Exigo integration not configured."
       end
       env_credentials
     end

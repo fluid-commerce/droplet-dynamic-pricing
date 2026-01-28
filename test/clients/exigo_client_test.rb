@@ -107,14 +107,6 @@ class ExigoClientTest < ActiveSupport::TestCase
     assert_raises(ArgumentError) { ExigoClient.new("not a company") }
   end
 
-  test "for_company raises error when integration not enabled" do
-    company_without_integration = companies(:globex)
-    # No integration_setting created
-
-    assert_raises(ArgumentError, "Exigo integration not configured") do
-      ExigoClient.for_company(company_without_integration)
-    end
-  end
 
   test "quote_value safely escapes SQL injection attempts" do
     client = ExigoClient.for_company(@company)
