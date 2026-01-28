@@ -41,7 +41,9 @@
         <p class="text-sm text-gray-500 mt-1">Turn on to activate Exigo integration for this company</p>
       </div>
       <div class="flex items-center">
-        <%= form.check_box :enabled, class: "toggle-checkbox h-6 w-12 rounded-full" %>
+        <% required_creds = %w[exigo_db_host exigo_db_name exigo_db_username exigo_db_password api_base_url api_username api_password] %>
+        <% creds_present = required_creds.all? { |k| @integration_setting.credentials[k].present? } %>
+        <%= form.check_box :enabled, class: "toggle-checkbox h-6 w-12 rounded-full", disabled: !creds_present %>
       </div>
     </div>
   </div>
