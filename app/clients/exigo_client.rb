@@ -13,10 +13,31 @@ class ExigoClient
     raise ArgumentError, "company must be a Company instance" unless company.is_a?(Company)
     @company = company
     @integration = company.integration_setting
+    @credentials = resolve_exigo_credentials
+  end
 
-    raise ArgumentError, "Exigo integration not configured for #{company.name}" unless @integration&.exigo_enabled?
+private
 
-    @credentials = @integration.exigo_credentials
+  def resolve_exigo_credentials
+    if @integration&.exigo_enabled?
+      @integration.exigo_credentials
+    else
+      company_prefix = @company.name.to_s.upcase.gsub(/\W/, "_")
+      env_credentials = {
+        db_host: ENV.fetch("#{company_prefix}_EXIGO_DB_HOST", nil),
+        db_username: ENV.fetch("#{company_prefix}_EXIGO_DB_USERNAME", nil),
+        db_password: ENV.fetch("#{company_prefix}_EXIGO_DB_PASSWORD", nil),
+        db_name: ENV.fetch("#{company_prefix}_EXIGO_DB_NAME", nil),
+        api_base_url: ENV.fetch("#{company_prefix}_EXIGO_API_BASE_URL", nil),
+        api_username: ENV.fetch("#{company_prefix}_EXIGO_API_USERNAME", nil),
+        api_password: ENV.fetch("#{company_prefix}_EXIGO_API_PASSWORD", nil),
+      }.compact
+      if env_credentials.values.any?(&:nil?)
+        raise ArgumentError,
+"Exigo integration not configured for #{@company.name} (missing integration_setting and/or ENV vars)"
+      end
+      env_credentials
+    end
   end
 
   def self.for_company(company)
