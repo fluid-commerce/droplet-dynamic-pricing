@@ -1,6 +1,8 @@
 Rails.application.routes.draw do
   root "home#index"
 
+  get "dashboard", to: "dynamic_pricing_dashboard#index"
+
   devise_for :users
 
   post "webhook", to: "webhooks#create", as: :webhook

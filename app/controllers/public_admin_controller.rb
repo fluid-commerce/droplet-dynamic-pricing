@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Base controller for public admin views that don't require authentication
 class PublicAdminController < ApplicationController
-  layout "admin"
+  layout "public_dashboard"
+  skip_before_action :verify_authenticity_token
 end
