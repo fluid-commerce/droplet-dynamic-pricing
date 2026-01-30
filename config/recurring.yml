@@ -9,6 +9,6 @@ production:
   #   priority: 2
   #   schedule: at 5am every day
   preferred_customer_sync:
-    class: Rain::PreferredCustomerSyncJob
+    class: PreferredCustomerSyncJob
     queue: default
     schedule: "0 0 * * *"

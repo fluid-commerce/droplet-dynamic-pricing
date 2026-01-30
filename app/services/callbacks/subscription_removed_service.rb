@@ -2,6 +2,9 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
   def call
     raise CallbackError, "Cart is blank" if cart.blank?
 
+    current_price_type = cart.dig("metadata", "price_type")
+    was_preferred = current_price_type == PREFERRED_CUSTOMER_TYPE
+
     if customer_email.blank?
       if has_another_subscription_in_cart?
         update_cart_metadata({ "price_type" => "preferred_customer" })
@@ -10,6 +13,14 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
       end
       update_cart_metadata({ "price_type" => nil })
       update_cart_items_prices(cart_items_with_regular_price) if cart_items.any?
+
+      if was_preferred
+        log_cart_pricing_event(
+          event_type: "item_updated",
+          preferred_applied: false,
+          additional_data: { callback: "subscription_removed", reason: "no_subscriptions_no_email" }
+        )
+      end
       return result_success
     end
 
@@ -24,6 +35,18 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
     if cart_items.any?
       items_data = use_subscription_prices ? cart_items_with_subscription_price : cart_items_with_regular_price
       update_cart_items_prices(items_data)
+    end
+
+    is_now_preferred = use_subscription_prices
+    if was_preferred != is_now_preferred
+      log_cart_pricing_event(
+        event_type: "item_updated",
+        preferred_applied: is_now_preferred,
+        additional_data: {
+          callback: "subscription_removed",
+          reason: is_now_preferred ? "should_keep_preferred" : "removed_preferred",
+        }
+      )
     end
 
     result_success

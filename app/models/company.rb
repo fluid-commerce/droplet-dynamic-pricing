@@ -1,6 +1,8 @@
 class Company < ApplicationRecord
   has_many :events, dependent: :destroy
   has_many :price_types, dependent: :destroy
+  has_many :customer_type_transactions, dependent: :destroy
+  has_many :cart_pricing_events, dependent: :destroy
 
   has_one :integration_setting, dependent: :destroy
 

@@ -5,7 +5,26 @@ class Callbacks::CartEmailOnCreateService < Callbacks::BaseService
     email = cart["email"]
     raise CallbackError, "Email is blank" if email.blank?
 
-    return result_success if is_preferred_customer?(email)
+    current_price_type = cart.dig("metadata", "price_type")
+
+    if is_preferred_customer?(email)
+      if current_price_type != PREFERRED_CUSTOMER_TYPE
+        log_cart_pricing_event(
+          event_type: "cart_created",
+          preferred_applied: true,
+          additional_data: { email: email }
+        )
+      end
+      return result_success
+    end
+
+    if current_price_type == PREFERRED_CUSTOMER_TYPE
+      log_cart_pricing_event(
+        event_type: "cart_created",
+        preferred_applied: false,
+        additional_data: { email: email }
+      )
+    end
 
     { success: true, message: "Regular customer, no special pricing needed" }
   rescue CallbackError => e

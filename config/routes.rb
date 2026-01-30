@@ -1,6 +1,8 @@
 Rails.application.routes.draw do
   root "home#index"
 
+  get "dashboard", to: "dynamic_pricing_dashboard#index"
+
   devise_for :users
 
   post "webhook", to: "webhooks#create", as: :webhook
@@ -22,6 +24,10 @@ Rails.application.routes.draw do
     get "dashboard/index"
     resource :droplet, only: %i[ create update ]
     resources :settings, only: %i[ index edit update ]
+    resource :integration_setting, only: %i[ show edit update ]
+    resources :home, only: :index
+    resources :transactions, only: :index
+    resources :cart_pricing_events, only: :index
     resources :users
     resources :callbacks, only: %i[ index show edit update ] do
       post :sync, on: :collection

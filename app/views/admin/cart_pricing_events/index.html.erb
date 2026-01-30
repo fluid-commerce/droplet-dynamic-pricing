@@ -1,0 +1,130 @@
+<div class="flex items-center justify-between mb-6">
+  <div class="flex flex-col gap-1">
+    <h1 class="font-custom text-4xl font-bold text-gray-600">Cart Preferred Pricing Events</h1>
+    <h3 class="text-gray-400"><%= @company.name %></h3>
+  </div>
+  <div class="flex gap-3">
+    <%= link_to "← Back to Home", admin_home_index_path(dri: @dri), class: "px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-md" %>
+    <%= link_to "Integration Settings", admin_integration_setting_path(dri: @dri), class: "px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md" %>
+  </div>
+</div>
+
+<!-- Stats Cards -->
+<div class="grid grid-cols-2 gap-4 mb-6">
+  <div class="rounded-lg p-4 border border-purple-200 bg-purple-50">
+    <div class="text-sm text-purple-700 mb-1">Preferred Applied</div>
+    <div class="text-2xl font-bold text-purple-900"><%= @stats[:preferred_applied_count] %></div>
+    <div class="text-xs text-purple-600 mt-1">carts</div>
+  </div>
+
+  <div class="bg-white rounded-lg p-4 border border-gray-200">
+    <div class="text-sm text-gray-500 mb-1">Total Events</div>
+    <div class="text-2xl font-bold text-gray-900"><%= @stats[:total_events] %></div>
+    <div class="text-xs text-gray-400 mt-1">all time</div>
+  </div>
+</div>
+
+<!-- Events Table -->
+<div class="bg-white rounded-lg border border-gray-100">
+  <table class="w-full">
+    <thead class="bg-slate-50 border-b border-gray-400">
+      <tr>
+        <th class="pl-4 py-3 text-left text-slate-600">Date/Time</th>
+        <th class="px-4 py-3 text-left text-slate-600">Cart ID</th>
+        <th class="px-4 py-3 text-left text-slate-600">Email</th>
+        <th class="px-4 py-3 text-left text-slate-600">Event Type</th>
+        <th class="px-4 py-3 text-left text-slate-600">Items</th>
+        <th class="px-4 py-3 text-left text-slate-600">Cart Total</th>
+        <th class="pr-4 py-3 text-left text-slate-600">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% if @events.empty? %>
+        <tr>
+          <td colspan="7" class="text-center py-12 text-gray-400">
+            <svg class="mt-6 mb-6 w-12 h-12 mx-auto text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
+            </svg>
+            <p class="font-medium">No cart pricing events yet</p>
+            <p class="text-sm mt-1 mb-6">Cart pricing events will appear here when customers interact with carts</p>
+          </td>
+        </tr>
+      <% else %>
+        <% @events.each do |event| %>
+          <tr class="odd:bg-white even:bg-slate-50 hover:bg-slate-100 border-b border-gray-100">
+            <td class="pl-4 py-3 text-gray-700 text-sm">
+              <%= event.created_at.strftime("%b %d, %Y") %>
+              <span class="text-gray-400 block text-xs"><%= event.created_at.strftime("%I:%M %p") %></span>
+            </td>
+            <td class="px-4 py-3 text-gray-700 font-mono text-sm">
+              <%= event.cart_id || "-" %>
+            </td>
+            <td class="px-4 py-3 text-gray-700 text-sm">
+              <%= event.email_safe || "-" %>
+            </td>
+            <td class="px-4 py-3">
+              <% case event.event_type %>
+              <% when "cart_created" %>
+                <span class="inline-flex items-center px-2 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded">
+                  Cart Created
+                </span>
+              <% when "item_added" %>
+                <span class="inline-flex items-center px-2 py-1 bg-green-50 text-green-700 text-xs font-medium rounded">
+                  Item Added
+                </span>
+              <% when "item_updated" %>
+                <span class="inline-flex items-center px-2 py-1 bg-yellow-50 text-yellow-700 text-xs font-medium rounded">
+                  Item Updated
+                </span>
+              <% else %>
+                <span class="inline-flex items-center px-2 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded">
+                  <%= event.event_type.humanize %>
+                </span>
+              <% end %>
+            </td>
+            <td class="px-4 py-3 text-gray-700 text-sm">
+              <%= event.items_count || 0 %>
+            </td>
+            <td class="px-4 py-3 text-gray-700 text-sm">
+              <% if event.cart_total.present? %>
+                $<%= number_with_precision(event.cart_total, precision: 2) %>
+              <% else %>
+                -
+              <% end %>
+            </td>
+            <td class="pr-4 py-3">
+              <% if event.preferred_pricing_applied %>
+                <span class="inline-flex items-center text-purple-600 text-sm font-medium">
+                  Preferred Applied
+                </span>
+              <% else %>
+                <span class="inline-flex items-center text-gray-500 text-sm font-medium">
+                  Removed Pricing
+                </span>
+              <% end %>
+            </td>
+          </tr>
+        <% end %>
+      <% end %>
+    </tbody>
+  </table>
+
+  <!-- Pagination -->
+  <% if @total_pages > 1 %>
+    <div class="px-4 py-3 border-t border-gray-200 bg-slate-50">
+      <div class="flex items-center justify-between">
+        <div class="text-sm text-gray-600">
+          Showing <%= @offset + 1 %>-<%= [@offset + @events.length, @total_count].min %> of <%= @total_count %> events
+        </div>
+        <div class="flex gap-2">
+          <% if @page > 1 %>
+            <%= link_to "Previous", admin_cart_pricing_events_path(dri: @dri, page: @page - 1), class: "px-3 py-1 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 rounded text-sm" %>
+          <% end %>
+          <% if @page < @total_pages %>
+            <%= link_to "Next", admin_cart_pricing_events_path(dri: @dri, page: @page + 1), class: "px-3 py-1 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 rounded text-sm" %>
+          <% end %>
+        </div>
+      </div>
+    </div>
+  <% end %>
+</div>

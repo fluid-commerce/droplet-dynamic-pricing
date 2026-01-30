@@ -1,0 +1,19 @@
+# Read about fixtures at http://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  company: acme
+  customer_id: 1
+  external_id: "12345"
+  previous_type: retail
+  new_type: preferred_customer
+  source: webhook
+  metadata: {}
+
+two:
+  company: globex
+  customer_id: 2
+  external_id: "67890"
+  previous_type: preferred_customer
+  new_type: retail
+  source: sync_job
+  metadata: {}

@@ -3,16 +3,32 @@ class Callbacks::CartItemAddedService < Callbacks::BaseService
     raise CallbackError, "Cart is blank" if cart.blank?
     raise CallbackError, "Cart item is blank" if cart_item.blank?
 
-    price_type = cart.dig("metadata", "price_type")
+    current_price_type = cart.dig("metadata", "price_type")
 
     has_another_subscription = has_another_subscription_in_cart?
 
-    if price_type != PREFERRED_CUSTOMER_TYPE && !has_another_subscription
+    if current_price_type != PREFERRED_CUSTOMER_TYPE && !has_another_subscription
       return { success: true, message: "Cart does not have preferred_customer pricing" }
     end
 
-    update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
-    update_item_to_subscription_price
+    # Only log if there's a state change (wasn't preferred before)
+    if current_price_type == PREFERRED_CUSTOMER_TYPE
+      # Already preferred, just update the item price without logging
+      update_item_to_subscription_price
+    else
+      update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
+      update_item_to_subscription_price
+
+      log_cart_pricing_event(
+        event_type: "item_added",
+        preferred_applied: true,
+        additional_data: {
+          item_id: cart_item["id"],
+          subscription_price: cart_item["subscription_price"],
+          regular_price: cart_item["price"],
+        }
+      )
+    end
 
     { success: true, message: "Cart item updated to subscription price successfully" }
   rescue CallbackError => e

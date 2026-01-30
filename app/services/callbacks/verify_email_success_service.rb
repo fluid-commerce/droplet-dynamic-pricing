@@ -5,15 +5,28 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
 
     clean_cart_metadata_before_update
 
+    state_after_cleaning = cart.dig("metadata", "price_type")
+
     customer_type_result = fetch_and_validate_customer_type(customer_email)
 
     return customer_type_result unless customer_type_result[:success] && customer_type_result[:customer_type]
 
-    if customer_type_result[:customer_type] == PREFERRED_CUSTOMER_TYPE
+    final_is_preferred = customer_type_result[:customer_type] == PREFERRED_CUSTOMER_TYPE
+
+    if final_is_preferred
       update_result = update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
       return update_result if update_result.is_a?(Hash) && update_result[:success] == false
 
       update_cart_items_prices(cart_items_with_subscription_price) if cart_items.any?
+    end
+
+    state_changed = (state_after_cleaning == PREFERRED_CUSTOMER_TYPE) != final_is_preferred
+    if state_changed
+      log_cart_pricing_event(
+        event_type: "item_updated",
+        preferred_applied: final_is_preferred,
+        additional_data: { callback: "verify_email_success", email: customer_email }
+      )
     end
 
     result_success

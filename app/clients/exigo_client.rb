@@ -9,15 +9,38 @@ class ExigoClient
   ConnectionError = Class.new(Error)
   ApiError = Class.new(Error)
 
-  def initialize(company_name)
-    raise ArgumentError, "company_name must be present" unless company_name.present?
-    @company_name = company_name
-    @credentials = build_credentials_from_company(company_name)
-    @api_credentials = build_api_credentials_from_company(company_name)
+  def initialize(company)
+    raise ArgumentError, "company must be a Company instance" unless company.is_a?(Company)
+    @company = company
+    @integration = company.integration_setting
+    @credentials = resolve_exigo_credentials
   end
 
-  def self.for_company(company_name)
-    new(company_name)
+
+
+  def resolve_exigo_credentials
+    if @integration&.exigo_enabled?
+      @integration.exigo_credentials
+    else
+      company_prefix = @company.name.to_s.upcase.gsub(/\W/, "_")
+      env_credentials = {
+        db_host: ENV.fetch("#{company_prefix}_EXIGO_DB_HOST", nil),
+        db_username: ENV.fetch("#{company_prefix}_EXIGO_DB_USERNAME", nil),
+        db_password: ENV.fetch("#{company_prefix}_EXIGO_DB_PASSWORD", nil),
+        db_name: ENV.fetch("#{company_prefix}_EXIGO_DB_NAME", nil),
+        api_base_url: ENV.fetch("#{company_prefix}_EXIGO_API_BASE_URL", nil),
+        api_username: ENV.fetch("#{company_prefix}_EXIGO_API_USERNAME", nil),
+        api_password: ENV.fetch("#{company_prefix}_EXIGO_API_PASSWORD", nil),
+      }.compact
+      if env_credentials.values.any?(&:nil?)
+        raise ArgumentError, "Exigo integration not configured."
+      end
+      env_credentials
+    end
+  end
+
+  def self.for_company(company)
+    new(company)
   end
 
   def customer_types
@@ -96,7 +119,7 @@ class ExigoClient
 
 private
 
-  attr_reader :credentials, :api_credentials
+  attr_reader :company, :integration, :credentials
 
   def execute_query(query, params = [])
     connection = establish_connection
@@ -132,10 +155,10 @@ private
 
   def establish_connection
     TinyTds::Client.new(
-      host: credentials["exigo_db_host"],
-      username: credentials["exigo_db_username"],
-      password: credentials["exigo_db_password"],
-      database: credentials["exigo_db_name"],
+      host: credentials[:db_host],
+      username: credentials[:db_username],
+      password: credentials[:db_password],
+      database: credentials[:db_name],
       azure: true,
       login_timeout: 5,
       timeout: 15,
@@ -144,30 +167,6 @@ private
     raise ConnectionError, "Failed to connect to Exigo SQL Server database: #{e.message}"
   end
 
-  def build_credentials_from_company(company_name)
-    return {} unless company_name.present?
-
-    company_prefix = company_name.upcase.gsub(" ", "_")
-
-    {
-      "exigo_db_host"      => ENV.fetch("#{company_prefix}_EXIGO_DB_HOST", nil),
-      "exigo_db_username"  => ENV.fetch("#{company_prefix}_EXIGO_DB_USERNAME", nil),
-      "exigo_db_password"  => ENV.fetch("#{company_prefix}_EXIGO_DB_PASSWORD", nil),
-      "exigo_db_name"      => ENV.fetch("#{company_prefix}_EXIGO_DB_NAME", nil),
-    }.compact
-  end
-
-  def build_api_credentials_from_company(company_name)
-    return {} unless company_name.present?
-
-    company_prefix = company_name.upcase.gsub(" ", "_")
-
-    {
-      "api_password" => ENV.fetch("#{company_prefix}_EXIGO_API_PASSWORD", nil),
-      "api_username" => ENV.fetch("#{company_prefix}_EXIGO_API_USER", nil),
-      "api_base_url" => ENV.fetch("#{company_prefix}_EXIGO_API_BASE_URL", nil),
-    }.compact
-  end
 
   def update_customer_via_api(customer_id, customer_type_id)
     base_url, username, password = extract_api_credentials
@@ -206,12 +205,12 @@ private
   end
 
   def extract_api_credentials
-    base_url = api_credentials["api_base_url"]
-    username = api_credentials["api_username"]
-    password = api_credentials["api_password"]
+    base_url = credentials[:api_base_url]
+    username = credentials[:api_username]
+    password = credentials[:api_password]
 
     unless base_url.present? && username.present? && password.present?
-      raise ApiError, "Exigo API credentials not configured for #{@company_name}"
+      raise ApiError, "Exigo API credentials not configured for #{company.name}"
     end
 
     [ base_url, username, password ]

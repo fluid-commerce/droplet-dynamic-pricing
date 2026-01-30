@@ -1,0 +1,137 @@
+<div class="flex items-center justify-between mb-6">
+  <div class="flex flex-col gap-1">
+    <h1 class="font-custom text-4xl font-bold text-gray-600">Customer Type Transactions</h1>
+    <h3 class="text-gray-400"><%= @company.name %></h3>
+  </div>
+  <div class="flex gap-3">
+    <%= link_to "← Back to Home", admin_home_index_path(dri: @dri), class: "px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-md" %>
+    <%= link_to "Integration Settings", admin_integration_setting_path(dri: @dri), class: "px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md" %>
+  </div>
+</div>
+
+<!-- Stats Cards -->
+<div class="grid grid-cols-2 gap-4 mb-6">
+  <div class="rounded-lg p-4 border border-green-200 bg-green-50">
+    <div class="text-sm text-green-700 mb-1">Total Preferred</div>
+    <div class="text-2xl font-bold text-green-900"><%= @stats[:total_preferred] %></div>
+    <div class="text-xs text-green-600 mt-1">upgrades</div>
+  </div>
+
+  <div class="rounded-lg p-4 border border-orange-200 bg-orange-50">
+    <div class="text-sm text-orange-700 mb-1">Total Retail</div>
+    <div class="text-2xl font-bold text-orange-900"><%= @stats[:total_retail] %></div>
+    <div class="text-xs text-orange-600 mt-1">downgrades</div>
+  </div>
+</div>
+
+<!-- Transactions Table -->
+<div class="bg-white rounded-lg border border-gray-100">
+  <table class="w-full">
+    <thead class="bg-slate-50 border-b border-gray-400">
+      <tr>
+        <th class="pl-4 py-3 text-left text-slate-600">Date/Time</th>
+        <th class="px-4 py-3 text-left text-slate-600">Customer ID</th>
+        <th class="px-4 py-3 text-left text-slate-600">External ID</th>
+        <th class="px-4 py-3 text-left text-slate-600">Previous Type</th>
+        <th class="px-4 py-3 text-left text-slate-600">New Type</th>
+        <th class="px-4 py-3 text-left text-slate-600">Source</th>
+        <th class="pr-4 py-3 text-left text-slate-600">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% if @transactions.empty? %>
+        <tr>
+          <td colspan="7" class="text-center py-12 text-gray-400">
+            <svg class="mt-6 mb-6 w-12 h-12 mx-auto text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+            </svg>
+            <p class="font-medium">No transactions yet</p>
+            <p class="text-sm mt-1 mb-6">Customer type changes will appear here</p>
+          </td>
+        </tr>
+      <% else %>
+        <% @transactions.each do |transaction| %>
+          <tr class="odd:bg-white even:bg-slate-50 hover:bg-slate-100 border-b border-gray-100">
+            <td class="pl-4 py-3 text-gray-700 text-sm">
+              <%= transaction.created_at.strftime("%b %d, %Y") %>
+              <span class="text-gray-400 block text-xs"><%= transaction.created_at.strftime("%I:%M %p") %></span>
+            </td>
+            <td class="px-4 py-3 text-gray-700 font-mono text-sm">
+              <%= transaction.customer_id || "-" %>
+            </td>
+            <td class="px-4 py-3 text-gray-700 font-mono text-sm">
+              <%= transaction.external_id || "-" %>
+            </td>
+            <td class="px-4 py-3">
+              <% if transaction.previous_type.present? %>
+                <span class="inline-flex items-center px-2 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded">
+                  <%= transaction.previous_type.humanize %>
+                </span>
+              <% else %>
+                <span class="text-gray-400 text-sm">-</span>
+              <% end %>
+            </td>
+            <td class="px-4 py-3">
+              <% if transaction.new_type == "preferred_customer" %>
+                <span class="inline-flex items-center px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded">
+                  Preferred
+                </span>
+              <% elsif transaction.new_type == "retail" %>
+                <span class="inline-flex items-center px-2 py-1 bg-orange-100 text-orange-800 text-xs font-medium rounded">
+                  Retail
+                </span>
+              <% else %>
+                <span class="inline-flex items-center px-2 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded">
+                  <%= transaction.new_type %>
+                </span>
+              <% end %>
+            </td>
+            <td class="px-4 py-3">
+              <span class="inline-flex items-center px-2 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded">
+                <%= transaction.source.humanize %>
+              </span>
+            </td>
+            <td class="pr-4 py-3">
+              <% if transaction.upgraded? %>
+                <span class="inline-flex items-center text-green-600 text-sm">
+                  <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
+                  </svg>
+                  Upgraded
+                </span>
+              <% elsif transaction.downgraded? %>
+                <span class="inline-flex items-center text-orange-600 text-sm">
+                  <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+                  </svg>
+                  Downgraded
+                </span>
+              <% else %>
+                <span class="text-gray-500 text-sm">Changed</span>
+              <% end %>
+            </td>
+          </tr>
+        <% end %>
+      <% end %>
+    </tbody>
+  </table>
+
+  <!-- Pagination -->
+  <% if @total_pages > 1 %>
+    <div class="px-4 py-3 border-t border-gray-200 bg-slate-50">
+      <div class="flex items-center justify-between">
+        <div class="text-sm text-gray-600">
+          Showing <%= @offset + 1 %>-<%= [@offset + @transactions.length, @total_count].min %> of <%= @total_count %> transactions
+        </div>
+        <div class="flex gap-2">
+          <% if @page > 1 %>
+            <%= link_to "Previous", admin_transactions_path(dri: @dri, page: @page - 1), class: "px-3 py-1 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 rounded text-sm" %>
+          <% end %>
+          <% if @page < @total_pages %>
+            <%= link_to "Next", admin_transactions_path(dri: @dri, page: @page + 1), class: "px-3 py-1 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 rounded text-sm" %>
+          <% end %>
+        </div>
+      </div>
+    </div>
+  <% end %>
+</div>
