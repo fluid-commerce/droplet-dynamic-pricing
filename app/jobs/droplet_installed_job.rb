@@ -71,6 +71,7 @@ private
       { event: "cancelled", url: subscription_webhook_url(base_url, "subscription_cancelled") },
       { event: "resumed", url: subscription_webhook_url(base_url, "subscription_resumed") },
       { event: "reactivated", url: subscription_webhook_url(base_url, "subscription_reactivated") },
+      { event: "updated", url: subscription_webhook_url(base_url, "cart_item_updated") },
     ]
   end
 
