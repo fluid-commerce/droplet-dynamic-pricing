@@ -6,8 +6,9 @@ class ApplicationController < ActionController::Base
 
   def validate_droplet_authorization
     droplet_uuid = params.dig(:company, :droplet_uuid)
+    expected_uuid = ENV["DROPLET_UUID"]
 
-    unless droplet_uuid.present? && droplet_uuid.start_with?("drp_")
+    unless droplet_uuid.present? && droplet_uuid == expected_uuid
       render json: { error: "Invalid droplet UUID" }, status: :unauthorized
     end
   end
