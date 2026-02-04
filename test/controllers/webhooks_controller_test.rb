@@ -7,6 +7,7 @@ describe WebhooksController do
   before do
     Tasks::Settings.create_defaults
     Setting.host_server.update(values: { base_url: "https://test.example.com" }) if Setting.host_server.present?
+    ENV["DROPLET_UUID"] = "drp_existing_uuid_123"
   end
 
   describe "droplet events" do
@@ -145,7 +146,7 @@ describe WebhooksController do
         fluid_shop: "test-shop",
         name: "Test Company",
         fluid_company_id: 123456,
-        droplet_uuid: "drp_valid_uuid_123", # Valid UUID starting with drp_
+        droplet_uuid: "drp_existing_uuid_123", # Must match ENV["DROPLET_UUID"]
         authentication_token: "secret-token-123",
         webhook_verification_token: "verify-token-456",
       }
