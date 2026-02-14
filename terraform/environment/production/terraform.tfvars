@@ -41,7 +41,8 @@ environment_variables_cloud_run = {
   "RACK_ENV"            = "production",
   "RAILS_ENV"           = "production",
   "RAILS_LOG_TO_STDOUT" = "enabled",
-  "RAILS_MASTER_KEY"    = "YOUR_MASTER_KEY"
+  "RAILS_MASTER_KEY"    = "YOUR_MASTER_KEY",
+  "SENTRY_DSN"          = "https://1f9df1b5771c72f4957124899ef29b50@o553113.ingest.us.sentry.io/4510556532899840"
 }
 
 # Postgres variables
