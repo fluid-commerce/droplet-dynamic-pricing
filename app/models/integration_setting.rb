@@ -40,6 +40,10 @@ class IntegrationSetting < ApplicationRecord
     settings.dig("daily_warmup_limit")&.to_i || 10_000
   end
 
+  def new_customer_subscription_pricing?
+    ActiveModel::Type::Boolean.new.cast(settings.dig("new_customer_subscription_pricing"))
+  end
+
 private
 
   def exigo_credentials_valid?

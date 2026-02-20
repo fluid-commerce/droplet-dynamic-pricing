@@ -59,6 +59,11 @@ private
   def should_keep_subscription_prices(customer_email)
     return false if customer_email.blank?
 
+    if new_customer_subscription_pricing_enabled?
+      customer_result = fetch_customer_by_email(customer_email)
+      return true if customer_has_no_orders?(customer_result)
+    end
+
     customer_id = get_customer_id_by_email(customer_email)
 
     if customer_id.present?

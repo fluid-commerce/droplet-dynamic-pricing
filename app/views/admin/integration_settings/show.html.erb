@@ -139,6 +139,10 @@
         <span class="text-gray-500">Daily Warmup Limit:</span>
         <span class="text-gray-900 font-medium ml-2"><%= number_with_delimiter(@integration_setting.daily_warmup_limit) %></span>
       </div>
+      <div>
+        <span class="text-gray-500">New Customer Subscription Pricing:</span>
+        <span class="text-gray-900 font-medium ml-2"><%= @integration_setting.new_customer_subscription_pricing? ? "Enabled" : "Disabled" %></span>
+      </div>
     </div>
   </div>
 <% else %>
