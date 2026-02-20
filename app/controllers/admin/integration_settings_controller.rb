@@ -38,6 +38,7 @@ private
         api_delay_seconds
         snapshots_to_keep
         daily_warmup_limit
+        new_customer_subscription_pricing
       ],
       credentials: %i[
         exigo_db_host
