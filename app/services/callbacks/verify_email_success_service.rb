@@ -3,11 +3,6 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
     raise CallbackError, "Cart is blank" if cart.blank?
     raise CallbackError, "Missing email" if customer_email.blank?
 
-    if new_customer_subscription_pricing_enabled?
-      customer_result = fetch_customer_by_email(customer_email)
-      return apply_new_customer_pricing if customer_has_no_orders?(customer_result)
-    end
-
     clean_cart_metadata_before_update
 
     state_after_cleaning = cart.dig("metadata", "price_type")
@@ -148,20 +143,5 @@ private
 
   def success_with_message(msg)
     { success: true, message: msg }
-  end
-
-  def apply_new_customer_pricing
-    update_result = update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
-    return update_result if update_result.is_a?(Hash) && update_result[:success] == false
-
-    update_cart_items_prices(cart_items_with_subscription_price) if cart_items.any?
-
-    log_cart_pricing_event(
-      event_type: "item_updated",
-      preferred_applied: true,
-      additional_data: { callback: "verify_email_success", email: customer_email, reason: "new_customer_no_orders" }
-    )
-
-    result_success
   end
 end

@@ -1,6 +1,0 @@
-yoli_integration:
-  company: yoli
-  enabled: true
-  settings:
-    new_customer_subscription_pricing: true
-  credentials: {}

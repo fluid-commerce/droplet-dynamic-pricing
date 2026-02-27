@@ -218,21 +218,4 @@ private
   rescue StandardError
     0.0
   end
-
-  def new_customer_subscription_pricing_enabled?
-    company_data = cart&.dig("company")
-    return false if company_data.blank?
-
-    company = Company.find_by(fluid_company_id: company_data["id"])
-    company&.integration_setting&.new_customer_subscription_pricing? || false
-  rescue StandardError
-    false
-  end
-
-  def customer_has_no_orders?(customer_result)
-    return false unless customer_result[:success]
-    return true if customer_result[:data].blank?
-
-    customer_result[:data]["orders_count"].to_i == 0
-  end
 end
