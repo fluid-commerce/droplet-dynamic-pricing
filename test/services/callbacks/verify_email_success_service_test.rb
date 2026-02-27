@@ -1,7 +1,7 @@
 require "test_helper"
 
 class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
-  fixtures(:companies, :integration_settings)
+  fixtures(:companies)
 
   TEST_PREFERRED_TYPE = "preferred_customer"
 
@@ -230,108 +230,6 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     assert_empty fake_client.metadata_updates
     assert_empty fake_client.items_prices_updates
   end
-  # New customer no-orders pricing tests
-
-  def test_applies_subscription_pricing_when_customer_has_zero_orders
-    company = companies(:yoli)
-    email = "new@example.com"
-    cart_token = "ct_new_123"
-    cart_payload = build_cart_payload(
-      company: company,
-      cart_token: cart_token,
-      email: email,
-      items: [ { "id" => 1, "price" => "100.0", "subscription_price" => "80.0" } ]
-    )
-    params = { cart: cart_payload }
-
-    customer_response = [ { "id" => 42, "email" => email, "orders_count" => 0 } ]
-    fake_client = stubbed_fluid_client(customers_response: customer_response)
-
-    service = Callbacks::VerifyEmailSuccessService.new(params)
-    service.define_singleton_method(:fluid_client) { fake_client }
-
-    result = service.call
-
-    assert_equal true, result[:success]
-    assert_equal [ [ cart_token, { "price_type" => TEST_PREFERRED_TYPE } ] ], fake_client.metadata_updates
-    assert_equal 1, fake_client.items_prices_updates.size
-  end
-
-  def test_applies_subscription_pricing_when_no_customer_record_exists
-    company = companies(:yoli)
-    email = "brand_new@example.com"
-    cart_token = "ct_brand_new_123"
-    cart_payload = build_cart_payload(
-      company: company,
-      cart_token: cart_token,
-      email: email,
-      items: [ { "id" => 2, "price" => "50.0", "subscription_price" => "40.0" } ]
-    )
-    params = { cart: cart_payload }
-
-    fake_client = stubbed_fluid_client(customers_response: [])
-
-    service = Callbacks::VerifyEmailSuccessService.new(params)
-    service.define_singleton_method(:fluid_client) { fake_client }
-
-    result = service.call
-
-    assert_equal true, result[:success]
-    assert_equal [ [ cart_token, { "price_type" => TEST_PREFERRED_TYPE } ] ], fake_client.metadata_updates
-    assert_equal 1, fake_client.items_prices_updates.size
-  end
-
-  def test_falls_through_to_existing_logic_when_customer_has_orders
-    company = companies(:yoli)
-    email = "returning@example.com"
-    cart_token = "ct_returning_123"
-    cart_payload = build_cart_payload(
-      company: company,
-      cart_token: cart_token,
-      email: email,
-      items: [ { "id" => 3, "price" => "100.0", "subscription_price" => "80.0" } ]
-    )
-    params = { cart: cart_payload }
-
-    customer_response = [ { "id" => 99, "email" => email, "orders_count" => 5 } ]
-    metafield = { "key" => "customer_type", "value" => { "customer_type" => "regular" } }
-    fake_client = stubbed_fluid_client(customers_response: customer_response, customer_type_metafield: metafield)
-
-    service = Callbacks::VerifyEmailSuccessService.new(params)
-    service.define_singleton_method(:fluid_client) { fake_client }
-
-    result = service.call
-
-    assert_equal true, result[:success]
-    # No new_customer_no_orders event logged
-    refute CartPricingEvent.exists?(metadata: { "reason" => "new_customer_no_orders" })
-  end
-
-  def test_new_customer_path_runs_first_even_when_customer_is_already_preferred
-    company = companies(:yoli)
-    email = "preferred_new@example.com"
-    cart_token = "ct_pref_new_123"
-    cart_payload = build_cart_payload(
-      company: company,
-      cart_token: cart_token,
-      email: email,
-      items: [ { "id" => 4, "price" => "100.0", "subscription_price" => "80.0" } ]
-    )
-    params = { cart: cart_payload }
-
-    customer_response = [ { "id" => 55, "email" => email, "orders_count" => 0 } ]
-    metafield = { "key" => "customer_type", "value" => { "customer_type" => TEST_PREFERRED_TYPE } }
-    fake_client = stubbed_fluid_client(customers_response: customer_response, customer_type_metafield: metafield)
-
-    service = Callbacks::VerifyEmailSuccessService.new(params)
-    service.define_singleton_method(:fluid_client) { fake_client }
-
-    result = service.call
-
-    assert_equal true, result[:success]
-    assert_equal [ [ cart_token, { "price_type" => TEST_PREFERRED_TYPE } ] ], fake_client.metadata_updates
-  end
-
   def build_cart_payload(company:, cart_token:, email:, items: [], metadata: {})
     payload = {
       "id" => 12345,

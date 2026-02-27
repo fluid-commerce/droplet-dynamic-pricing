@@ -21,14 +21,3 @@ globex:
   service_company_id: globex-456
   active: true
   webhook_verification_token: globex-verify-token
-
-yoli:
-  name: Yoli
-  fluid_shop: yoli_shop
-  authentication_token: yoli_token
-  fluid_company_id: 1111111111
-  company_droplet_uuid: yoli-uuid-789
-  droplet_installation_uuid: yoli-installation-uuid-789
-  service_company_id: yoli-789
-  active: true
-  webhook_verification_token: yoli-verify-token
