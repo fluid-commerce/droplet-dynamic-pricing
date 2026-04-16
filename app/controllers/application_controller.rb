@@ -5,7 +5,7 @@ class ApplicationController < ActionController::Base
   before_action :set_dri
 
   def validate_droplet_authorization
-    droplet_uuid = params.dig(:company, :droplet_uuid)
+    droplet_uuid = params.dig(:company, :droplet_uuid) || params.dig(:payload, :company, :droplet_uuid)
     expected_uuid = ENV["DROPLET_UUID"]
 
     unless droplet_uuid.present? && droplet_uuid == expected_uuid

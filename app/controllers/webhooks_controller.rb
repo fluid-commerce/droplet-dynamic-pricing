@@ -4,10 +4,11 @@ class WebhooksController < ApplicationController
   before_action :authenticate_webhook_token, unless: :is_droplet_installation_event?
 
   def create
-    event_type = "#{params[:resource]}.#{params[:event]}"
-    version = params[:version]
+    effective = webhook_payload
+    event_type = "#{effective[:resource]}.#{effective[:event]}"
+    version = effective[:version]
 
-    payload = params.to_unsafe_h.deep_dup
+    payload = effective.to_unsafe_h.deep_dup
 
     if EventHandler.route(event_type, payload, version: version)
       # A 202 Accepted indicates that we have accepted the webhook and queued
@@ -20,8 +21,21 @@ class WebhooksController < ApplicationController
 
 private
 
+  # Fluid may send webhooks in two formats:
+  #   - Flat: { resource: "droplet", event: "installed", company: {...}, ... }
+  #   - Nested: { payload: { resource: "droplet", event: "installed", company: {...}, ... }, ... }
+  # This method normalizes access to the effective payload.
+  def webhook_payload
+    if params[:payload].is_a?(ActionController::Parameters) && params[:payload][:resource].present?
+      params[:payload]
+    else
+      params
+    end
+  end
+
   def is_droplet_installation_event?
-    params[:resource] == "droplet" && %w[installed uninstalled].include?(params[:event])
+    effective = webhook_payload
+    effective[:resource] == "droplet" && %w[installed uninstalled].include?(effective[:event])
   end
 
   def authenticate_webhook_token
@@ -46,7 +60,7 @@ private
   end
 
   def company_params
-    params.require(:company).permit(
+    webhook_payload.require(:company).permit(
       :company_droplet_uuid,
       :droplet_installation_uuid,
       :fluid_company_id,
