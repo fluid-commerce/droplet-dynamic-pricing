@@ -257,6 +257,121 @@ describe WebhooksController do
     end
   end
 
+  describe "nested payload format" do
+    it "handles droplet installed event with nested payload" do
+      company_data = {
+        fluid_shop: "nested-shop",
+        name: "Nested Company",
+        fluid_company_id: 777777,
+        droplet_uuid: "drp_existing_uuid_123",
+        authentication_token: "nested-token-123",
+        webhook_verification_token: "nested-verify-token",
+      }
+
+      post webhook_url, params: {
+        id: 12345,
+        name: "droplet_installed",
+        payload: {
+          resource: "droplet",
+          event: "installed",
+          company: company_data,
+          company_id: 777777,
+          event_name: "droplet_installed",
+          resource_name: "DropletInstallation",
+          schema_version: "1.0.0",
+        },
+        timestamp: "2026-04-16T15:58:58Z",
+      }, as: :json
+
+      _(response.status).must_equal 202
+
+      perform_enqueued_jobs
+
+      company = Company.find_by(fluid_company_id: 777777)
+      _(company).wont_be_nil
+      _(company.name).must_equal "Nested Company"
+      _(company.fluid_shop).must_equal "nested-shop"
+      _(company).must_be :active?
+    end
+
+    it "handles droplet uninstalled event with nested payload" do
+      company = companies(:acme)
+      webhook_auth_token = Setting.fluid_webhook.auth_token
+
+      post webhook_url, params: {
+        id: 12346,
+        name: "droplet_uninstalled",
+        payload: {
+          resource: "droplet",
+          event: "uninstalled",
+          company: {
+            droplet_installation_uuid: company.droplet_installation_uuid,
+            fluid_company_id: company.fluid_company_id,
+            droplet_uuid: "drp_existing_uuid_123",
+          },
+          company_id: company.fluid_company_id,
+          event_name: "droplet_uninstalled",
+          resource_name: "DropletInstallation",
+          schema_version: "1.0.0",
+        },
+        timestamp: "2026-04-16T15:58:58Z",
+      }, headers: { "AUTH_TOKEN" => webhook_auth_token }, as: :json
+
+      _(response.status).must_equal 202
+
+      perform_enqueued_jobs
+
+      company.reload
+      _(company.uninstalled_at).wont_be_nil
+    end
+
+    it "rejects nested droplet installed event with invalid droplet_uuid" do
+      post webhook_url, params: {
+        id: 12347,
+        name: "droplet_installed",
+        payload: {
+          resource: "droplet",
+          event: "installed",
+          company: {
+            fluid_shop: "bad-shop",
+            name: "Bad Company",
+            fluid_company_id: 888888,
+            droplet_uuid: "invalid-uuid",
+            authentication_token: "bad-token",
+            webhook_verification_token: "bad-verify",
+          },
+          company_id: 888888,
+          event_name: "droplet_installed",
+          resource_name: "DropletInstallation",
+          schema_version: "1.0.0",
+        },
+        timestamp: "2026-04-16T15:58:58Z",
+      }, as: :json
+
+      _(response.status).must_equal 401
+    end
+
+    it "handles non-droplet events with nested payload using auth token" do
+      company = companies(:acme)
+
+      post webhook_url, params: {
+        id: 12348,
+        name: "customer_updated",
+        payload: {
+          resource: "customer",
+          event: "updated",
+          company_id: company.fluid_company_id,
+          company: {
+            fluid_company_id: company.fluid_company_id,
+          },
+        },
+        timestamp: "2026-04-16T15:58:58Z",
+      }, headers: { "AUTH_TOKEN" => company.webhook_verification_token }, as: :json
+
+      _(response.status).must_equal 204
+    end
+  end
+
   describe "unknown events" do
     it "handles unknown event types with no content" do
       company = companies(:acme)
