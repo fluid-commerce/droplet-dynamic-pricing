@@ -58,6 +58,7 @@ private
 
   def should_keep_subscription_prices(customer_email)
     return false if customer_email.blank?
+    return false unless customer_logged_in?
 
     customer_id = get_customer_id_by_email(customer_email)
 

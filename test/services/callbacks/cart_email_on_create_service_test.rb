@@ -22,6 +22,10 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
     }
   end
 
+  def logged_in_cart_data
+    cart_data.merge("customer_id" => 888)
+  end
+
   def callback_params
     { cart: cart_data }
   end
@@ -45,7 +49,30 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
     assert_equal "Email is blank", result[:message]
   end
 
-  test "returns metadata when customer_type is preferred_customer" do
+  test "returns metadata when customer_type is preferred_customer and logged in" do
+    email = logged_in_cart_data["email"]
+    customer_response = [ { "id" => 888, "email" => email } ]
+
+    metafield = {
+      "key" => "customer_type",
+      "value" => { "customer_type" => TEST_PREFERRED_TYPE },
+    }
+
+    fake_client = stubbed_fluid_client(
+      customers_response: customer_response,
+      customer_type_metafield: metafield
+    )
+
+    service = Callbacks::CartEmailOnCreateService.new({ cart: logged_in_cart_data })
+    service.define_singleton_method(:fluid_client) { fake_client }
+
+    result = service.call
+
+    assert_equal true, result[:success]
+    assert_equal({ "price_type" => TEST_PREFERRED_TYPE }, result[:metadata])
+  end
+
+  test "does not apply preferred pricing when customer is not logged in" do
     email = cart_data["email"]
     customer_response = [ { "id" => 888, "email" => email } ]
 
@@ -65,7 +92,7 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
     result = service.call
 
     assert_equal true, result[:success]
-    assert_equal({ "price_type" => TEST_PREFERRED_TYPE }, result[:metadata])
+    assert_includes result[:message], "no special pricing needed"
   end
 
   test "returns success without metadata when customer_type is not preferred_customer" do
@@ -151,7 +178,7 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
   end
 
   test "handles StandardError gracefully" do
-    service = Callbacks::CartEmailOnCreateService.new(callback_params)
+    service = Callbacks::CartEmailOnCreateService.new({ cart: logged_in_cart_data })
 
     service.stub(:is_preferred_customer?, ->(_email) { raise StandardError.new("Network error") }) do
       assert_raises(StandardError) do

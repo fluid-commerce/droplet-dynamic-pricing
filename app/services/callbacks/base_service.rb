@@ -25,6 +25,14 @@ private
     @customer_email ||= cart&.dig("email")
   end
 
+  def cart_customer_id
+    @cart_customer_id ||= cart&.dig("customer_id")
+  end
+
+  def customer_logged_in?
+    cart_customer_id.present?
+  end
+
   def cart_token
     @cart_token ||= cart&.dig("cart_token")
   end
@@ -182,13 +190,49 @@ private
   def is_preferred_customer?(email)
     return false if email.blank?
 
-    customer_id = get_customer_id_by_email(email)
+    customer_id = cart_customer_id || get_customer_id_by_email(email)
     if customer_id.present?
       customer_type = get_customer_type_from_metafields(customer_id)
       return true if customer_type == PREFERRED_CUSTOMER_TYPE
     end
 
     has_exigo_autoship_by_email?(email)
+  end
+
+  def update_pcc_metafield(fluid_customer_id, customer_type)
+    return if fluid_customer_id.blank? || customer_type.blank?
+
+    fluid_client.metafields.ensure_definition(
+      namespace: "custom",
+      key: "customer_type",
+      value_type: "json",
+      description: "Customer type for pricing (preferred_customer, retail, null)",
+      owner_resource: "Customer"
+    )
+
+    json_value = { "customer_type" => customer_type.to_s }
+
+    fluid_client.metafields.update(
+      resource_type: "customer",
+      resource_id: fluid_customer_id.to_i,
+      namespace: "custom",
+      key: "customer_type",
+      value: json_value,
+      value_type: "json",
+      description: "Customer type for pricing (preferred_customer, retail, null)"
+    )
+  rescue FluidClient::ResourceNotFoundError
+    fluid_client.metafields.create(
+      resource_type: "customer",
+      resource_id: fluid_customer_id.to_i,
+      namespace: "custom",
+      key: "customer_type",
+      value: json_value,
+      value_type: "json",
+      description: "Customer type for pricing (preferred_customer, retail, null)"
+    )
+  rescue StandardError => e
+    Rails.logger.error "Failed to update PCC metafield for customer #{fluid_customer_id}: #{e.message}"
   end
 
   def success_with_message(msg)

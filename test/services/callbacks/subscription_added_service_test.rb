@@ -11,6 +11,7 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
     {
       "id" => 265327,
       "cart_token" => "ct_52blT6sVvSo4Ck2ygrKyW2",
+      "customer_id" => 12345,
       "company" => {
         "id" => company.fluid_company_id,
         "name" => company.name,

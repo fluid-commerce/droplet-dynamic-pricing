@@ -40,6 +40,7 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     {
       "id" => 265327,
       "cart_token" => "ct_52blT6sVvSo4Ck2ygrKyW2",
+      "customer_id" => 12345,
       "email" => "customer@example.com",
       "company" => {
         "id" => company.fluid_company_id,
@@ -133,7 +134,7 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     assert_equal 72.0, item1[:price].to_f
   end
 
-  test "does not remove subscription pricing when customer has preferred_customer metafield" do
+  test "does not remove subscription pricing when customer has preferred_customer metafield and is logged in" do
     fake_carts = FakeCartsResource.new
     fake_customers = FakeCustomersResource.new([ { "id" => 123 } ])
 
@@ -141,7 +142,8 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     mock_client.define_singleton_method(:carts) { fake_carts }
     mock_client.define_singleton_method(:customers) { fake_customers }
 
-    service = Callbacks::SubscriptionRemovedService.new(callback_params)
+    logged_in_cart = cart_data.merge("customer_id" => 123)
+    service = Callbacks::SubscriptionRemovedService.new({ cart: logged_in_cart })
 
     service.define_singleton_method(:fluid_client) { mock_client }
 
