@@ -2,6 +2,8 @@ class Callbacks::SubscriptionAddedService < Callbacks::BaseService
   def call
     raise CallbackError, "Cart is blank" if cart.blank?
 
+    return result_success unless customer_logged_in?
+
     current_price_type = cart.dig("metadata", "price_type")
 
     update_cart_metadata({ "price_type" => "preferred_customer" })

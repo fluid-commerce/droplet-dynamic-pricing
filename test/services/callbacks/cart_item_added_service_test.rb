@@ -8,6 +8,7 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     @cart_data = {
       "id" => 265327,
       "cart_token" => "ct_52blT6sVvSo4Ck2ygrKyW2",
+      "customer_id" => 12345,
       "metadata" => {
         "price_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE,
       },

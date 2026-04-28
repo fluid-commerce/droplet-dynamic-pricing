@@ -40,6 +40,7 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     {
       "id" => 265327,
       "cart_token" => "ct_52blT6sVvSo4Ck2ygrKyW2",
+      "customer_id" => 12345,
       "email" => "customer@example.com",
       "company" => {
         "id" => company.fluid_company_id,

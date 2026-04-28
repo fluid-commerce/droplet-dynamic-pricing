@@ -63,7 +63,7 @@ private
       return
     end
 
-    if has_subscriptions?(customer_id)
+    if customer_logged_in? && has_subscriptions?(customer_id)
       return
     end
 
@@ -101,7 +101,7 @@ private
     customer_type = customer_logged_in? ? get_customer_type_from_metafields(customer_id) : nil
 
     if customer_type.blank?
-      if has_active_subscriptions?(customer_id) || (customer_logged_in? && has_exigo_autoship_by_email?(email))
+      if customer_logged_in? && (has_active_subscriptions?(customer_id) || has_exigo_autoship_by_email?(email))
         return { success: true, customer_type: PREFERRED_CUSTOMER_TYPE }
       end
       return success_with_message("Customer type not set for #{email}")

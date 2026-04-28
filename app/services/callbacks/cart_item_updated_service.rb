@@ -6,6 +6,11 @@ class Callbacks::CartItemUpdatedService < Callbacks::BaseService
     raise CallbackError, "Cart item is blank" if cart_item.blank?
 
     current_price_type = cart.dig("metadata", "price_type")
+
+    unless customer_logged_in?
+      return { success: true, message: "Customer is not logged in, no preferred pricing applied" }
+    end
+
     has_another_subscription = has_another_subscription_in_cart?
 
     if current_price_type != PREFERRED_CUSTOMER_TYPE && !has_another_subscription
