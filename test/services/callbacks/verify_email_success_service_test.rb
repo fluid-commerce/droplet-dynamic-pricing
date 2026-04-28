@@ -129,7 +129,7 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     assert_equal "Customer type not set for #{email}", result[:message]
   end
 
-  def test_updates_cart_metadata_when_customer_is_preferred
+  def test_updates_cart_metadata_when_customer_is_preferred_and_logged_in
     company = companies(:acme)
     email = "vip@example.com"
     cart_token = "ct_vip_123"
@@ -137,6 +137,7 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
       company: company,
       cart_token: cart_token,
       email: email,
+      customer_id: 888,
       items: [ { "id" => 1, "price" => "100.0", "subscription_price" => "90.0" } ],
       metadata: { "price_type" => "preferred_customer" }
     )
@@ -230,7 +231,7 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     assert_empty fake_client.metadata_updates
     assert_empty fake_client.items_prices_updates
   end
-  def build_cart_payload(company:, cart_token:, email:, items: [], metadata: {})
+  def build_cart_payload(company:, cart_token:, email:, customer_id: nil, items: [], metadata: {})
     payload = {
       "id" => 12345,
       "cart_token" => cart_token,
@@ -241,6 +242,7 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
       },
     }
     payload["email"] = email unless email.nil?
+    payload["customer_id"] = customer_id if customer_id.present?
     payload["items"] = items if items.any?
     payload["metadata"] = metadata if metadata.any?
     payload

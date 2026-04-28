@@ -50,7 +50,7 @@ private
     end
 
     if customer_data[:data].blank?
-      if has_exigo_autoship_by_email?(customer_email)
+      if customer_logged_in? && has_exigo_autoship_by_email?(customer_email)
         return
       end
       clean_cart_metadata
@@ -67,7 +67,7 @@ private
       return
     end
 
-    if has_exigo_autoship_by_email?(customer_email)
+    if customer_logged_in? && has_exigo_autoship_by_email?(customer_email)
       return
     end
 
@@ -87,7 +87,7 @@ private
     return customer_result unless customer_result[:success]
 
     if customer_result[:data].blank?
-      if has_exigo_autoship_by_email?(email)
+      if customer_logged_in? && has_exigo_autoship_by_email?(email)
         return { success: true, customer_type: PREFERRED_CUSTOMER_TYPE }
       end
       return success_with_message("Customer not found for #{email}")
@@ -98,10 +98,10 @@ private
 
     return success_with_message("Customer ID missing for #{email}") if customer_id.blank?
 
-    customer_type = get_customer_type_from_metafields(customer_id)
+    customer_type = customer_logged_in? ? get_customer_type_from_metafields(customer_id) : nil
 
     if customer_type.blank?
-      if has_active_subscriptions?(customer_id) || has_exigo_autoship_by_email?(email)
+      if has_active_subscriptions?(customer_id) || (customer_logged_in? && has_exigo_autoship_by_email?(email))
         return { success: true, customer_type: PREFERRED_CUSTOMER_TYPE }
       end
       return success_with_message("Customer type not set for #{email}")

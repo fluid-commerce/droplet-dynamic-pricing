@@ -19,6 +19,7 @@ Rails.application.routes.draw do
     resources :cart_item_updated, only: :create
     resources :verify_email_success, only: :create
     resources :cart_email_on_create, only: :create
+    resources :customer_logged_in, only: :create
   end
 
   namespace :admin do
