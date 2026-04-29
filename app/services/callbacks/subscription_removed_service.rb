@@ -58,12 +58,15 @@ private
 
   def should_keep_subscription_prices(customer_email)
     return false if customer_email.blank?
+
+    return true if has_another_subscription_in_cart?
+
     return false unless customer_logged_in?
 
     customer_id = get_customer_id_by_email(customer_email)
 
     if customer_id.present?
-      return true if has_subscriptions?(customer_id)
+      return true if has_active_subscriptions?(customer_id)
       return true if get_customer_type_from_metafields(customer_id) == PREFERRED_CUSTOMER_TYPE
     end
 
