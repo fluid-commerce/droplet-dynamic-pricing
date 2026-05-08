@@ -54,8 +54,10 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
       cart_token: cart_token,
       email: email,
       items: [
-        { "id" => 1, "price" => "100.0", "subscription_price" => "80.0", "subscription" => true, "product" => { "price" => "100.0" } },
-        { "id" => 2, "price" => "50.0", "subscription_price" => "40.0", "subscription" => false, "product" => { "price" => "50.0" } },
+        { "id" => 1, "price" => "100.0", "subscription_price" => "80.0", "subscription" => true,
+"product" => { "price" => "100.0" }, },
+        { "id" => 2, "price" => "50.0", "subscription_price" => "40.0", "subscription" => false,
+"product" => { "price" => "50.0" }, },
       ],
       metadata: { "price_type" => "preferred_customer" }
     )
