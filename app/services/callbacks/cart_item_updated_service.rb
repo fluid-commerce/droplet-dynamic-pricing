@@ -8,17 +8,12 @@ class Callbacks::CartItemUpdatedService < Callbacks::BaseService
     current_price_type = cart.dig("metadata", "price_type")
 
     has_another_subscription = has_another_subscription_in_cart?
-    is_subscription_item = cart_item["subscription"] == true
 
-    if current_price_type != PREFERRED_CUSTOMER_TYPE && !has_another_subscription && !is_subscription_item
+    if current_price_type != PREFERRED_CUSTOMER_TYPE && !has_another_subscription
       return { success: true, message: "Cart does not have preferred_customer pricing" }
     end
 
-    if customer_logged_in? || is_subscription_item
-      update_item_to_subscription_price
-    else
-      return { success: true, message: "Customer is not logged in, no preferred pricing applied" }
-    end
+    update_item_to_subscription_price
 
     { success: true, message: "Item updated callback processed successfully" }
   rescue CallbackError => e

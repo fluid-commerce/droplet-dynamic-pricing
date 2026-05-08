@@ -40,10 +40,6 @@ private
     return if cart.dig("metadata", "price_type").nil?
 
     if has_another_subscription_in_cart?
-      unless customer_logged_in?
-        update_cart_metadata({ "price_type" => nil })
-        update_cart_items_prices(cart_items_subscription_only_pricing) if cart_items.any?
-      end
       return
     end
 

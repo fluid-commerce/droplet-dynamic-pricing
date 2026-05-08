@@ -26,14 +26,9 @@ class Callbacks::CustomerLoggedInService < Callbacks::BaseService
       return { success: true, metadata: { "price_type" => PREFERRED_CUSTOMER_TYPE } }
     end
 
-    if current_price_type == PREFERRED_CUSTOMER_TYPE
+    if current_price_type == PREFERRED_CUSTOMER_TYPE && !has_another_subscription_in_cart?
       update_cart_metadata({ "price_type" => nil })
-
-      if has_another_subscription_in_cart?
-        update_cart_items_prices(cart_items_subscription_only_pricing) if cart_items.any?
-      else
-        update_cart_items_prices(cart_items_with_regular_price) if cart_items.any?
-      end
+      update_cart_items_prices(cart_items_with_regular_price) if cart_items.any?
 
       log_cart_pricing_event(
         event_type: "customer_logged_in",

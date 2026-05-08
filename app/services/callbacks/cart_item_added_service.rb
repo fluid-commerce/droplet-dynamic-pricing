@@ -6,33 +6,26 @@ class Callbacks::CartItemAddedService < Callbacks::BaseService
     current_price_type = cart.dig("metadata", "price_type")
 
     has_another_subscription = has_another_subscription_in_cart?
-    is_subscription_item = cart_item["subscription"] == true
 
-    if current_price_type != PREFERRED_CUSTOMER_TYPE && !has_another_subscription && !is_subscription_item
+    if current_price_type != PREFERRED_CUSTOMER_TYPE && !has_another_subscription
       return { success: true, message: "Cart does not have preferred_customer pricing" }
     end
 
-    if customer_logged_in?
-      if current_price_type == PREFERRED_CUSTOMER_TYPE
-        update_item_to_subscription_price
-      else
-        update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
-        update_item_to_subscription_price
-
-        log_cart_pricing_event(
-          event_type: "item_added",
-          preferred_applied: true,
-          additional_data: {
-            item_id: cart_item["id"],
-            subscription_price: cart_item["subscription_price"],
-            regular_price: cart_item["price"],
-          }
-        )
-      end
-    elsif is_subscription_item
+    if current_price_type == PREFERRED_CUSTOMER_TYPE
       update_item_to_subscription_price
     else
-      return { success: true, message: "Customer is not logged in, no preferred pricing applied" }
+      update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
+      update_item_to_subscription_price
+
+      log_cart_pricing_event(
+        event_type: "item_added",
+        preferred_applied: true,
+        additional_data: {
+          item_id: cart_item["id"],
+          subscription_price: cart_item["subscription_price"],
+          regular_price: cart_item["price"],
+        }
+      )
     end
 
     { success: true, message: "Cart item updated to subscription price successfully" }
