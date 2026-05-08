@@ -101,6 +101,16 @@ private
     end
   end
 
+  def cart_items_subscription_only_pricing
+    cart_items.map do |item|
+      if item["subscription"] == true
+        { "id" => item["id"], "price" => item["subscription_price"] || item["price"] }
+      else
+        { "id" => item["id"], "price" => item.dig("product", "price") || item["price"] }
+      end
+    end
+  end
+
   def get_customer_id_by_email(email)
     return nil if email.blank?
 

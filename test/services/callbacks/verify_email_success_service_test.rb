@@ -45,7 +45,7 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     assert_equal 1, fake_client.items_prices_updates.size
   end
 
-  def test_does_not_clean_metadata_when_customer_not_found_but_has_subscription_in_cart
+  def test_cleans_pcc_but_keeps_subscription_pricing_when_not_logged_in_with_subscription_in_cart
     company = companies(:acme)
     email = "unknown@example.com"
     cart_token = "ct_123"
@@ -53,6 +53,41 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
       company: company,
       cart_token: cart_token,
       email: email,
+      items: [
+        { "id" => 1, "price" => "100.0", "subscription_price" => "80.0", "subscription" => true, "product" => { "price" => "100.0" } },
+        { "id" => 2, "price" => "50.0", "subscription_price" => "40.0", "subscription" => false, "product" => { "price" => "50.0" } },
+      ],
+      metadata: { "price_type" => "preferred_customer" }
+    )
+    params = { cart: cart_payload }
+
+    fake_client = stubbed_fluid_client(customers_response: [])
+
+    service = Callbacks::VerifyEmailSuccessService.new(params)
+    service.define_singleton_method(:fluid_client) { fake_client }
+
+    result = service.call
+
+    assert_equal true, result[:success]
+    assert_equal 1, fake_client.metadata_updates.size
+    assert_nil fake_client.metadata_updates.first[1]["price_type"]
+    assert_equal 1, fake_client.items_prices_updates.size
+    items = fake_client.items_prices_updates.first[:items]
+    sub_item = items.find { |i| i["id"] == 1 }
+    reg_item = items.find { |i| i["id"] == 2 }
+    assert_equal "80.0", sub_item["price"]
+    assert_equal "50.0", reg_item["price"]
+  end
+
+  def test_does_not_clean_metadata_when_logged_in_with_subscription_in_cart
+    company = companies(:acme)
+    email = "unknown@example.com"
+    cart_token = "ct_123"
+    cart_payload = build_cart_payload(
+      company: company,
+      cart_token: cart_token,
+      email: email,
+      customer_id: 123,
       items: [ { "id" => 1, "price" => "100.0", "subscription" => true } ],
       metadata: { "price_type" => "preferred_customer" }
     )
@@ -66,8 +101,6 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     result = service.call
 
     assert_equal true, result[:success]
-    assert_equal "Customer not found for #{email}", result[:message]
-    # Should NOT clean metadata when there's a subscription in cart
     assert_empty fake_client.metadata_updates
     assert_empty fake_client.items_prices_updates
   end
