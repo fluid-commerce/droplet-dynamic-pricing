@@ -2,9 +2,7 @@ import * as React from "react"
 import { ShoppingCart } from "lucide-react"
 
 import { Pagination } from "./Pagination"
-import { StatCard } from "./StatCard"
-import type { CartEvent } from "./types"
-import { Badge } from "~/components/ui/badge"
+import type { CartEvent } from "~/entrypoints/dashboard"
 
 interface CartEventsTabProps {
   events: CartEvent[]
@@ -54,16 +52,20 @@ export function CartEventsTab({
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <StatCard
-          label="Preferred Applied"
-          value={preferredAppliedCount}
-          hint="carts with preferred pricing"
-        />
-        <StatCard
-          label="Total Events"
-          value={totalCount}
-          hint="all time"
-        />
+        <div className="rounded-xl border border-border/60 bg-muted/40 p-5">
+          <p className="text-sm font-medium text-muted-foreground">Preferred Applied</p>
+          <p className="mt-2 text-3xl font-bold leading-none text-foreground">
+            {preferredAppliedCount}
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">carts with preferred pricing</p>
+        </div>
+        <div className="rounded-xl border border-border/60 bg-muted/40 p-5">
+          <p className="text-sm font-medium text-muted-foreground">Total Events</p>
+          <p className="mt-2 text-3xl font-bold leading-none text-foreground">
+            {totalCount}
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">all time</p>
+        </div>
       </div>
 
       <div>
@@ -104,9 +106,9 @@ export function CartEventsTab({
                       {event.email_safe ?? "-"}
                     </td>
                     <td className="px-4 py-4">
-                      <Badge variant="muted">
+                      <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                         {EVENT_TYPE_LABELS[event.event_type] ?? event.event_type}
-                      </Badge>
+                      </span>
                     </td>
                     <td className="px-4 py-4 text-sm">{event.items_count ?? 0}</td>
                     <td className="px-4 py-4 text-sm font-medium">

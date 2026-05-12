@@ -2,9 +2,7 @@ import * as React from "react"
 import { ArrowDown, ArrowUp, FileText } from "lucide-react"
 
 import { Pagination } from "./Pagination"
-import { StatCard } from "./StatCard"
-import type { Transaction } from "./types"
-import { Badge } from "~/components/ui/badge"
+import type { Transaction } from "~/entrypoints/dashboard"
 
 interface TransactionsTabProps {
   transactions: Transaction[]
@@ -50,16 +48,20 @@ export function TransactionsTab({
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <StatCard
-          label="Total Preferred"
-          value={totalPreferred}
-          hint="upgrades"
-        />
-        <StatCard
-          label="Total Retail"
-          value={totalRetail}
-          hint="downgrades"
-        />
+        <div className="rounded-xl border border-border/60 bg-muted/40 p-5">
+          <p className="text-sm font-medium text-muted-foreground">Total Preferred</p>
+          <p className="mt-2 text-3xl font-bold leading-none text-foreground">
+            {totalPreferred}
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">upgrades</p>
+        </div>
+        <div className="rounded-xl border border-border/60 bg-muted/40 p-5">
+          <p className="text-sm font-medium text-muted-foreground">Total Retail</p>
+          <p className="mt-2 text-3xl font-bold leading-none text-foreground">
+            {totalRetail}
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">downgrades</p>
+        </div>
       </div>
 
       <div>
@@ -103,16 +105,22 @@ export function TransactionsTab({
                     <td className="px-4 py-4 font-mono text-sm">{tx.external_id ?? "-"}</td>
                     <td className="px-4 py-4">
                       {tx.previous_type ? (
-                        <Badge variant="muted">{humanize(tx.previous_type)}</Badge>
+                        <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                          {humanize(tx.previous_type)}
+                        </span>
                       ) : (
                         <span className="text-muted-foreground text-sm">-</span>
                       )}
                     </td>
                     <td className="px-4 py-4">
-                      <Badge variant="muted">{newTypeLabel}</Badge>
+                      <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                        {newTypeLabel}
+                      </span>
                     </td>
                     <td className="px-4 py-4">
-                      <Badge variant="muted">{humanize(tx.source)}</Badge>
+                      <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                        {humanize(tx.source)}
+                      </span>
                     </td>
                     <td className="pr-6 py-4">
                       {tx.upgraded ? (

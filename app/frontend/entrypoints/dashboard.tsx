@@ -1,16 +1,49 @@
 import React from "react"
 import { createRoot } from "react-dom/client"
+import { MoreVertical, Settings } from "lucide-react"
 
 import { CartEventsTab } from "~/components/dashboard/CartEventsTab"
-import { KebabMenu } from "~/components/dashboard/KebabMenu"
 import { TransactionsTab } from "~/components/dashboard/TransactionsTab"
-import type {
-  CartEvent,
-  Stats,
-  TabValue,
-  Transaction,
-} from "~/components/dashboard/types"
+import { Button } from "~/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs"
+
+export interface Stats {
+  total_preferred: number
+  total_retail: number
+  preferred_pricing_applied: number
+  total_cart_events: number
+}
+
+export interface CartEvent {
+  id: number
+  cart_id: number | null
+  email_safe: string | null
+  event_type: string
+  items_count: number | null
+  cart_total: string | null
+  preferred_pricing_applied: boolean
+  created_at: string
+}
+
+export interface Transaction {
+  id: number
+  customer_id: number | null
+  external_id: string | null
+  previous_type: string | null
+  new_type: string
+  source: string
+  upgraded: boolean
+  downgraded: boolean
+  created_at: string
+}
+
+type TabValue = "cart_events" | "transactions"
 
 interface DashboardData {
   companyName: string
@@ -34,7 +67,7 @@ function readData(el: HTMLElement): DashboardData {
     companyName: ds.companyName ?? "",
     activeTab,
     page: Number(ds.page ?? 1) || 1,
-    perPage: Number(ds.perPage ?? 50) || 50,
+    perPage: Number(ds.perPage ?? 10) || 10,
     stats: JSON.parse(ds.stats ?? "{}") as Stats,
     cartEvents: JSON.parse(ds.cartEvents ?? "[]") as CartEvent[],
     cartTotalCount: Number(ds.cartTotalCount ?? 0) || 0,
@@ -66,24 +99,42 @@ function Dashboard({ data }: { data: DashboardData }) {
     buildUrl(data.baseUrl, { tab: "transactions", page: p })
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="text-3xl font-bold text-foreground">
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">
             Dynamic Pricing Dashboard
           </h1>
-          <h3 className="text-muted-foreground">{data.companyName}</h3>
+          <p className="text-sm text-muted-foreground">{data.companyName}</p>
         </div>
-        <KebabMenu integrationSettingsUrl={data.integrationSettingsUrl} />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" aria-label="Open menu">
+              <MoreVertical />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onSelect={() => window.location.assign(data.integrationSettingsUrl)}
+            >
+              <Settings className="mr-2 h-4 w-4" />
+              Integration Settings
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      <Tabs value={data.activeTab} onValueChange={handleTabChange}>
-        <TabsList>
-          <TabsTrigger value="cart_events">Cart Events</TabsTrigger>
-          <TabsTrigger value="transactions">Customer Type Transactions</TabsTrigger>
+      <Tabs value={data.activeTab} onValueChange={handleTabChange} className="space-y-6">
+        <TabsList className="h-10 p-1">
+          <TabsTrigger value="cart_events" className="px-4">
+            Cart Events
+          </TabsTrigger>
+          <TabsTrigger value="transactions" className="px-4">
+            Customer Type Transactions
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="cart_events">
+        <TabsContent value="cart_events" className="mt-0">
           <CartEventsTab
             events={data.cartEvents}
             preferredAppliedCount={data.stats.preferred_pricing_applied}
@@ -94,7 +145,7 @@ function Dashboard({ data }: { data: DashboardData }) {
           />
         </TabsContent>
 
-        <TabsContent value="transactions">
+        <TabsContent value="transactions" className="mt-0">
           <TransactionsTab
             transactions={data.transactions}
             totalPreferred={data.stats.total_preferred}
