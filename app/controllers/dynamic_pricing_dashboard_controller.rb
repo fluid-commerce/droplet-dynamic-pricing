@@ -1,6 +1,6 @@
 class DynamicPricingDashboardController < ApplicationController
   ALLOWED_TABS = %w[cart_events transactions].freeze
-  PER_PAGE = 50
+  PER_PAGE = 10
 
   skip_before_action :verify_authenticity_token
   layout "public_dashboard"

@@ -32,24 +32,22 @@ export function Pagination({
           Showing {start}-{end} of {totalCount} {itemLabel}
         </div>
         <div className="flex gap-2">
-          {page > 1 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.location.assign(hrefForPage(page - 1))}
-            >
-              Previous
-            </Button>
-          )}
-          {page < totalPages && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.location.assign(hrefForPage(page + 1))}
-            >
-              Next
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => window.location.assign(hrefForPage(page - 1))}
+          >
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page >= totalPages}
+            onClick={() => window.location.assign(hrefForPage(page + 1))}
+          >
+            Next
+          </Button>
         </div>
       </div>
     </div>
