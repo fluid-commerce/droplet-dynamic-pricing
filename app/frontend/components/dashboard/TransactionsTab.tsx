@@ -93,7 +93,6 @@ export function TransactionsTab({
                     : tx.new_type === "retail"
                       ? "Retail"
                       : tx.new_type
-                const isPreferred = tx.new_type === "preferred_customer"
                 return (
                   <tr key={tx.id} className="even:bg-muted/60">
                     <td className="pl-6 py-4 text-sm">
@@ -110,24 +109,24 @@ export function TransactionsTab({
                       )}
                     </td>
                     <td className="px-4 py-4">
-                      <Badge variant={isPreferred ? "soft" : "muted"}>{newTypeLabel}</Badge>
+                      <Badge variant="muted">{newTypeLabel}</Badge>
                     </td>
                     <td className="px-4 py-4">
                       <Badge variant="muted">{humanize(tx.source)}</Badge>
                     </td>
                     <td className="pr-6 py-4">
                       {tx.upgraded ? (
-                        <span className="inline-flex items-center text-primary text-sm font-medium">
+                        <span className="inline-flex items-center text-foreground text-sm">
                           <ArrowUp className="mr-1 size-4" />
                           Upgraded
                         </span>
                       ) : tx.downgraded ? (
-                        <span className="inline-flex items-center text-muted-foreground text-sm font-medium">
+                        <span className="inline-flex items-center text-foreground text-sm">
                           <ArrowDown className="mr-1 size-4" />
                           Downgraded
                         </span>
                       ) : (
-                        <span className="text-muted-foreground text-sm">Changed</span>
+                        <span className="text-foreground text-sm">Changed</span>
                       )}
                     </td>
                   </tr>
