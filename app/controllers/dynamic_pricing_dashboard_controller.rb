@@ -1,9 +1,28 @@
 class DynamicPricingDashboardController < ApplicationController
+  ALLOWED_TABS = %w[cart_events transactions].freeze
+  PER_PAGE = 50
+
   skip_before_action :verify_authenticity_token
   layout "public_dashboard"
   before_action :set_current_company
 
   def index
+    @per_page   = PER_PAGE
+    @page       = [ (params[:page] || 1).to_i, 1 ].max
+    @offset     = (@page - 1) * @per_page
+    @active_tab = ALLOWED_TABS.include?(params[:tab]) ? params[:tab] : "cart_events"
+
+    if @active_tab == "cart_events"
+      @cart_pricing_events = @company.cart_pricing_events.recent.limit(@per_page).offset(@offset)
+      @transactions        = @company.customer_type_transactions.recent.limit(@per_page)
+    else
+      @cart_pricing_events = @company.cart_pricing_events.recent.limit(@per_page)
+      @transactions        = @company.customer_type_transactions.recent.limit(@per_page).offset(@offset)
+    end
+
+    @cart_total_count = @company.cart_pricing_events.count
+    @tx_total_count   = @company.customer_type_transactions.count
+
     @stats = calculate_stats
   end
 
