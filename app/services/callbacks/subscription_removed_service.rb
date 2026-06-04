@@ -2,6 +2,9 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
   def call
     raise CallbackError, "Cart is blank" if cart.blank?
 
+    # Enrollment carts are priced by the BP wholesale droplet (STU2-2377).
+    return result_success if enrollment_cart?
+
     current_price_type = cart.dig("metadata", "price_type")
     was_preferred = current_price_type == PREFERRED_CUSTOMER_TYPE
 

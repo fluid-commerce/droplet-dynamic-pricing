@@ -57,6 +57,33 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     assert_equal "Cart item is blank", result[:message]
   end
 
+  test "call skips enrollment cart (type=enrollment) so BP wholesale takes precedence" do
+    enrollment_cart = @cart_data.dup
+    enrollment_cart["type"] = "enrollment"
+    raising_client = Object.new
+    raising_client.define_singleton_method(:carts) { raise "must not reprice an enrollment cart" }
+
+    service = Callbacks::CartItemAddedService.new({ cart: enrollment_cart, cart_item: @cart_item })
+    service.define_singleton_method(:fluid_client) { raising_client }
+
+    result = service.call
+    assert_equal({ success: true }, result)
+  end
+
+  test "call skips when an item belongs to an enrollment pack" do
+    cart = @cart_data.dup
+    cart["type"] = "regular"
+    cart["items"] = [ { "id" => 1, "price" => "80.0", "enrollment_pack_id" => 580 } ]
+    raising_client = Object.new
+    raising_client.define_singleton_method(:carts) { raise "must not reprice an enrollment cart" }
+
+    service = Callbacks::CartItemAddedService.new({ cart: cart, cart_item: @cart_item })
+    service.define_singleton_method(:fluid_client) { raising_client }
+
+    result = service.call
+    assert_equal({ success: true }, result)
+  end
+
   test "call returns success without updates when no preferred_customer and no subscription in cart" do
     cart_without_preferred = @cart_data.dup
     cart_without_preferred["metadata"] = { "price_type" => "regular_customer" }

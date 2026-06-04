@@ -41,6 +41,14 @@ private
     @cart_items ||= cart&.dig("items") || []
   end
 
+  # BP enrollment carts are priced by the yoli-promos droplet (wholesale), which
+  # takes precedence. Dynamic pricing must yield on those carts to avoid both
+  # droplets fighting over the same items (STU2-2377).
+  def enrollment_cart?
+    cart&.dig("type") == "enrollment" ||
+      cart_items.any? { |item| item["enrollment_pack_id"].present? }
+  end
+
   def result_success
     { success: true }
   end

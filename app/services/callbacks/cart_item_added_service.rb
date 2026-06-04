@@ -3,6 +3,9 @@ class Callbacks::CartItemAddedService < Callbacks::BaseService
     raise CallbackError, "Cart is blank" if cart.blank?
     raise CallbackError, "Cart item is blank" if cart_item.blank?
 
+    # Enrollment carts are priced by the BP wholesale droplet (STU2-2377).
+    return result_success if enrollment_cart?
+
     current_price_type = cart.dig("metadata", "price_type")
 
     has_another_subscription = has_another_subscription_in_cart?
