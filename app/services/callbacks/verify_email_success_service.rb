@@ -3,6 +3,9 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
     raise CallbackError, "Cart is blank" if cart.blank?
     raise CallbackError, "Missing email" if customer_email.blank?
 
+    # Enrollment carts are priced by the BP wholesale droplet (STU2-2377).
+    return result_success if yield_to_enrollment_wholesale?
+
     clean_cart_metadata_before_update
 
     state_after_cleaning = cart.dig("metadata", "price_type")

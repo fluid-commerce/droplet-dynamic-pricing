@@ -41,6 +41,32 @@ private
     @cart_items ||= cart&.dig("items") || []
   end
 
+  # BP enrollment carts are priced by the yoli-promos droplet (wholesale), which
+  # takes precedence. Dynamic pricing must yield on those carts to avoid both
+  # droplets fighting over the same items (STU2-2377).
+  #
+  # Only companies that actually run yoli-promos (i.e. Yoli) should yield — for
+  # everyone else, yielding would strip preferred-customer pricing from
+  # enrollment carts. So the skip is gated behind a per-company toggle
+  # (Integration Settings), off by default.
+  def yield_to_enrollment_wholesale?
+    enrollment_cart? && company_yields_to_enrollment_wholesale?
+  end
+
+  def enrollment_cart?
+    cart&.dig("type") == "enrollment" ||
+      cart_items.any? { |item| item["enrollment_pack_id"].present? }
+  end
+
+  def company_yields_to_enrollment_wholesale?
+    company = find_company
+    return false if company.blank?
+
+    company.integration_setting&.yield_to_enrollment_wholesale? || false
+  rescue CallbackError
+    false
+  end
+
   def result_success
     { success: true }
   end
@@ -64,7 +90,11 @@ private
   end
 
   def find_company
-    company_data = callback_params.dig("cart", "company")
+    # Use the `cart` accessor (reads callback_params[:cart]) rather than
+    # callback_params.dig("cart", ...) so this works whether the cart key is a
+    # symbol (plain hash, e.g. in tests) or a string (HashWithIndifferentAccess
+    # from the controller in production).
+    company_data = cart&.dig("company")
     raise CallbackError, "Company data is blank" if company_data.blank?
 
     Company.find_by(fluid_company_id: company_data["id"])
