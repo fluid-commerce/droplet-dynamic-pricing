@@ -4,7 +4,7 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
     raise CallbackError, "Missing email" if customer_email.blank?
 
     # Enrollment carts are priced by the BP wholesale droplet (STU2-2377).
-    return result_success if enrollment_cart?
+    return result_success if yield_to_enrollment_wholesale?
 
     clean_cart_metadata_before_update
 

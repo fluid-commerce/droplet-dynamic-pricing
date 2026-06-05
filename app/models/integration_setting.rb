@@ -20,6 +20,15 @@ class IntegrationSetting < ApplicationRecord
     }
   end
 
+  # When enabled, dynamic pricing yields (no-ops) on BP enrollment carts so the
+  # yoli-promos droplet's wholesale pricing takes precedence (STU2-2377). Only
+  # relevant for companies that also run yoli-promos (i.e. Yoli); off by default
+  # so every other company keeps getting preferred-customer pricing on
+  # enrollment carts.
+  def yield_to_enrollment_wholesale?
+    ActiveModel::Type::Boolean.new.cast(settings.dig("yield_to_enrollment_wholesale")) || false
+  end
+
   def preferred_customer_type_id
     settings.dig("preferred_customer_type_id") || "2"
   end

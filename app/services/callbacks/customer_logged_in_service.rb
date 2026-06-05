@@ -6,7 +6,7 @@ class Callbacks::CustomerLoggedInService < Callbacks::BaseService
     raise CallbackError, "Customer is not logged in" unless customer_logged_in?
 
     # Enrollment carts are priced by the BP wholesale droplet (STU2-2377).
-    return result_success if enrollment_cart?
+    return result_success if yield_to_enrollment_wholesale?
 
     is_preferred = is_preferred_customer?(customer_email)
 

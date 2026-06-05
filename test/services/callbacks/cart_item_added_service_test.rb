@@ -41,6 +41,15 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     }
   end
 
+  # Turns on the per-company toggle so dynamic pricing yields to yoli-promos
+  # wholesale on enrollment carts. Persisted because the service re-resolves
+  # the company from the DB via find_company.
+  def enable_yield_to_enrollment_wholesale!
+    @company.create_integration_setting!(
+      settings: { "yield_to_enrollment_wholesale" => true }
+    )
+  end
+
   test "call returns failure when cart is blank" do
     service = Callbacks::CartItemAddedService.new({ cart: nil, cart_item: @cart_item })
     result = service.call
@@ -57,7 +66,8 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     assert_equal "Cart item is blank", result[:message]
   end
 
-  test "call skips enrollment cart (type=enrollment) so BP wholesale takes precedence" do
+  test "call skips enrollment cart (type=enrollment) when company yields to wholesale" do
+    enable_yield_to_enrollment_wholesale!
     enrollment_cart = @cart_data.dup
     enrollment_cart["type"] = "enrollment"
     raising_client = Object.new
@@ -70,7 +80,8 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     assert_equal({ success: true }, result)
   end
 
-  test "call skips when an item belongs to an enrollment pack" do
+  test "call skips enrollment-pack item when company yields to wholesale" do
+    enable_yield_to_enrollment_wholesale!
     cart = @cart_data.dup
     cart["type"] = "regular"
     cart["items"] = [ { "id" => 1, "price" => "80.0", "enrollment_pack_id" => 580 } ]
@@ -82,6 +93,26 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
 
     result = service.call
     assert_equal({ success: true }, result)
+  end
+
+  test "call does NOT skip enrollment cart when company does not yield to wholesale" do
+    # No integration_setting / toggle off → dynamic pricing must still run so
+    # the company keeps preferred-customer pricing on its enrollment carts.
+    enrollment_cart = @cart_data.dup
+    enrollment_cart["type"] = "enrollment"
+
+    repriced = false
+    carts_api = Object.new
+    carts_api.define_singleton_method(:update_items_prices) { |*_| repriced = true }
+    carts_api.define_singleton_method(:append_metadata) { |*_| nil }
+    repricing_client = Object.new
+    repricing_client.define_singleton_method(:carts) { carts_api }
+
+    service = Callbacks::CartItemAddedService.new({ cart: enrollment_cart, cart_item: @cart_item })
+    service.define_singleton_method(:fluid_client) { repricing_client }
+
+    service.call
+    assert repriced, "expected dynamic pricing to reprice the enrollment cart when the toggle is off"
   end
 
   test "call returns success without updates when no preferred_customer and no subscription in cart" do
