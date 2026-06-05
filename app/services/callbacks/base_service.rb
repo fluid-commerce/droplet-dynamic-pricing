@@ -108,25 +108,43 @@ private
 
   def update_cart_items_prices(items_data)
     raise CallbackError, "Items data is blank" if items_data.blank?
-    fluid_client.carts.update_items_prices(cart_token, items_data)
+
+    safe_items = items_data.reject { |item| item["price"].to_f.zero? }
+    if safe_items.size < items_data.size
+      dropped = items_data - safe_items
+      Rails.logger.warn(
+        "[DynamicPricing] Refusing to set zero price for cart #{cart_token}, " \
+        "dropped items: #{dropped.map { |i| i['id'] }.inspect}"
+      )
+    end
+    return if safe_items.empty?
+
+    fluid_client.carts.update_items_prices(cart_token, safe_items)
   rescue StandardError => e
     Rails.logger.error "Failed to update cart items prices for cart #{cart_token}: #{e.message}"
   end
 
+  # Returns { id, price } for each cart item using the subscription price.
+  # For bundles, item.product.price may be 0 — fall back to item.price (the
+  # cart's resolved price). Zero prices are filtered out by update_cart_items_prices.
   def cart_items_with_subscription_price
     cart_items.map do |item|
       {
         "id" => item["id"],
-        "price" => item["subscription_price"] || item["price"],
+        "price" => item["subscription_price"].to_f.nonzero? || item["price"],
       }
     end
   end
 
+  # Returns { id, price } for each cart item using the non-subscription price.
+  # For bundles, item.product.price is often 0 (bundle parent has no base price)
+  # so fall back to item.price, the cart's currently-resolved price. Zero prices
+  # are filtered out by update_cart_items_prices to prevent $0 checkouts.
   def cart_items_with_regular_price
     cart_items.map do |item|
       {
         "id" => item["id"],
-        "price" => item.dig("product", "price") || item["price"],
+        "price" => item.dig("product", "price").to_f.nonzero? || item["price"],
       }
     end
   end
