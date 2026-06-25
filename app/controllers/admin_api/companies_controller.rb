@@ -84,7 +84,7 @@ module AdminApi
         else
           render json: {
             error: "Multiple companies match fluid_company_id: #{params[:fluid_company_id]}. " \
-                    "Re-call with an explicit `id`.",
+                   "Re-call with an explicit `id`.",
             candidates: scope.order(:id).map { |c| serialize(c) },
           }, status: :conflict
           nil
