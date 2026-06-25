@@ -1,26 +1,7 @@
 module AdminApi
-  # Ops endpoint to update the mutable fields of a company/installation record:
-  # name, fluid_shop, and active.
-  #
-  # Motivation: when a Fluid company changes its name (and therefore its
-  # shop/subdomain), the stored fluid_shop goes stale and shop-based lookups
-  # stop resolving. Setting active: false also deactivates a stale duplicate
-  # installation so it stops interfering with shop resolution. This endpoint
-  # never deletes — deactivating preserves data and avoids dependent
-  # destruction (Company has_many ... dependent: :destroy).
-  #
-  # Auth: a global ADMIN_API_TOKEN bearer token. Inherits ActionController::API
-  # so there is no CSRF token or browser-version gate to trip up curl/ops calls.
   class CompaniesController < ActionController::API
     before_action :authenticate_admin_api_token
 
-    # PATCH /admin_api/company
-    #
-    # Body: { fluid_company_id: <int>, name?: <str>, fluid_shop?: <str>, active?: <bool> }
-    #   - Identify by fluid_company_id (or an explicit `id` primary key).
-    #   - fluid_company_id is NOT unique in this schema; if it matches more than
-    #     one row we refuse and return the candidate ids so the caller can
-    #     re-issue with an unambiguous `id`.
     def update
       company = find_target_company
       return if performed?
@@ -59,9 +40,6 @@ module AdminApi
       render json: { error: "Unauthorized" }, status: :unauthorized
     end
 
-    # Resolves the single company to update, or renders an error response and
-    # returns nil. Prefers an explicit `id`; otherwise selects by
-    # fluid_company_id and guards against the non-unique case.
     def find_target_company
       if params[:id].present?
         company = Company.find_by(id: params[:id])
@@ -95,7 +73,6 @@ module AdminApi
       end
     end
 
-    # Only the fields explicitly present in the request are updated.
     def update_attributes
       attrs = {}
       attrs[:name] = params[:name] if params.key?(:name)
