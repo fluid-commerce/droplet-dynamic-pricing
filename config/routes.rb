@@ -36,6 +36,14 @@ Rails.application.routes.draw do
     end
   end
 
+  # Token-authenticated ops endpoint (PATCH /admin_api/company) to update a
+  # company/installation's mutable fields (name, fluid_shop, active). Auth is a
+  # global ADMIN_API_TOKEN bearer, distinct from the per-company webhook token
+  # and the Devise-protected admin/* UI.
+  namespace :admin_api do
+    resource :company, only: :update, controller: "companies"
+  end
+
   resources :price_types, except: %i[ show ]
   resources :customers, only: %i[index update]
 
