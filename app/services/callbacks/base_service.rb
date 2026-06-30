@@ -118,34 +118,36 @@ private
     false
   end
 
-  # Adjusts each item's per-unit QV/CV to reflect the price being charged,
-  # proportionally to the discount off retail (mirrors Fluid core's
+  # Adjusts each item's per-unit QV/CV to reflect subscription pricing,
+  # proportionally to the variant's subscription discount (mirrors Fluid core's
   # volume-discount engine). No-op unless the company opted in.
   #
-  #   mode: :subscription -> charge the subscription price (volumes scale down)
-  #   mode: :regular      -> charge the retail price (volumes restored to base)
+  #   mode: :subscription -> scale volumes by subscription_price / retail price
+  #   mode: :regular      -> restore the variant's base volumes
   #
-  # Each item must carry "id", "variant_id", "price" (retail) and "quantity".
-  # Items without a resolvable variant are skipped rather than zeroed out, so
-  # we never wipe real commission values on Fluid.
+  # The ratio and the base CV/QV both come from the variant's variant_country
+  # (the authoritative source that carries price, subscription_price, cv and qv
+  # together) — NOT the cart item's price fields, which can be inconsistent.
+  # Each item needs an "id" and a variant id (flat "variant_id" or nested
+  # "variant" => { "id" }). Items without a resolvable variant are skipped
+  # rather than zeroed out, so we never wipe real commission values on Fluid.
   def update_cart_items_volumes(items, mode: :subscription)
     return unless adjust_volumes_for_subscription?
 
     Array(items).each do |item|
       item_id = item["id"]
-      variant_id = item["variant_id"]
+      variant_id = item["variant_id"] || item.dig("variant", "id")
       next if item_id.blank? || variant_id.blank?
 
       base = variant_base_volumes(variant_id)
       next if base.nil?
 
-      retail = item["price"]
-      charged = mode == :subscription ? (item["subscription_price"].to_f.nonzero? || item["price"]) : item["price"]
+      ratio = mode == :subscription ? subscription_value_ratio(base) : 1.0
       qty = item["quantity"]
 
       volumes = {
-        "cv" => adjusted_unit_volume(base[:cv], retail, charged, qty),
-        "qv" => adjusted_unit_volume(base[:qv], retail, charged, qty),
+        "cv" => scaled_unit_volume(base[:cv], ratio, qty),
+        "qv" => scaled_unit_volume(base[:qv], ratio, qty),
       }
 
       fluid_client.carts.update_item_volumes(cart_token, item_id, volumes)
@@ -154,27 +156,30 @@ private
     Rails.logger.error "Failed to update cart item volumes for cart #{cart_token}: #{e.message}"
   end
 
-  # Per-unit adjusted volume: base * (1 - discount_ratio), where the ratio is
-  # the dollar discount off retail, clamped to [0, 1]. Rounded on the line total
-  # (base * qty) then divided back per unit, matching Fluid core's rounding.
-  def adjusted_unit_volume(base_unit, retail, charged, quantity)
-    base_unit = base_unit.to_f
-    retail = retail.to_f
-    charged = charged.to_f
-    qty = [ quantity.to_i, 1 ].max
-    return base_unit.round if retail <= 0 || charged <= 0
+  # Fraction of base volume to keep under subscription pricing =
+  # subscription_price / retail price, clamped to [0, 1]. Falls back to 1.0
+  # (no reduction) when the variant's prices are missing or non-positive.
+  def subscription_value_ratio(base)
+    retail = base[:price].to_f
+    subscription = base[:subscription_price].to_f
+    return 1.0 if retail <= 0 || subscription <= 0
 
-    ratio = (retail - charged) / retail
-    ratio = 0.0 if ratio.negative?
-    ratio = 1.0 if ratio > 1.0
-
-    adjusted_total = (base_unit * qty * (1 - ratio)).round
-    [ (adjusted_total.to_f / qty).round, 0 ].max
+    (subscription / retail).clamp(0.0, 1.0)
   end
 
-  # Fetches the variant's per-unit base CV/QV for the cart's country, falling
-  # back to the first country entry. Memoized per request since several items
-  # can share a variant. Returns nil when the variant can't be resolved.
+  # Per-unit volume scaled by `ratio`. Rounded on the line total (base * qty)
+  # then divided back per unit, matching Fluid core's rounding.
+  def scaled_unit_volume(base_unit, ratio, quantity)
+    base_unit = base_unit.to_f
+    qty = [ quantity.to_i, 1 ].max
+    total = (base_unit * qty * ratio).round
+    [ (total.to_f / qty).round, 0 ].max
+  end
+
+  # Fetches the variant's per-unit base CV/QV plus retail/subscription price for
+  # the cart's country, falling back to the first country entry. Memoized per
+  # request since several items can share a variant. Returns nil when the
+  # variant can't be resolved.
   def variant_base_volumes(variant_id)
     @variant_base_volumes ||= {}
     return @variant_base_volumes[variant_id] if @variant_base_volumes.key?(variant_id)
@@ -186,15 +191,33 @@ private
     match = countries.find { |c| (c["country_code"] || c[:country_code]) == cart_country } || countries.first
     @variant_base_volumes[variant_id] =
       if match
-        { cv: (match["cv"] || match[:cv]).to_f, qv: (match["qv"] || match[:qv]).to_f }
+        {
+          cv: (match["cv"] || match[:cv]).to_f,
+          qv: (match["qv"] || match[:qv]).to_f,
+          price: (match["price"] || match[:price]),
+          subscription_price: (match["subscription_price"] || match[:subscription_price]),
+        }
       end
   rescue StandardError => e
     Rails.logger.error "Failed to fetch variant #{variant_id} volumes: #{e.message}"
     nil
   end
 
+  # Fluid's cart payload exposes the country as an object (cart.country.iso) and
+  # on the shipping target (ship_to/shipping_address.country_code) rather than a
+  # flat cart.country_code. Accept all of these (STU2-2526).
   def cart_country
-    cart&.dig("country_code") || cart&.dig("country")
+    cart&.dig("country_code") ||
+      country_field_iso ||
+      cart&.dig("ship_to", "country_code") ||
+      cart&.dig("shipping_address", "country_code")
+  end
+
+  def country_field_iso
+    country = cart&.dig("country")
+    return country if country.is_a?(String)
+
+    (country["iso"] || country[:iso]) if country.is_a?(Hash)
   end
 
   def update_cart_items_prices(items_data)

@@ -213,7 +213,8 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     fake_client = stubbed_fluid_client(
       customers_response: [ { "id" => 888, "email" => email } ],
       customer_type_metafield: metafield,
-      variant_countries: [ { "country_code" => "US", "cv" => 100, "qv" => 50 } ]
+      variant_countries: [ { "country_code" => "US", "cv" => 100, "qv" => 50, "price" => "100.0",
+"subscription_price" => "90.0", } ]
     )
 
     service = Callbacks::VerifyEmailSuccessService.new(params)

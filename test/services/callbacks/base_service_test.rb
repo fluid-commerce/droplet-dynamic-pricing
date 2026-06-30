@@ -146,7 +146,8 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
       "id" => 1, "variant_id" => 10, "price" => "100.0",
       "subscription_price" => "90.0", "quantity" => 1,
     } ]
-    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40 } ])
+    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40, "price" => "100.0",
+"subscription_price" => "90.0", } ])
     carts = FakeVolumeCartsResource.new
     service = build_volume_service(fake_variants: variants, fake_carts: carts)
 
@@ -165,7 +166,8 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
       "id" => 1, "variant_id" => 10, "price" => "100.0",
       "subscription_price" => "90.0", "quantity" => 1,
     } ]
-    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40 } ])
+    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40, "price" => "100.0",
+"subscription_price" => "90.0", } ])
     carts = FakeVolumeCartsResource.new
     service = build_volume_service(fake_variants: variants, fake_carts: carts)
 
@@ -192,7 +194,8 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
       "id" => 1, "variant_id" => 10, "price" => "100.0",
       "subscription_price" => "90.0", "quantity" => 1,
     } ]
-    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40 } ])
+    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40, "price" => "100.0",
+"subscription_price" => "90.0", } ])
     carts = FakeVolumeCartsResource.new
     service = build_volume_service(fake_variants: variants, fake_carts: carts)
 
@@ -207,7 +210,8 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
       "id" => 1, "variant_id" => 10, "price" => "100.0",
       "subscription_price" => "90.0", "quantity" => 3,
     } ]
-    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40 } ])
+    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40, "price" => "100.0",
+"subscription_price" => "90.0", } ])
     carts = FakeVolumeCartsResource.new
     service = build_volume_service(fake_variants: variants, fake_carts: carts)
 
@@ -223,8 +227,8 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
       "subscription_price" => "90.0", "quantity" => 1,
     } ]
     variants = FakeVariantsResource.new(10 => [
-      { "country_code" => "US", "cv" => 50, "qv" => 40 },
-      { "country_code" => "CA", "cv" => 20, "qv" => 10 },
+      { "country_code" => "US", "cv" => 50, "qv" => 40, "price" => "100.0", "subscription_price" => "90.0" },
+      { "country_code" => "CA", "cv" => 20, "qv" => 10, "price" => "100.0", "subscription_price" => "90.0" },
     ])
     carts = FakeVolumeCartsResource.new
     service = build_volume_service(fake_variants: variants, fake_carts: carts, country_code: "CA")
@@ -232,6 +236,106 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     service.send(:update_cart_items_volumes, items, mode: :subscription)
 
     # ratio 0.1 on CA base: 20*0.9 = 18, 10*0.9 = 9
+    assert_equal({ "cv" => 18, "qv" => 9 }, carts.volume_calls.first[:volumes])
+  end
+
+  # The discount ratio comes from the variant_country's own price /
+  # subscription_price (authoritative source that also carries cv/qv), NOT the
+  # cart item's price fields, which can be inconsistent/inverted (STU2-2526).
+  test "update_cart_items_volumes derives the ratio from the variant, not the cart item" do
+    enable_volume_adjustment!
+    # Cart item prices are inverted (subscription > price), as seen in the real
+    # sample cart; they must be ignored for the ratio.
+    items = [ {
+      "id" => 1, "variant" => { "id" => 10 }, "price" => "23.99",
+      "subscription_price" => "29.99", "quantity" => 1,
+    } ]
+    variants = FakeVariantsResource.new(10 => [
+      { "country_code" => "US", "cv" => 125, "qv" => 125, "price" => "29.99", "subscription_price" => "23.99" },
+    ])
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    # 125 * (23.99 / 29.99) = 99.98 -> 100
+    assert_equal({ "cv" => 100, "qv" => 100 }, carts.volume_calls.first[:volumes])
+  end
+
+  # Fluid's real cart payload nests the variant id under "variant" and exposes
+  # the country as an object (or via ship_to), not as flat variant_id /
+  # country_code keys. See STU2-2526 sample cart.
+  test "update_cart_items_volumes resolves variant_id nested under the variant object" do
+    enable_volume_adjustment!
+    items = [ {
+      "id" => 1, "variant" => { "id" => 10 }, "price" => "100.0",
+      "subscription_price" => "90.0", "quantity" => 1,
+    } ]
+    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40, "price" => "100.0",
+"subscription_price" => "90.0", } ])
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    assert_equal 1, carts.volume_calls.size
+    assert_equal({ "cv" => 45, "qv" => 36 }, carts.volume_calls.first[:volumes])
+  end
+
+  test "update_cart_items_volumes resolves the country from a country object (country.iso)" do
+    enable_volume_adjustment!
+    cart = {
+      "cart_token" => "ct_abc",
+      "country" => { "iso" => "CA" },
+      "company" => { "id" => @company.fluid_company_id },
+      "items" => [],
+    }
+    carts = FakeVolumeCartsResource.new
+    variants = FakeVariantsResource.new(10 => [
+      { "country_code" => "US", "cv" => 50, "qv" => 40, "price" => "100.0", "subscription_price" => "90.0" },
+      { "country_code" => "CA", "cv" => 20, "qv" => 10, "price" => "100.0", "subscription_price" => "90.0" },
+    ])
+    client = Object.new
+    client.define_singleton_method(:variants) { variants }
+    client.define_singleton_method(:carts) { carts }
+    service = Callbacks::BaseService.new({ cart: cart })
+    service.define_singleton_method(:fluid_client) { client }
+
+    items = [ {
+      "id" => 1, "variant" => { "id" => 10 }, "price" => "100.0",
+      "subscription_price" => "90.0", "quantity" => 1,
+    } ]
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    # CA base 20/10 with ratio 0.1 -> 18 / 9
+    assert_equal({ "cv" => 18, "qv" => 9 }, carts.volume_calls.first[:volumes])
+  end
+
+  test "update_cart_items_volumes falls back to ship_to country_code" do
+    enable_volume_adjustment!
+    cart = {
+      "cart_token" => "ct_abc",
+      "ship_to" => { "country_code" => "CA" },
+      "company" => { "id" => @company.fluid_company_id },
+      "items" => [],
+    }
+    carts = FakeVolumeCartsResource.new
+    variants = FakeVariantsResource.new(10 => [
+      { "country_code" => "US", "cv" => 50, "qv" => 40, "price" => "100.0", "subscription_price" => "90.0" },
+      { "country_code" => "CA", "cv" => 20, "qv" => 10, "price" => "100.0", "subscription_price" => "90.0" },
+    ])
+    client = Object.new
+    client.define_singleton_method(:variants) { variants }
+    client.define_singleton_method(:carts) { carts }
+    service = Callbacks::BaseService.new({ cart: cart })
+    service.define_singleton_method(:fluid_client) { client }
+
+    items = [ {
+      "id" => 1, "variant" => { "id" => 10 }, "price" => "100.0",
+      "subscription_price" => "90.0", "quantity" => 1,
+    } ]
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
     assert_equal({ "cv" => 18, "qv" => 9 }, carts.volume_calls.first[:volumes])
   end
 end

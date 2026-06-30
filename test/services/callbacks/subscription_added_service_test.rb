@@ -81,7 +81,8 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
     params = { "cart" => cart }.with_indifferent_access
 
     carts = VolumeTestHelpers::FakeCarts.new
-    variants = VolumeTestHelpers::FakeVariants.new(10 => [ { "country_code" => "US", "cv" => 100, "qv" => 50 } ])
+    variants = VolumeTestHelpers::FakeVariants.new(10 => [ { "country_code" => "US", "cv" => 100, "qv" => 50,
+"price" => "100.0", "subscription_price" => "90.0", } ])
     client = build_volume_client(carts: carts, variants: variants)
 
     service = Callbacks::SubscriptionAddedService.new(params)
@@ -103,7 +104,8 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
     params = { "cart" => cart }.with_indifferent_access
 
     carts = VolumeTestHelpers::FakeCarts.new
-    variants = VolumeTestHelpers::FakeVariants.new(10 => [ { "country_code" => "US", "cv" => 100, "qv" => 50 } ])
+    variants = VolumeTestHelpers::FakeVariants.new(10 => [ { "country_code" => "US", "cv" => 100, "qv" => 50,
+"price" => "100.0", "subscription_price" => "90.0", } ])
     client = build_volume_client(carts: carts, variants: variants)
 
     service = Callbacks::SubscriptionAddedService.new(params)
