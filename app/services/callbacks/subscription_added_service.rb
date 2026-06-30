@@ -8,7 +8,10 @@ class Callbacks::SubscriptionAddedService < Callbacks::BaseService
     current_price_type = cart.dig("metadata", "price_type")
 
     update_cart_metadata({ "price_type" => "preferred_customer" })
-    update_cart_items_prices(cart_items_with_subscription_price) if cart_items.any?
+    if cart_items.any?
+      update_cart_items_prices(cart_items_with_subscription_price)
+      update_cart_items_volumes(cart_items, mode: :subscription)
+    end
 
     if current_price_type != PREFERRED_CUSTOMER_TYPE
       log_cart_pricing_event(

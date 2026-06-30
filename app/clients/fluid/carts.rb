@@ -22,6 +22,10 @@ module Fluid
         payload = { "cart_items" => items_data }
         @client.patch("/api/carts/#{cart_token}/update_cart_items_prices", body: payload)
       end
+
+      def update_item_volumes(cart_token, item_id, volumes)
+        @client.patch("/api/carts/#{cart_token}/items/#{item_id}/update_volumes", body: volumes)
+      end
     end
   end
 end

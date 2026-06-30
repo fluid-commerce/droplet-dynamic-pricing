@@ -20,7 +20,10 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
       update_result = update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
       return update_result if update_result.is_a?(Hash) && update_result[:success] == false
 
-      update_cart_items_prices(cart_items_with_subscription_price) if cart_items.any?
+      if cart_items.any?
+        update_cart_items_prices(cart_items_with_subscription_price)
+        update_cart_items_volumes(cart_items, mode: :subscription)
+      end
     end
 
     state_changed = (state_after_cleaning == PREFERRED_CUSTOMER_TYPE) != final_is_preferred
@@ -81,7 +84,10 @@ private
     update_result = update_cart_metadata({ "price_type" => nil })
     return if update_result.is_a?(Hash) && update_result[:success] == false
 
-    update_cart_items_prices(cart_items_with_regular_price) if cart_items.any?
+    return unless cart_items.any?
+
+    update_cart_items_prices(cart_items_with_regular_price)
+    update_cart_items_volumes(cart_items, mode: :regular)
   end
 
   def fetch_and_validate_customer_type(email)

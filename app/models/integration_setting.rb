@@ -29,6 +29,15 @@ class IntegrationSetting < ApplicationRecord
     ActiveModel::Type::Boolean.new.cast(settings.dig("yield_to_enrollment_wholesale")) || false
   end
 
+  # When enabled, dynamic pricing also adjusts each cart item's volumes (QV/CV)
+  # to reflect the subscription price, proportionally to the discount (STU2-2526).
+  # Off by default: the droplet is shared, and Yoli already manages its volumes
+  # via the yoli-promos/yoli-rewards droplets, so only companies that opt in get
+  # volume adjustments.
+  def adjust_volumes_for_subscription?
+    ActiveModel::Type::Boolean.new.cast(settings.dig("adjust_volumes_for_subscription")) || false
+  end
+
   def preferred_customer_type_id
     settings.dig("preferred_customer_type_id") || "2"
   end

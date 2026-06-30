@@ -9,6 +9,7 @@ class FluidClient
   include Fluid::Carts
   include Fluid::Subscriptions
   include Fluid::Metafields
+  include Fluid::Variants
 
   Error                 = Class.new(StandardError)
   AuthenticationError   = Class.new(Error)

@@ -11,11 +11,17 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
     if customer_email.blank?
       if has_another_subscription_in_cart?
         update_cart_metadata({ "price_type" => "preferred_customer" })
-        update_cart_items_prices(cart_items_with_subscription_price) if cart_items.any?
+        if cart_items.any?
+          update_cart_items_prices(cart_items_with_subscription_price)
+          update_cart_items_volumes(cart_items, mode: :subscription)
+        end
         return result_success
       end
       update_cart_metadata({ "price_type" => nil })
-      update_cart_items_prices(cart_items_with_regular_price) if cart_items.any?
+      if cart_items.any?
+        update_cart_items_prices(cart_items_with_regular_price)
+        update_cart_items_volumes(cart_items, mode: :regular)
+      end
 
       if was_preferred
         log_cart_pricing_event(
@@ -38,6 +44,7 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
     if cart_items.any?
       items_data = use_subscription_prices ? cart_items_with_subscription_price : cart_items_with_regular_price
       update_cart_items_prices(items_data)
+      update_cart_items_volumes(cart_items, mode: use_subscription_prices ? :subscription : :regular)
     end
 
     is_now_preferred = use_subscription_prices
