@@ -30,6 +30,8 @@ class FakeCustomersResource
 end
 
 class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
+  include VolumeTestHelpers
+
   fixtures(:companies)
 
   def company
@@ -62,6 +64,29 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     service = Callbacks::SubscriptionRemovedService.new({ cart: nil })
     result = service.call
     assert_equal({ success: false, message: "Cart is blank" }, result)
+  end
+
+  test "restores base volumes when reverting to regular pricing and company opts in" do
+    company.create_integration_setting!(settings: { "adjust_volumes_for_subscription" => true })
+    cart = cart_data
+    cart["email"] = ""
+    cart["country_code"] = "US"
+    cart["items"] = [
+      { "id" => 674137, "variant_id" => 10, "price" => "80.0", "quantity" => 1 },
+    ]
+
+    carts = VolumeTestHelpers::FakeCarts.new
+    variants = VolumeTestHelpers::FakeVariants.new(10 => [ { "country_code" => "US", "cv" => 100, "qv" => 50 } ])
+    client = build_volume_client(carts: carts, variants: variants)
+
+    service = Callbacks::SubscriptionRemovedService.new({ cart: cart })
+    FluidClient.stub(:new, ->(_auth_token) { client }) do
+      service.call
+    end
+
+    assert_equal 1, carts.volume_calls.size
+    # regular mode restores the variant base volume (ratio 0)
+    assert_equal({ "cv" => 100, "qv" => 50 }, carts.volume_calls.first[:volumes])
   end
 
   test "updates to REGULAR pricing when customer has NO other subscriptions" do

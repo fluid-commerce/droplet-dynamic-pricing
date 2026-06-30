@@ -5,6 +5,8 @@ require_relative "../config/environment"
 require "rails/test_help"
 require "minitest/rails"
 
+Dir[File.expand_path("support/**/*.rb", __dir__)].each { |f| require f }
+
 module ActiveSupport
   class TestCase
     # Run tests in parallel with specified workers

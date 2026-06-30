@@ -193,6 +193,41 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     assert_equal 2, fake_client.items_prices_updates.size
   end
 
+  def test_applies_subscription_volumes_when_preferred_and_company_opts_in
+    company = companies(:acme)
+    company.create_integration_setting!(settings: { "adjust_volumes_for_subscription" => true })
+    email = "vip@example.com"
+    cart_token = "ct_vip_vol"
+    cart_payload = build_cart_payload(
+      company: company,
+      cart_token: cart_token,
+      email: email,
+      customer_id: 888,
+      items: [ { "id" => 1, "variant_id" => 10, "price" => "100.0", "subscription_price" => "90.0", "quantity" => 1 } ],
+      metadata: { "price_type" => "preferred_customer" }
+    )
+    cart_payload["country_code"] = "US"
+    params = { cart: cart_payload }
+
+    metafield = { "key" => "customer_type", "value" => { "customer_type" => TEST_PREFERRED_TYPE } }
+    fake_client = stubbed_fluid_client(
+      customers_response: [ { "id" => 888, "email" => email } ],
+      customer_type_metafield: metafield,
+      variant_countries: [ { "country_code" => "US", "cv" => 100, "qv" => 50 } ]
+    )
+
+    service = Callbacks::VerifyEmailSuccessService.new(params)
+    service.define_singleton_method(:fluid_client) { fake_client }
+
+    service.call
+
+    # Volumes track prices exactly: metadata is first cleaned to regular, then
+    # re-applied as preferred — so two writes, the last reflecting subscription.
+    assert_equal 2, fake_client.volume_updates.size
+    assert_equal({ "cv" => 100, "qv" => 50 }, fake_client.volume_updates.first[:volumes])
+    assert_equal({ "cv" => 90, "qv" => 45 }, fake_client.volume_updates.last[:volumes])
+  end
+
   def test_does_not_update_metadata_when_customer_is_regular
     company = companies(:acme)
     email = "regular@example.com"
@@ -273,11 +308,12 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
   end
 
 
-  def stubbed_fluid_client(customers_response: [], customer_type_metafield: nil, get_error: nil)
+  def stubbed_fluid_client(customers_response: [], customer_type_metafield: nil, get_error: nil, variant_countries: [])
     StubFluidClient.new(
       customers_response: customers_response,
       customer_type_metafield: customer_type_metafield,
-      get_error: get_error
+      get_error: get_error,
+      variant_countries: variant_countries
     )
   end
 
@@ -312,11 +348,12 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
   end
 
   class StubCartsResource
-    attr_reader :metadata_updates, :items_prices_updates
+    attr_reader :metadata_updates, :items_prices_updates, :volume_updates
 
     def initialize
       @metadata_updates = []
       @items_prices_updates = []
+      @volume_updates = []
     end
 
     def append_metadata(cart_token, metadata)
@@ -328,12 +365,27 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
       @items_prices_updates << { token: cart_token, items: items_data }
       { "success" => true }
     end
+
+    def update_item_volumes(cart_token, item_id, volumes)
+      @volume_updates << { token: cart_token, item_id: item_id, volumes: volumes }
+      { "success" => true }
+    end
+  end
+
+  class StubVariantsResource
+    def initialize(variant_countries)
+      @variant_countries = variant_countries
+    end
+
+    def get(variant_id)
+      { "variant" => { "id" => variant_id, "variant_countries" => @variant_countries } }
+    end
   end
 
   class StubFluidClient
-    attr_reader :metadata_updates, :items_prices_updates
+    attr_reader :metadata_updates, :items_prices_updates, :volume_updates
 
-    def initialize(customers_response:, customer_type_metafield:, get_error:)
+    def initialize(customers_response:, customer_type_metafield:, get_error:, variant_countries: [])
       @customers_resource = StubCustomersResource.new(
         customers_response: customers_response,
         get_error: get_error
@@ -343,8 +395,10 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
         get_error: get_error
       )
       @carts_resource = StubCartsResource.new
+      @variants_resource = StubVariantsResource.new(variant_countries)
       @metadata_updates = @carts_resource.metadata_updates
       @items_prices_updates = @carts_resource.items_prices_updates
+      @volume_updates = @carts_resource.volume_updates
     end
 
     def blank?
@@ -361,6 +415,10 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
 
     def carts
       @carts_resource
+    end
+
+    def variants
+      @variants_resource
     end
   end
 end

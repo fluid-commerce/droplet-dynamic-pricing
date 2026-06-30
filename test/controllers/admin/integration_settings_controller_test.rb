@@ -48,6 +48,27 @@ describe Admin::IntegrationSettingsController do
       _(integration_setting.enabled).must_equal true
     end
 
+    it "persists the adjust_volumes_for_subscription toggle" do
+      company = companies(:acme)
+      integration_setting = IntegrationSetting.create!(
+        company: company,
+        enabled: false,
+        credentials: {},
+        settings: {}
+      )
+
+      patch admin_integration_setting_path(dri: company.droplet_installation_uuid), params: {
+        integration_setting: {
+          enabled: true,
+          settings: { adjust_volumes_for_subscription: "1" },
+        },
+      }
+
+      must_respond_with :redirect
+      integration_setting.reload
+      _(integration_setting.adjust_volumes_for_subscription?).must_equal true
+    end
+
     it "returns 404 when company is not found" do
       get admin_integration_setting_path(dri: "non-existent-uuid")
 

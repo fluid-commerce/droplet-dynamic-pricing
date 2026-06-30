@@ -106,6 +106,97 @@ private
     handle_callback_error(e)
   end
 
+  # Whether this cart's company has opted into adjusting volumes (QV/CV) to
+  # reflect subscription pricing (STU2-2526). Off by default so the shared
+  # droplet doesn't touch volumes for Yoli (which manages them via yoli-promos).
+  def adjust_volumes_for_subscription?
+    company = find_company
+    return false if company.blank?
+
+    company.integration_setting&.adjust_volumes_for_subscription? || false
+  rescue CallbackError
+    false
+  end
+
+  # Adjusts each item's per-unit QV/CV to reflect the price being charged,
+  # proportionally to the discount off retail (mirrors Fluid core's
+  # volume-discount engine). No-op unless the company opted in.
+  #
+  #   mode: :subscription -> charge the subscription price (volumes scale down)
+  #   mode: :regular      -> charge the retail price (volumes restored to base)
+  #
+  # Each item must carry "id", "variant_id", "price" (retail) and "quantity".
+  # Items without a resolvable variant are skipped rather than zeroed out, so
+  # we never wipe real commission values on Fluid.
+  def update_cart_items_volumes(items, mode: :subscription)
+    return unless adjust_volumes_for_subscription?
+
+    Array(items).each do |item|
+      item_id = item["id"]
+      variant_id = item["variant_id"]
+      next if item_id.blank? || variant_id.blank?
+
+      base = variant_base_volumes(variant_id)
+      next if base.nil?
+
+      retail = item["price"]
+      charged = mode == :subscription ? (item["subscription_price"].to_f.nonzero? || item["price"]) : item["price"]
+      qty = item["quantity"]
+
+      volumes = {
+        "cv" => adjusted_unit_volume(base[:cv], retail, charged, qty),
+        "qv" => adjusted_unit_volume(base[:qv], retail, charged, qty),
+      }
+
+      fluid_client.carts.update_item_volumes(cart_token, item_id, volumes)
+    end
+  rescue StandardError => e
+    Rails.logger.error "Failed to update cart item volumes for cart #{cart_token}: #{e.message}"
+  end
+
+  # Per-unit adjusted volume: base * (1 - discount_ratio), where the ratio is
+  # the dollar discount off retail, clamped to [0, 1]. Rounded on the line total
+  # (base * qty) then divided back per unit, matching Fluid core's rounding.
+  def adjusted_unit_volume(base_unit, retail, charged, quantity)
+    base_unit = base_unit.to_f
+    retail = retail.to_f
+    charged = charged.to_f
+    qty = [ quantity.to_i, 1 ].max
+    return base_unit.round if retail <= 0 || charged <= 0
+
+    ratio = (retail - charged) / retail
+    ratio = 0.0 if ratio.negative?
+    ratio = 1.0 if ratio > 1.0
+
+    adjusted_total = (base_unit * qty * (1 - ratio)).round
+    [ (adjusted_total.to_f / qty).round, 0 ].max
+  end
+
+  # Fetches the variant's per-unit base CV/QV for the cart's country, falling
+  # back to the first country entry. Memoized per request since several items
+  # can share a variant. Returns nil when the variant can't be resolved.
+  def variant_base_volumes(variant_id)
+    @variant_base_volumes ||= {}
+    return @variant_base_volumes[variant_id] if @variant_base_volumes.key?(variant_id)
+
+    response = fluid_client.variants.get(variant_id)
+    variant = response&.dig("variant") || response&.dig(:variant)
+    countries = variant&.dig("variant_countries") || variant&.dig(:variant_countries) || []
+
+    match = countries.find { |c| (c["country_code"] || c[:country_code]) == cart_country } || countries.first
+    @variant_base_volumes[variant_id] =
+      if match
+        { cv: (match["cv"] || match[:cv]).to_f, qv: (match["qv"] || match[:qv]).to_f }
+      end
+  rescue StandardError => e
+    Rails.logger.error "Failed to fetch variant #{variant_id} volumes: #{e.message}"
+    nil
+  end
+
+  def cart_country
+    cart&.dig("country_code") || cart&.dig("country")
+  end
+
   def update_cart_items_prices(items_data)
     raise CallbackError, "Items data is blank" if items_data.blank?
 

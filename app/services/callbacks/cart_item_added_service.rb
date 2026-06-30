@@ -62,5 +62,6 @@ private
     } ]
 
     update_cart_items_prices(item_data)
+    update_cart_items_volumes([ cart_item ], mode: :subscription)
   end
 end

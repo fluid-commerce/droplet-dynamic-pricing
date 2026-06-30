@@ -1,6 +1,8 @@
 require "test_helper"
 
 class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
+  include VolumeTestHelpers
+
   fixtures(:companies)
 
   def company
@@ -67,6 +69,49 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
     end
 
     mock_carts_resource.verify
+  end
+
+  def test_applies_subscription_volumes_for_all_items_when_company_opts_in
+    company.create_integration_setting!(settings: { "adjust_volumes_for_subscription" => true })
+    cart = cart_data
+    cart["country_code"] = "US"
+    cart["items"] = [
+      { "id" => 674137, "variant_id" => 10, "price" => "80.0", "subscription_price" => "72.0", "quantity" => 1 },
+    ]
+    params = { "cart" => cart }.with_indifferent_access
+
+    carts = VolumeTestHelpers::FakeCarts.new
+    variants = VolumeTestHelpers::FakeVariants.new(10 => [ { "country_code" => "US", "cv" => 100, "qv" => 50 } ])
+    client = build_volume_client(carts: carts, variants: variants)
+
+    service = Callbacks::SubscriptionAddedService.new(params)
+    FluidClient.stub(:new, ->(_auth_token) { client }) do
+      service.call
+    end
+
+    assert_equal 1, carts.volume_calls.size
+    # ratio = (80-72)/80 = 0.1 -> 100*0.9 = 90, 50*0.9 = 45
+    assert_equal({ "cv" => 90, "qv" => 45 }, carts.volume_calls.first[:volumes])
+  end
+
+  def test_does_not_touch_volumes_when_company_has_not_opted_in
+    cart = cart_data
+    cart["country_code"] = "US"
+    cart["items"] = [
+      { "id" => 674137, "variant_id" => 10, "price" => "80.0", "subscription_price" => "72.0", "quantity" => 1 },
+    ]
+    params = { "cart" => cart }.with_indifferent_access
+
+    carts = VolumeTestHelpers::FakeCarts.new
+    variants = VolumeTestHelpers::FakeVariants.new(10 => [ { "country_code" => "US", "cv" => 100, "qv" => 50 } ])
+    client = build_volume_client(carts: carts, variants: variants)
+
+    service = Callbacks::SubscriptionAddedService.new(params)
+    FluidClient.stub(:new, ->(_auth_token) { client }) do
+      service.call
+    end
+
+    assert_equal 0, carts.volume_calls.size
   end
 
   def test_class_method_call_works

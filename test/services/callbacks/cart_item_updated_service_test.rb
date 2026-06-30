@@ -3,6 +3,8 @@
 require "test_helper"
 
 class Callbacks::CartItemUpdatedServiceTest < ActiveSupport::TestCase
+  include VolumeTestHelpers
+
   fixtures(:companies)
 
   def setup
@@ -41,6 +43,29 @@ class Callbacks::CartItemUpdatedServiceTest < ActiveSupport::TestCase
       cart: @cart_data,
       cart_item: @cart_item,
     }
+  end
+
+  test "applies subscription volume for the updated item when company opts in" do
+    @company.create_integration_setting!(settings: { "adjust_volumes_for_subscription" => true })
+    cart = @cart_data.dup
+    cart["country_code"] = "US"
+    cart_item = {
+      "id" => 674139, "variant_id" => 10, "price" => "100.0",
+      "subscription_price" => "90.0", "quantity" => 1,
+    }
+
+    carts = VolumeTestHelpers::FakeCarts.new
+    variants = VolumeTestHelpers::FakeVariants.new(10 => [ { "country_code" => "US", "cv" => 100, "qv" => 50 } ])
+    client = build_volume_client(carts: carts, variants: variants)
+
+    service = Callbacks::CartItemUpdatedService.new({ cart: cart, cart_item: cart_item })
+    service.define_singleton_method(:fluid_client) { client }
+
+    service.call
+
+    assert_equal 1, carts.volume_calls.size
+    assert_equal 674139, carts.volume_calls.first[:item_id]
+    assert_equal({ "cv" => 90, "qv" => 45 }, carts.volume_calls.first[:volumes])
   end
 
   test "call returns failure when cart is blank" do

@@ -116,4 +116,146 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
     refute called, "update_items_prices should not be called when all prices are zero"
   end
+
+  # --- Volume adjustment (STU2-2526) ---
+
+  def enable_volume_adjustment!
+    @company.create_integration_setting!(
+      settings: { "adjust_volumes_for_subscription" => true }
+    )
+  end
+
+  def build_volume_service(fake_variants:, fake_carts:, country_code: "US")
+    cart = {
+      "cart_token" => "ct_abc",
+      "country_code" => country_code,
+      "company" => { "id" => @company.fluid_company_id },
+      "items" => [],
+    }
+    service = Callbacks::BaseService.new({ cart: cart })
+    client = Object.new
+    client.define_singleton_method(:variants) { fake_variants }
+    client.define_singleton_method(:carts) { fake_carts }
+    service.define_singleton_method(:fluid_client) { client }
+    service
+  end
+
+  test "update_cart_items_volumes applies proportional volumes for subscription pricing" do
+    enable_volume_adjustment!
+    items = [ {
+      "id" => 1, "variant_id" => 10, "price" => "100.0",
+      "subscription_price" => "90.0", "quantity" => 1,
+    } ]
+    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40 } ])
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    assert_equal 1, carts.volume_calls.size
+    call = carts.volume_calls.first
+    assert_equal "ct_abc", call[:token]
+    assert_equal 1, call[:item_id]
+    # ratio = (100-90)/100 = 0.1 -> 50*0.9 = 45, 40*0.9 = 36
+    assert_equal({ "cv" => 45, "qv" => 36 }, call[:volumes])
+  end
+
+  test "update_cart_items_volumes does nothing when the toggle is off" do
+    items = [ {
+      "id" => 1, "variant_id" => 10, "price" => "100.0",
+      "subscription_price" => "90.0", "quantity" => 1,
+    } ]
+    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40 } ])
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    assert_equal 0, carts.volume_calls.size
+  end
+
+  test "update_cart_items_volumes skips items without a variant_id" do
+    enable_volume_adjustment!
+    items = [ { "id" => 1, "price" => "100.0", "subscription_price" => "90.0", "quantity" => 1 } ]
+    variants = FakeVariantsResource.new({})
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    assert_equal 0, carts.volume_calls.size
+  end
+
+  test "update_cart_items_volumes restores base volumes in regular mode" do
+    enable_volume_adjustment!
+    items = [ {
+      "id" => 1, "variant_id" => 10, "price" => "100.0",
+      "subscription_price" => "90.0", "quantity" => 1,
+    } ]
+    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40 } ])
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+
+    service.send(:update_cart_items_volumes, items, mode: :regular)
+
+    assert_equal({ "cv" => 50, "qv" => 40 }, carts.volume_calls.first[:volumes])
+  end
+
+  test "update_cart_items_volumes keeps per-unit volume regardless of quantity" do
+    enable_volume_adjustment!
+    items = [ {
+      "id" => 1, "variant_id" => 10, "price" => "100.0",
+      "subscription_price" => "90.0", "quantity" => 3,
+    } ]
+    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40 } ])
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    assert_equal({ "cv" => 45, "qv" => 36 }, carts.volume_calls.first[:volumes])
+  end
+
+  test "update_cart_items_volumes matches the cart country, falling back to the first entry" do
+    enable_volume_adjustment!
+    items = [ {
+      "id" => 1, "variant_id" => 10, "price" => "100.0",
+      "subscription_price" => "90.0", "quantity" => 1,
+    } ]
+    variants = FakeVariantsResource.new(10 => [
+      { "country_code" => "US", "cv" => 50, "qv" => 40 },
+      { "country_code" => "CA", "cv" => 20, "qv" => 10 },
+    ])
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts, country_code: "CA")
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    # ratio 0.1 on CA base: 20*0.9 = 18, 10*0.9 = 9
+    assert_equal({ "cv" => 18, "qv" => 9 }, carts.volume_calls.first[:volumes])
+  end
+end
+
+class FakeVariantsResource
+  def initialize(volumes_by_variant_id)
+    @volumes_by_variant_id = volumes_by_variant_id
+  end
+
+  def get(variant_id)
+    countries = @volumes_by_variant_id[variant_id] || []
+    { "variant" => { "id" => variant_id, "variant_countries" => countries } }
+  end
+end
+
+class FakeVolumeCartsResource
+  attr_reader :volume_calls
+
+  def initialize
+    @volume_calls = []
+  end
+
+  def update_item_volumes(token, item_id, volumes)
+    @volume_calls << { token: token, item_id: item_id, volumes: volumes }
+    { "success" => true }
+  end
 end
