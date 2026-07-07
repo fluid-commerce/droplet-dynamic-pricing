@@ -22,11 +22,7 @@ class Callbacks::CartItemUpdatedService < Callbacks::BaseService
     update_item_to_subscription_price
     update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
 
-    {
-      success: true,
-      metadata: { "price_type" => PREFERRED_CUSTOMER_TYPE },
-      message: "Item updated callback processed successfully",
-    }
+    preferred_pricing_response(message: "Item updated callback processed successfully")
   rescue CallbackError => e
     handle_callback_error(e)
   rescue StandardError => e

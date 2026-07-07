@@ -269,6 +269,16 @@ private
     { success: true, message: msg }
   end
 
+  # Builds a callback response that affirms the preferred_customer price_type on
+  # the response channel Fluid applies back to the cart. Pair with
+  # update_cart_metadata to also persist the slug for the next cart event. See
+  # CartItemAddedService for why both channels are written.
+  def preferred_pricing_response(message: nil)
+    response = { success: true, metadata: { "price_type" => PREFERRED_CUSTOMER_TYPE } }
+    response[:message] = message if message
+    response
+  end
+
   def log_cart_pricing_event(event_type:, preferred_applied:, additional_data: {})
     company = find_company
     return if company.blank?

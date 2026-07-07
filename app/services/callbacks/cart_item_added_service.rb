@@ -38,11 +38,7 @@ class Callbacks::CartItemAddedService < Callbacks::BaseService
       )
     end
 
-    {
-      success: true,
-      metadata: { "price_type" => PREFERRED_CUSTOMER_TYPE },
-      message: "Cart item updated to subscription price successfully",
-    }
+    preferred_pricing_response(message: "Cart item updated to subscription price successfully")
   rescue CallbackError => e
     handle_callback_error(e)
   rescue StandardError => e
