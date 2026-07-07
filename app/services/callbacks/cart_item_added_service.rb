@@ -14,12 +14,19 @@ class Callbacks::CartItemAddedService < Callbacks::BaseService
       return { success: true, message: "Cart does not have preferred_customer pricing" }
     end
 
-    if current_price_type == PREFERRED_CUSTOMER_TYPE
-      update_item_to_subscription_price
-    else
-      update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
-      update_item_to_subscription_price
+    # Re-affirm the preferred_customer slug on every item-add, not only the
+    # first one. The line price and the price_type slug travel on separate,
+    # non-atomic channels: the price goes to the cart items (update_cart_items_prices)
+    # while the slug lives in cart metadata and the callback response. The old
+    # code only wrote the slug when the cart was not yet preferred; a later
+    # item-add on an already-preferred cart repriced the line but left the slug
+    # unwritten, so any order whose last cart event was an item-add kept the
+    # subscription price with a retail price_type. Writing the metadata and
+    # returning it here keeps both in step regardless of which cart event is last.
+    update_item_to_subscription_price
+    update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
 
+    if current_price_type != PREFERRED_CUSTOMER_TYPE
       log_cart_pricing_event(
         event_type: "item_added",
         preferred_applied: true,
@@ -31,7 +38,11 @@ class Callbacks::CartItemAddedService < Callbacks::BaseService
       )
     end
 
-    { success: true, message: "Cart item updated to subscription price successfully" }
+    {
+      success: true,
+      metadata: { "price_type" => PREFERRED_CUSTOMER_TYPE },
+      message: "Cart item updated to subscription price successfully",
+    }
   rescue CallbackError => e
     handle_callback_error(e)
   rescue StandardError => e

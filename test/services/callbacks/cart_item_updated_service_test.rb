@@ -128,6 +128,34 @@ class Callbacks::CartItemUpdatedServiceTest < ActiveSupport::TestCase
     assert_equal true, result[:success]
     assert_equal "Item updated callback processed successfully", result[:message]
     assert_equal 1, fake_carts.items_prices_calls.size
+    # Re-affirms the slug on update so a repriced line can't drift to retail.
+    assert_equal 1, fake_carts.metadata_calls.size
+    assert_equal(
+      { "price_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE },
+      result[:metadata]
+    )
+  end
+
+  test "re-stamps price_type slug on item update so it can't drift to retail" do
+    # Regression: the old code repriced the line but never wrote the slug on
+    # cart_item_updated, leaving subscription prices with a retail price_type.
+    fake_carts = FakeCartsResource.new
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+
+    service = Callbacks::CartItemUpdatedService.new(@callback_params)
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    result = service.call
+
+    assert_equal(
+      Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE,
+      fake_carts.metadata_calls.first[:metadata]["price_type"]
+    )
+    assert_equal(
+      Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE,
+      result.dig(:metadata, "price_type")
+    )
   end
 
   test "updates cart items prices with subscription_price when available" do
@@ -236,14 +264,20 @@ class Callbacks::CartItemUpdatedServiceTest < ActiveSupport::TestCase
 end
 
 class FakeCartsResource
-  attr_reader :items_prices_calls
+  attr_reader :items_prices_calls, :metadata_calls
 
   def initialize
     @items_prices_calls = []
+    @metadata_calls = []
   end
 
   def update_items_prices(token, items)
     @items_prices_calls << { token: token, items: items }
+    { "success" => true }
+  end
+
+  def append_metadata(token, metadata)
+    @metadata_calls << { token: token, metadata: metadata }
     { "success" => true }
   end
 end
