@@ -16,9 +16,13 @@ class Callbacks::CartItemUpdatedService < Callbacks::BaseService
       return { success: true, message: "Cart does not have preferred_customer pricing" }
     end
 
+    # Re-affirm the preferred_customer slug alongside the reprice so an item
+    # update can't leave the cart with subscription prices but a retail
+    # price_type. See CartItemAddedService for the two-channel rationale.
     update_item_to_subscription_price
+    update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
 
-    { success: true, message: "Item updated callback processed successfully" }
+    preferred_pricing_response(message: "Item updated callback processed successfully")
   rescue CallbackError => e
     handle_callback_error(e)
   rescue StandardError => e

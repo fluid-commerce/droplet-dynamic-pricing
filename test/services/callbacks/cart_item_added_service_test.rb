@@ -187,6 +187,39 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     assert_equal true, result[:success]
     assert_includes result[:message], "Cart item updated to subscription price successfully"
     assert_equal 1, fake_carts.items_prices_calls.size
+    # Re-affirms the slug even when the cart is already preferred_customer, so a
+    # trailing item-add can't leave subscription prices with a retail price_type.
+    assert_equal 1, fake_carts.metadata_calls.size
+    assert_equal(
+      { "price_type" => Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE },
+      result[:metadata]
+    )
+  end
+
+  test "re-stamps price_type slug on an already-preferred cart so it can't drift to retail" do
+    # Regression: cart already carries the preferred_customer slug. The old code
+    # took the "already preferred" branch and repriced the line without writing
+    # the slug (metadata PATCH or response), so an order whose last cart event was
+    # this item-add ended up with the subscription price but a retail price_type.
+    fake_carts = FakeCartsResource.new
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+
+    service = Callbacks::CartItemAddedService.new(@callback_params)
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    result = service.call
+
+    assert_equal(
+      Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE,
+      fake_carts.metadata_calls.first[:metadata]["price_type"],
+      "expected the slug to be re-written to cart metadata on every item-add"
+    )
+    assert_equal(
+      Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE,
+      result.dig(:metadata, "price_type"),
+      "expected the callback response to carry the slug so Fluid re-affirms it"
+    )
   end
 
   test "updates cart items prices with subscription_price when available" do
