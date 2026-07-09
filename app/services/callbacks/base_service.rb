@@ -118,6 +118,19 @@ private
     false
   end
 
+  # The company's configured source for subscription CV/QV: "price_ratio"
+  # (default, retail volumes scaled by the subscription discount) or
+  # "preferred_customer" (the catalog's pc_cv/pc_qv, written directly). Falls
+  # back to the default when the company or setting can't be resolved.
+  def subscription_volume_source
+    company = find_company
+    return "price_ratio" if company.blank?
+
+    company.integration_setting&.subscription_volume_source || "price_ratio"
+  rescue CallbackError
+    "price_ratio"
+  end
+
   # Adjusts each item's per-unit QV/CV to reflect subscription pricing,
   # proportionally to the variant's subscription discount (mirrors Fluid core's
   # volume-discount engine). No-op unless the company opted in.
@@ -142,18 +155,49 @@ private
       base = variant_base_volumes(variant_id)
       next if base.nil?
 
-      ratio = mode == :subscription ? subscription_value_ratio(base) : 1.0
-      qty = item["quantity"]
-
-      volumes = {
-        "cv" => scaled_unit_volume(base[:cv], ratio, qty),
-        "qv" => scaled_unit_volume(base[:qv], ratio, qty),
-      }
+      volumes = cart_item_volumes(base, mode, item["quantity"])
 
       fluid_client.carts.update_item_volumes(cart_token, item_id, volumes)
     end
   rescue StandardError => e
     Rails.logger.error "Failed to update cart item volumes for cart #{cart_token}: #{e.message}"
+  end
+
+  # Per-unit CV/QV to write for a cart item, honoring the company's
+  # subscription_volume_source. The default "price_ratio" source scales the
+  # variant's retail volumes by the subscription discount. The
+  # "preferred_customer" source instead writes the catalog's preferred-customer
+  # volumes (pc_cv/pc_qv) directly, with no ratio scaling — but falls back to the
+  # price_ratio behavior (and logs it) when a variant is missing preferred-customer
+  # volumes, so real commission values are never zeroed out. Regular mode always
+  # restores the retail base volumes.
+  def cart_item_volumes(base, mode, quantity)
+    if mode == :subscription && subscription_volume_source == "preferred_customer"
+      if preferred_customer_volumes?(base)
+        return {
+          "cv" => scaled_unit_volume(base[:pc_cv], 1.0, quantity),
+          "qv" => scaled_unit_volume(base[:pc_qv], 1.0, quantity),
+        }
+      end
+
+      Rails.logger.warn(
+        "[DynamicPricing] subscription_volume_source=preferred_customer but variant " \
+        "is missing pc_cv/pc_qv; falling back to price_ratio for cart #{cart_token}"
+      )
+    end
+
+    ratio = mode == :subscription ? subscription_value_ratio(base) : 1.0
+    {
+      "cv" => scaled_unit_volume(base[:cv], ratio, quantity),
+      "qv" => scaled_unit_volume(base[:qv], ratio, quantity),
+    }
+  end
+
+  # Whether the variant carries usable preferred-customer volumes. Blank/nil
+  # pc_cv or pc_qv means the catalog didn't set them, so the caller must fall
+  # back rather than write zeros.
+  def preferred_customer_volumes?(base)
+    base[:pc_cv].present? && base[:pc_qv].present?
   end
 
   # Fraction of base volume to keep under subscription pricing =
@@ -194,6 +238,8 @@ private
         {
           cv: (match["cv"] || match[:cv]).to_f,
           qv: (match["qv"] || match[:qv]).to_f,
+          pc_cv: match["pc_cv"] || match[:pc_cv],
+          pc_qv: match["pc_qv"] || match[:pc_qv],
           price: (match["price"] || match[:price]),
           subscription_price: (match["subscription_price"] || match[:subscription_price]),
         }

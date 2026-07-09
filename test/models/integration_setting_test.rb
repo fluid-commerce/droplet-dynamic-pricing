@@ -34,4 +34,20 @@ describe IntegrationSetting do
       _(setting.adjust_volumes_for_subscription?).must_equal false
     end
   end
+
+  describe "#subscription_volume_source" do
+    it "defaults to \"price_ratio\" when the setting is absent" do
+      setting = companies(:acme).build_integration_setting(settings: {})
+
+      _(setting.subscription_volume_source).must_equal "price_ratio"
+    end
+
+    it "returns the configured source when set" do
+      setting = companies(:acme).build_integration_setting(
+        settings: { "subscription_volume_source" => "preferred_customer" }
+      )
+
+      _(setting.subscription_volume_source).must_equal "preferred_customer"
+    end
+  end
 end

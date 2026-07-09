@@ -125,6 +125,15 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     )
   end
 
+  def enable_preferred_customer_volume_source!
+    @company.create_integration_setting!(
+      settings: {
+        "adjust_volumes_for_subscription" => true,
+        "subscription_volume_source" => "preferred_customer",
+      }
+    )
+  end
+
   def build_volume_service(fake_variants:, fake_carts:, country_code: "US")
     cart = {
       "cart_token" => "ct_abc",
@@ -337,6 +346,80 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     service.send(:update_cart_items_volumes, items, mode: :subscription)
 
     assert_equal({ "cv" => 18, "qv" => 9 }, carts.volume_calls.first[:volumes])
+  end
+
+  # --- subscription_volume_source (Oliabo pc_cv/pc_qv, STU2 / PRIMA) ---
+
+  # Regression guard: the default "price_ratio" source keeps scaling the retail
+  # cv/qv by the subscription discount. Oliabo's PRIMA numbers (100 retail,
+  # 110/122 subscription) yield 90 — the WRONG value pc_cv/pc_qv fixes, but the
+  # right one for every company that relies on the ratio behavior.
+  test "update_cart_items_volumes default price_ratio source scales retail volumes by the discount" do
+    enable_volume_adjustment!
+    items = [ { "id" => 1, "variant_id" => 10, "quantity" => 1 } ]
+    variants = FakeVariantsResource.new(10 => [ {
+      "country_code" => "US", "cv" => 100, "qv" => 100,
+      "pc_cv" => 100, "pc_qv" => 110,
+      "price" => "122.0", "subscription_price" => "110.0",
+    } ])
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    # ratio 110/122 = 0.9016 -> round(100 * 0.9016) = 90 for both cv and qv
+    assert_equal({ "cv" => 90, "qv" => 90 }, carts.volume_calls.first[:volumes])
+  end
+
+  test "update_cart_items_volumes preferred_customer source writes pc_cv/pc_qv directly" do
+    enable_preferred_customer_volume_source!
+    items = [ { "id" => 1, "variant_id" => 10, "quantity" => 1 } ]
+    variants = FakeVariantsResource.new(10 => [ {
+      "country_code" => "US", "cv" => 100, "qv" => 100,
+      "pc_cv" => 100, "pc_qv" => 110,
+      "price" => "122.0", "subscription_price" => "110.0",
+    } ])
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    # pc volumes written directly, NOT scaled by the price ratio
+    assert_equal({ "cv" => 100, "qv" => 110 }, carts.volume_calls.first[:volumes])
+  end
+
+  test "update_cart_items_volumes preferred_customer source honors quantity per-unit" do
+    enable_preferred_customer_volume_source!
+    items = [ { "id" => 1, "variant_id" => 10, "quantity" => 3 } ]
+    variants = FakeVariantsResource.new(10 => [ {
+      "country_code" => "US", "cv" => 100, "qv" => 100,
+      "pc_cv" => 100, "pc_qv" => 110,
+      "price" => "122.0", "subscription_price" => "110.0",
+    } ])
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    # per-unit pc volumes, unaffected by quantity
+    assert_equal({ "cv" => 100, "qv" => 110 }, carts.volume_calls.first[:volumes])
+  end
+
+  test "update_cart_items_volumes preferred_customer source falls back to price_ratio when pc volumes are missing" do
+    enable_preferred_customer_volume_source!
+    items = [ { "id" => 1, "variant_id" => 10, "quantity" => 1 } ]
+    # No pc_cv/pc_qv on the variant_country.
+    variants = FakeVariantsResource.new(10 => [ {
+      "country_code" => "US", "cv" => 100, "qv" => 100,
+      "price" => "122.0", "subscription_price" => "110.0",
+    } ])
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    # Fall back to retail * ratio (0.9016) = 90 rather than zeroing volumes.
+    assert_equal({ "cv" => 90, "qv" => 90 }, carts.volume_calls.first[:volumes])
   end
 end
 
