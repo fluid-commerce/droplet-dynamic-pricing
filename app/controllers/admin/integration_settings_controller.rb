@@ -40,6 +40,7 @@ private
         daily_warmup_limit
         yield_to_enrollment_wholesale
         adjust_volumes_for_subscription
+        subscription_volume_source
       ],
       credentials: %i[
         exigo_db_host
