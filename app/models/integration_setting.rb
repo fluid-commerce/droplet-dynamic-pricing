@@ -38,6 +38,21 @@ class IntegrationSetting < ApplicationRecord
     ActiveModel::Type::Boolean.new.cast(settings.dig("adjust_volumes_for_subscription")) || false
   end
 
+  # Subscription CV/QV volume sources (see #subscription_volume_source).
+  DEFAULT_SUBSCRIPTION_VOLUME_SOURCE = "price_ratio"
+  PREFERRED_CUSTOMER_VOLUME_SOURCE = "preferred_customer"
+
+  # Where subscription CV/QV come from when adjust_volumes_for_subscription? is
+  # on. "price_ratio" (default) scales the variant's retail volumes by the
+  # subscription discount — today's behavior for every company. "preferred_customer"
+  # instead writes the catalog's preferred-customer volumes (pc_cv/pc_qv) directly,
+  # with no ratio scaling (Oliabo, whose PRIMA retail cv/qv differ from the correct
+  # subscription volumes). Defaults to "price_ratio" so existing companies are
+  # unaffected.
+  def subscription_volume_source
+    settings.dig("subscription_volume_source") || DEFAULT_SUBSCRIPTION_VOLUME_SOURCE
+  end
+
   def preferred_customer_type_id
     settings.dig("preferred_customer_type_id") || "2"
   end
