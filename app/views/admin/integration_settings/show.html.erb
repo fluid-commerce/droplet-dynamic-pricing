@@ -143,6 +143,10 @@
         <span class="text-gray-500">Adjust Volumes for Subscription:</span>
         <span class="text-gray-900 font-medium ml-2"><%= @integration_setting.adjust_volumes_for_subscription? ? "Enabled" : "Disabled" %></span>
       </div>
+      <div>
+        <span class="text-gray-500">Subscription Volume Source:</span>
+        <span class="text-gray-900 font-medium ml-2"><%= @integration_setting.subscription_volume_source %></span>
+      </div>
     </div>
   </div>
 <% else %>
