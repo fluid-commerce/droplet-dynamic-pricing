@@ -124,11 +124,12 @@ private
   # back to the default when the company or setting can't be resolved.
   def subscription_volume_source
     company = find_company
-    return "price_ratio" if company.blank?
+    return IntegrationSetting::DEFAULT_SUBSCRIPTION_VOLUME_SOURCE if company.blank?
 
-    company.integration_setting&.subscription_volume_source || "price_ratio"
+    company.integration_setting&.subscription_volume_source ||
+      IntegrationSetting::DEFAULT_SUBSCRIPTION_VOLUME_SOURCE
   rescue CallbackError
-    "price_ratio"
+    IntegrationSetting::DEFAULT_SUBSCRIPTION_VOLUME_SOURCE
   end
 
   # Adjusts each item's per-unit QV/CV to reflect subscription pricing,
@@ -147,6 +148,9 @@ private
   def update_cart_items_volumes(items, mode: :subscription)
     return unless adjust_volumes_for_subscription?
 
+    # Constant for the whole request — resolve once, not per item.
+    source = subscription_volume_source
+
     Array(items).each do |item|
       item_id = item["id"]
       variant_id = item["variant_id"] || item.dig("variant", "id")
@@ -155,7 +159,7 @@ private
       base = variant_base_volumes(variant_id)
       next if base.nil?
 
-      volumes = cart_item_volumes(base, mode, item["quantity"])
+      volumes = cart_item_volumes(base, mode, item["quantity"], source)
 
       fluid_client.carts.update_item_volumes(cart_token, item_id, volumes)
     end
@@ -171,8 +175,8 @@ private
   # price_ratio behavior (and logs it) when a variant is missing preferred-customer
   # volumes, so real commission values are never zeroed out. Regular mode always
   # restores the retail base volumes.
-  def cart_item_volumes(base, mode, quantity)
-    if mode == :subscription && subscription_volume_source == "preferred_customer"
+  def cart_item_volumes(base, mode, quantity, source)
+    if mode == :subscription && source == IntegrationSetting::PREFERRED_CUSTOMER_VOLUME_SOURCE
       if preferred_customer_volumes?(base)
         return {
           "cv" => scaled_unit_volume(base[:pc_cv], 1.0, quantity),
