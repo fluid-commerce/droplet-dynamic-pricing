@@ -171,23 +171,27 @@ private
   # subscription_volume_source. The default "price_ratio" source scales the
   # variant's retail volumes by the subscription discount. The
   # "preferred_customer" source instead writes the catalog's preferred-customer
-  # volumes (pc_cv/pc_qv) directly, with no ratio scaling — but falls back to the
-  # price_ratio behavior (and logs it) when a variant is missing preferred-customer
-  # volumes, so real commission values are never zeroed out. Regular mode always
-  # restores the retail base volumes.
+  # volumes (pc_cv/pc_qv) directly, with no ratio scaling. When the catalog is
+  # missing pc_cv/pc_qv, it writes the variant's RETAIL volumes as-is (and logs)
+  # rather than the price_ratio result, so a catalog misconfig surfaces as
+  # plainly unadjusted volumes instead of silently masquerading as a valid ratio
+  # calc. Regular mode always restores the retail base volumes.
   def cart_item_volumes(base, mode, quantity, source)
     if mode == :subscription && source == IntegrationSetting::PREFERRED_CUSTOMER_VOLUME_SOURCE
       if preferred_customer_volumes?(base)
-        return {
-          "cv" => scaled_unit_volume(base[:pc_cv], 1.0, quantity),
-          "qv" => scaled_unit_volume(base[:pc_qv], 1.0, quantity),
-        }
+        cv, qv = base[:pc_cv], base[:pc_qv]
+      else
+        Rails.logger.warn(
+          "[DynamicPricing] subscription_volume_source=preferred_customer but variant " \
+          "is missing pc_cv/pc_qv; writing retail volumes for cart #{cart_token}"
+        )
+        cv, qv = base[:cv], base[:qv]
       end
 
-      Rails.logger.warn(
-        "[DynamicPricing] subscription_volume_source=preferred_customer but variant " \
-        "is missing pc_cv/pc_qv; falling back to price_ratio for cart #{cart_token}"
-      )
+      return {
+        "cv" => scaled_unit_volume(cv, 1.0, quantity),
+        "qv" => scaled_unit_volume(qv, 1.0, quantity),
+      }
     end
 
     ratio = mode == :subscription ? subscription_value_ratio(base) : 1.0

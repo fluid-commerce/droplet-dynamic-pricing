@@ -405,7 +405,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     assert_equal({ "cv" => 100, "qv" => 110 }, carts.volume_calls.first[:volumes])
   end
 
-  test "update_cart_items_volumes preferred_customer source falls back to price_ratio when pc volumes are missing" do
+  test "update_cart_items_volumes preferred_customer source writes retail volumes as-is when pc volumes are missing" do
     enable_preferred_customer_volume_source!
     items = [ { "id" => 1, "variant_id" => 10, "quantity" => 1 } ]
     # No pc_cv/pc_qv on the variant_country.
@@ -418,8 +418,9 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
     service.send(:update_cart_items_volumes, items, mode: :subscription)
 
-    # Fall back to retail * ratio (0.9016) = 90 rather than zeroing volumes.
-    assert_equal({ "cv" => 90, "qv" => 90 }, carts.volume_calls.first[:volumes])
+    # pc missing -> write retail cv/qv as-is (100/100), NOT the price-ratio 90/90,
+    # so a catalog misconfig is diagnosable rather than silently masked.
+    assert_equal({ "cv" => 100, "qv" => 100 }, carts.volume_calls.first[:volumes])
   end
 end
 
