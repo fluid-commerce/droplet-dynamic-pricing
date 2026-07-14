@@ -128,7 +128,10 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
       cart: cart_without_preferred,
       cart_item: @cart_item,
     })
-    result = service.call
+    result = nil
+    service.stub(:customer_has_active_subscription?, false) do
+      result = service.call
+    end
 
     assert_equal true, result[:success]
     assert_equal "Cart does not have preferred_customer pricing", result[:message]
@@ -143,7 +146,10 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
       cart: cart_without_price_type,
       cart_item: @cart_item,
     })
-    result = service.call
+    result = nil
+    service.stub(:customer_has_active_subscription?, false) do
+      result = service.call
+    end
 
     assert_equal true, result[:success]
     assert_equal "Cart does not have preferred_customer pricing", result[:message]
@@ -345,6 +351,104 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
       assert_equal "unexpected_error", result[:error]
       assert_equal "An unexpected error occurred", result[:message]
     end
+  end
+
+  # STU2-2531: the stamp can be missing on the payload (cart emptied after the
+  # attach that stamped it). A preferred customer must still get the discount —
+  # re-derived from the live subscription source of truth.
+  test "re-derives preferred pricing when the flag is missing but the customer has an active subscription" do
+    cart = @cart_data.dup
+    cart["metadata"] = {} # flag missing
+    cart["email"] = "vip@example.com"
+    cart["items"] = [ { "id" => 674137, "price" => "80.0", "subscription" => false } ] # no subscription line
+
+    fake_carts = FakeCartsResource.new
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+
+    service = Callbacks::CartItemAddedService.new({ cart: cart, cart_item: @cart_item })
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    result = nil
+    service.stub(:customer_has_active_subscription?, true) do
+      result = service.call
+    end
+
+    assert_equal true, result[:success]
+    assert_equal 1, fake_carts.items_prices_calls.size, "expected the added item to be repriced"
+    assert_equal 1, fake_carts.metadata_calls.size, "expected the cart to be stamped preferred_customer"
+    assert_equal Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE, result.dig(:metadata, "price_type")
+  end
+
+  test "does not reprice when the flag is missing, no subscription, and no active subscription" do
+    cart = @cart_data.dup
+    cart["metadata"] = {}
+    cart["email"] = "retail@example.com"
+    cart["items"] = [ { "id" => 674137, "price" => "80.0", "subscription" => false } ]
+
+    fake_carts = FakeCartsResource.new
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+
+    service = Callbacks::CartItemAddedService.new({ cart: cart, cart_item: @cart_item })
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    result = nil
+    service.stub(:customer_has_active_subscription?, false) do
+      result = service.call
+    end
+
+    assert_equal true, result[:success]
+    assert_equal "Cart does not have preferred_customer pricing", result[:message]
+    assert_equal 0, fake_carts.items_prices_calls.size
+    assert_equal 0, fake_carts.metadata_calls.size
+  end
+
+  # Exercises the REAL gate (no stub on customer_has_active_subscription?): an
+  # unstamped cart with a live Fluid subscription must reprice.
+  test "qualifies via a live Fluid subscription without stubbing the gate" do
+    cart = @cart_data.dup
+    cart["metadata"] = {}
+    cart["email"] = "vip@example.com"
+    cart["items"] = [ { "id" => 674137, "price" => "80.0", "subscription" => false } ]
+
+    fake_carts = FakeCartsResource.new
+    fake_subscriptions = Object.new
+    fake_subscriptions.define_singleton_method(:get_by_customer) do |_customer_id, _params = {}|
+      { "subscriptions" => [ { "id" => 1, "status" => "active" } ] }
+    end
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+    mock_client.define_singleton_method(:subscriptions) { fake_subscriptions }
+
+    service = Callbacks::CartItemAddedService.new({ cart: cart, cart_item: @cart_item })
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    result = service.call
+
+    assert_equal true, result[:success]
+    assert_equal 1, fake_carts.items_prices_calls.size, "expected repricing via the live-subscription gate"
+    assert_equal 1, fake_carts.metadata_calls.size
+  end
+
+  # Observability: silently-swallowed Fluid write failures must surface in Sentry.
+  test "reports swallowed Fluid write failures to Sentry" do
+    failing_carts = Object.new
+    failing_carts.define_singleton_method(:update_items_prices) { |*_| raise FluidClient::APIError, "API error: 500" }
+    failing_carts.define_singleton_method(:append_metadata) { |*_| { "success" => true } }
+    client = Object.new
+    client.define_singleton_method(:carts) { failing_carts }
+
+    service = Callbacks::CartItemAddedService.new(@callback_params) # already preferred
+    service.define_singleton_method(:fluid_client) { client }
+
+    captured = []
+    Sentry.stub(:capture_exception, ->(error, **_opts) { captured << error }) do
+      service.call
+    end
+
+    assert_equal 1, captured.size
+    assert_kind_of FluidClient::APIError, captured.first
   end
 end
 
