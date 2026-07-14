@@ -90,6 +90,12 @@ private
   end
 
   def find_company
+    # Memoized (including a nil result): a single callback resolves the company
+    # several times (initialize_fluid_client, exigo_integration_enabled?,
+    # adjust_volumes_for_subscription?, log_cart_pricing_event, report_exception)
+    # and it is stable for the life of the request.
+    return @company if defined?(@company)
+
     # Use the `cart` accessor (reads callback_params[:cart]) rather than
     # callback_params.dig("cart", ...) so this works whether the cart key is a
     # symbol (plain hash, e.g. in tests) or a string (HashWithIndifferentAccess
@@ -97,11 +103,7 @@ private
     company_data = cart&.dig("company")
     raise CallbackError, "Company data is blank" if company_data.blank?
 
-    # Memoized: a single callback resolves the company several times
-    # (initialize_fluid_client, exigo_integration_enabled?,
-    # adjust_volumes_for_subscription?, log_cart_pricing_event) and it is stable
-    # for the life of the request.
-    @company ||= Company.find_by(fluid_company_id: company_data["id"])
+    @company = Company.find_by(fluid_company_id: company_data["id"])
   end
 
   def update_cart_metadata(metadata)
@@ -374,12 +376,6 @@ private
     active_subscription_count >= 1
   end
 
-  # True when the incoming cart is already flagged for preferred pricing.
-  # Cheap: reads the payload, no external calls.
-  def cart_stamped_preferred?
-    cart&.dig("metadata", "price_type") == PREFERRED_CUSTOMER_TYPE
-  end
-
   # True when the cart should get preferred/subscription pricing even though it
   # is not stamped. The stamp lives in Fluid's cart metadata and can be missing
   # on a given callback (e.g. the cart was emptied after the attach/login that
@@ -417,10 +413,9 @@ private
     item_id = cart_item["id"]
     raise CallbackError, "Item ID is required" if item_id.blank?
 
-    # Use the subscription price when it is a real (non-zero) amount, otherwise
-    # fall back to the regular price. A zero subscription_price (e.g. bundle
-    # parents) must NOT zero the item, or update_cart_items_prices drops it.
-    final_price = cart_item["subscription_price"].to_f.nonzero? ? cart_item["subscription_price"] : cart_item["price"]
+    subscription_price = cart_item["subscription_price"]
+    regular_price = cart_item["price"]
+    final_price = subscription_price || regular_price
 
     raise CallbackError, "Item price is not present in cart item" if final_price.blank?
 
