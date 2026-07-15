@@ -96,7 +96,10 @@ class Callbacks::CartItemUpdatedServiceTest < ActiveSupport::TestCase
       cart: cart_without_preferred,
       cart_item: @cart_item,
     })
-    result = service.call
+    result = nil
+    service.stub(:customer_has_active_subscription?, false) do
+      result = service.call
+    end
 
     assert_equal true, result[:success]
     assert_equal "Cart does not have preferred_customer pricing", result[:message]
@@ -111,7 +114,10 @@ class Callbacks::CartItemUpdatedServiceTest < ActiveSupport::TestCase
       cart: cart_without_price_type,
       cart_item: @cart_item,
     })
-    result = service.call
+    result = nil
+    service.stub(:customer_has_active_subscription?, false) do
+      result = service.call
+    end
 
     assert_equal true, result[:success]
     assert_equal "Cart does not have preferred_customer pricing", result[:message]
@@ -286,6 +292,56 @@ class Callbacks::CartItemUpdatedServiceTest < ActiveSupport::TestCase
       assert_equal "unexpected_error", result[:error]
       assert_equal "An unexpected error occurred", result[:message]
     end
+  end
+
+  # STU2-2531: mirror cart_item_added — re-derive when the flag is missing but
+  # the customer has an active subscription.
+  test "re-derives preferred pricing when the flag is missing but the customer has an active subscription" do
+    cart = @cart_data.dup
+    cart["metadata"] = {}
+    cart["email"] = "vip@example.com"
+    cart["items"] = [ { "id" => 674137, "price" => "80.0", "subscription" => false } ]
+
+    fake_carts = FakeCartsResource.new
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+
+    service = Callbacks::CartItemUpdatedService.new({ cart: cart, cart_item: @cart_item })
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    result = nil
+    service.stub(:customer_has_active_subscription?, true) do
+      result = service.call
+    end
+
+    assert_equal true, result[:success]
+    assert_equal 1, fake_carts.items_prices_calls.size, "expected the updated item to be repriced"
+    assert_equal 1, fake_carts.metadata_calls.size, "expected the cart to be stamped preferred_customer"
+    assert_equal Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE, result.dig(:metadata, "price_type")
+  end
+
+  test "does not reprice when the flag is missing, no subscription, and no active subscription" do
+    cart = @cart_data.dup
+    cart["metadata"] = {}
+    cart["email"] = "retail@example.com"
+    cart["items"] = [ { "id" => 674137, "price" => "80.0", "subscription" => false } ]
+
+    fake_carts = FakeCartsResource.new
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+
+    service = Callbacks::CartItemUpdatedService.new({ cart: cart, cart_item: @cart_item })
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    result = nil
+    service.stub(:customer_has_active_subscription?, false) do
+      result = service.call
+    end
+
+    assert_equal true, result[:success]
+    assert_equal "Cart does not have preferred_customer pricing", result[:message]
+    assert_equal 0, fake_carts.items_prices_calls.size
+    assert_equal 0, fake_carts.metadata_calls.size
   end
 end
 

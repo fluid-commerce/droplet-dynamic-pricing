@@ -90,6 +90,12 @@ private
   end
 
   def find_company
+    # Memoized (including a nil result): a single callback resolves the company
+    # several times (initialize_fluid_client, exigo_integration_enabled?,
+    # adjust_volumes_for_subscription?, log_cart_pricing_event, report_exception)
+    # and it is stable for the life of the request.
+    return @company if defined?(@company)
+
     # Use the `cart` accessor (reads callback_params[:cart]) rather than
     # callback_params.dig("cart", ...) so this works whether the cart key is a
     # symbol (plain hash, e.g. in tests) or a string (HashWithIndifferentAccess
@@ -97,14 +103,18 @@ private
     company_data = cart&.dig("company")
     raise CallbackError, "Company data is blank" if company_data.blank?
 
-    Company.find_by(fluid_company_id: company_data["id"])
+    @company = Company.find_by(fluid_company_id: company_data["id"])
   end
 
   def update_cart_metadata(metadata)
     fluid_client.carts.append_metadata(cart_token, metadata)
+    Rails.logger.info "[DynamicPricing] Stamped cart #{cart_token} metadata: #{metadata.inspect}"
   rescue CallbackError => e
     handle_callback_error(e)
   end
+  # NOTE: transient Fluid failures (FluidClient::Error/timeouts) intentionally
+  # propagate to the service's outer rescue so the callback returns a non-success
+  # result (HTTP 4xx) and Fluid retries; the outer rescue reports them to Sentry.
 
   # Whether this cart's company has opted into adjusting volumes (QV/CV) to
   # reflect subscription pricing (STU2-2526). Off by default so the shared
@@ -164,7 +174,7 @@ private
       fluid_client.carts.update_item_volumes(cart_token, item_id, volumes)
     end
   rescue StandardError => e
-    Rails.logger.error "Failed to update cart item volumes for cart #{cart_token}: #{e.message}"
+    report_exception(e, message: "Failed to update cart item volumes for cart #{cart_token}: #{e.message}")
   end
 
   # Per-unit CV/QV to write for a cart item, honoring the company's
@@ -288,8 +298,9 @@ private
     return if safe_items.empty?
 
     fluid_client.carts.update_items_prices(cart_token, safe_items)
+    Rails.logger.info "[DynamicPricing] Repriced #{safe_items.size} item(s) on cart #{cart_token}"
   rescue StandardError => e
-    Rails.logger.error "Failed to update cart items prices for cart #{cart_token}: #{e.message}"
+    report_exception(e, message: "Failed to update cart items prices for cart #{cart_token}: #{e.message}")
   end
 
   # Returns { id, price } for each cart item using the subscription price.
@@ -365,6 +376,58 @@ private
     active_subscription_count >= 1
   end
 
+  # True when the cart should get preferred/subscription pricing even though it
+  # is not stamped. The stamp lives in Fluid's cart metadata and can be missing
+  # on a given callback (e.g. the cart was emptied after the attach/login that
+  # stamped it, and attach/login does not re-fire on a re-add). So item_added /
+  # item_updated cannot rely on the flag alone.
+  #
+  # Business rule: preferred iff the customer has an ACTIVE subscription OR the
+  # cart carries a subscription line. We re-derive from the live subscription
+  # source of truth rather than the cached (laggy) customer_type metafield.
+  #
+  # Order matters for cost: the in-cart check is free; the subscription lookups
+  # hit external APIs and only run when the cart carries no subscription line.
+  def cart_qualifies_for_preferred_pricing?
+    has_another_subscription_in_cart? || customer_has_active_subscription?
+  end
+
+  # A live Fluid subscription, or an active Exigo autoship when the company runs
+  # Exigo. The Fluid-subscriptions lookup needs a customer_id, so it is gated
+  # behind a logged-in customer; the Exigo lookup is by email and works on guest
+  # carts too (it self-guards on blank email / integration off).
+  def customer_has_active_subscription?
+    (customer_logged_in? && has_active_subscriptions?(cart_customer_id)) ||
+      has_exigo_autoship_by_email?(customer_email)
+  end
+
+  # The single cart item carried by item_added / item_updated callbacks.
+  def cart_item
+    @cart_item ||= callback_params[:cart_item]
+  end
+
+  # Reprices the callback's cart item to its subscription price (falling back to
+  # the regular price) and adjusts its volumes. Shared by CartItemAddedService
+  # and CartItemUpdatedService so the two pricing paths cannot silently diverge.
+  def update_item_to_subscription_price
+    item_id = cart_item["id"]
+    raise CallbackError, "Item ID is required" if item_id.blank?
+
+    subscription_price = cart_item["subscription_price"]
+    regular_price = cart_item["price"]
+    final_price = subscription_price || regular_price
+
+    raise CallbackError, "Item price is not present in cart item" if final_price.blank?
+
+    item_data = [ {
+      "id" => item_id,
+      "price" => final_price,
+    } ]
+
+    update_cart_items_prices(item_data)
+    update_cart_items_volumes([ cart_item ], mode: :subscription)
+  end
+
   def has_active_subscriptions?(customer_id)
     response = fluid_client.subscriptions.get_by_customer(customer_id, status: "active")
     subscriptions = response["subscriptions"] || []
@@ -410,6 +473,12 @@ private
     if customer_id.present?
       customer_type = get_customer_type_from_metafields(customer_id)
       return true if customer_type == PREFERRED_CUSTOMER_TYPE
+
+      # An active Fluid subscription makes a customer preferred regardless of the
+      # (laggy) customer_type metafield — so login/attach agrees with the
+      # subscription-based rule item_added/item_updated use and the two callback
+      # paths can't disagree and oscillate the cart price (STU2-2531).
+      return true if has_active_subscriptions?(customer_id)
     end
 
     has_exigo_autoship_by_email?(email)
@@ -480,7 +549,29 @@ private
       metadata: additional_data
     )
   rescue StandardError => e
-    Rails.logger.error "[CartPricingEvent] Failed to log event: #{e.message}"
+    report_exception(e, message: "[CartPricingEvent] Failed to log event: #{e.message}")
+  end
+
+  # Logs an exception and reports it to Sentry with cart/customer context.
+  # Callback services deliberately swallow most write failures so a single Fluid
+  # hiccup never 500s the webhook; that silence is why bugs here went unnoticed.
+  # This surfaces the swallowed failures in Sentry instead. Best-effort: it never
+  # raises itself.
+  def report_exception(exception, message: nil, **context)
+    Rails.logger.error(message) if message
+    return unless defined?(Sentry) && Sentry.respond_to?(:capture_exception)
+
+    Sentry.capture_exception(
+      exception,
+      extra: {
+        cart_token: cart_token,
+        cart_id: cart&.dig("id"),
+        customer_id: cart_customer_id,
+        callback: self.class.name,
+      }.merge(context)
+    )
+  rescue StandardError => reporting_error
+    Rails.logger.error "[Sentry] Failed to report exception: #{reporting_error.message}"
   end
 
   def calculate_cart_total

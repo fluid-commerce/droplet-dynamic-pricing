@@ -52,6 +52,7 @@ class Callbacks::CustomerLoggedInService < Callbacks::BaseService
   rescue StandardError => e
     Rails.logger.error "Error in CustomerLoggedInService: #{e.message}"
     Rails.logger.error e.backtrace.join("\n")
+    report_exception(e)
     { success: false, error: "unexpected_error", message: "An unexpected error occurred" }
   end
 

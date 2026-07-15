@@ -8,9 +8,12 @@ class Callbacks::CartItemAddedService < Callbacks::BaseService
 
     current_price_type = cart.dig("metadata", "price_type")
 
-    has_another_subscription = has_another_subscription_in_cart?
-
-    if current_price_type != PREFERRED_CUSTOMER_TYPE && !has_another_subscription
+    # Preferred pricing applies when the cart is already stamped, OR when it
+    # qualifies now: a subscription line in the cart, or a customer with an
+    # active subscription. Re-deriving here means a preferred customer still gets
+    # the discount when the stamp is missing on this payload (e.g. the cart was
+    # emptied then re-added) without depending on attach/login re-firing (STU2-2531).
+    unless current_price_type == PREFERRED_CUSTOMER_TYPE || cart_qualifies_for_preferred_pricing?
       return { success: true, message: "Cart does not have preferred_customer pricing" }
     end
 
@@ -44,31 +47,7 @@ class Callbacks::CartItemAddedService < Callbacks::BaseService
   rescue StandardError => e
     Rails.logger.error "Unexpected error in CartItemAddedService: #{e.message}"
     Rails.logger.error e.backtrace.join("\n")
+    report_exception(e)
     { success: false, error: "unexpected_error", message: "An unexpected error occurred" }
-  end
-
-private
-
-  def cart_item
-    @cart_item ||= callback_params[:cart_item]
-  end
-
-  def update_item_to_subscription_price
-    item_id = cart_item["id"]
-    raise CallbackError, "Item ID is required" if item_id.blank?
-
-    subscription_price = cart_item["subscription_price"]
-    regular_price = cart_item["price"]
-    final_price = subscription_price || regular_price
-
-    raise CallbackError, "Item price is not present in cart item" if final_price.blank?
-
-    item_data = [ {
-      "id" => item_id,
-      "price" => final_price,
-    } ]
-
-    update_cart_items_prices(item_data)
-    update_cart_items_volumes([ cart_item ], mode: :subscription)
   end
 end
