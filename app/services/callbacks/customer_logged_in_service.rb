@@ -5,8 +5,9 @@ class Callbacks::CustomerLoggedInService < Callbacks::BaseService
 
     raise CallbackError, "Customer is not logged in" unless customer_logged_in?
 
-    # Enrollment carts are priced by the BP wholesale droplet (STU2-2377).
-    return result_success if yield_to_enrollment_wholesale?
+    # Enrollment carts and yoli-promos WHOLESALE-unlock carts are priced by the
+    # BP wholesale droplet (STU2-2377, STU2-2964).
+    return result_success if yield_to_enrollment_wholesale? || price_type_wholesale?
 
     is_preferred = is_preferred_customer?(customer_email)
 

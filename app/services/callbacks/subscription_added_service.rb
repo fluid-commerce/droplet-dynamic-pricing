@@ -2,8 +2,9 @@ class Callbacks::SubscriptionAddedService < Callbacks::BaseService
   def call
     raise CallbackError, "Cart is blank" if cart.blank?
 
-    # Enrollment carts are priced by the BP wholesale droplet (STU2-2377).
-    return result_success if yield_to_enrollment_wholesale?
+    # Enrollment carts and yoli-promos WHOLESALE-unlock carts are priced by the
+    # BP wholesale droplet (STU2-2377, STU2-2964).
+    return result_success if yield_to_enrollment_wholesale? || price_type_wholesale?
 
     current_price_type = cart.dig("metadata", "price_type")
 

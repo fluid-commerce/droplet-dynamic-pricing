@@ -58,6 +58,20 @@ private
       cart_items.any? { |item| item["enrollment_pack_id"].present? }
   end
 
+  # yoli-promos stamps cart.metadata.price_type = "wholesale" when its WHOLESALE
+  # unlock code is applied (bp_wholesale_applied, STU2-2964). Dynamic pricing
+  # must yield on that cart too — same reasoning as yield_to_enrollment_wholesale?
+  # above, but keyed off the metadata stamp instead of enrollment shape, and NOT
+  # gated behind the per-company toggle (any cart stamped this way is explicitly
+  # under yoli-promos' wholesale pricing, not dynamic pricing's).
+  #
+  # Nil-safe and indifferent to string/symbol keys, since cart can be a plain
+  # Hash (tests) or a HashWithIndifferentAccess (production).
+  def price_type_wholesale?
+    metadata = cart&.dig("metadata") || cart&.dig(:metadata) || {}
+    (metadata["price_type"] || metadata[:price_type]) == "wholesale"
+  end
+
   def company_yields_to_enrollment_wholesale?
     company = find_company
     return false if company.blank?
