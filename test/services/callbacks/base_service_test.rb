@@ -81,6 +81,44 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     assert_equal "333.0", result.first["price"]
   end
 
+  # --- price_type_wholesale? (STU2-2964) ---
+
+  test "price_type_wholesale? is true when cart metadata.price_type is wholesale" do
+    cart = @cart_data.deep_dup
+    cart["metadata"] = { "price_type" => "wholesale" }
+    service = Callbacks::BaseService.new({ cart: cart })
+
+    assert service.send(:price_type_wholesale?)
+  end
+
+  test "price_type_wholesale? is false when price_type is something else" do
+    cart = @cart_data.deep_dup
+    cart["metadata"] = { "price_type" => "preferred_customer" }
+    service = Callbacks::BaseService.new({ cart: cart })
+
+    refute service.send(:price_type_wholesale?)
+  end
+
+  test "price_type_wholesale? is false when cart has no metadata at all" do
+    service = Callbacks::BaseService.new({ cart: @cart_data })
+
+    refute service.send(:price_type_wholesale?)
+  end
+
+  test "price_type_wholesale? is nil-safe when cart itself is nil" do
+    service = Callbacks::BaseService.new({ cart: nil })
+
+    refute service.send(:price_type_wholesale?)
+  end
+
+  test "price_type_wholesale? handles symbol-keyed metadata and price_type" do
+    cart = @cart_data.deep_dup
+    cart[:metadata] = { price_type: "wholesale" }
+    service = Callbacks::BaseService.new({ cart: cart })
+
+    assert service.send(:price_type_wholesale?)
+  end
+
   test "update_cart_items_prices drops items priced at zero to prevent $0 checkouts" do
     service = Callbacks::BaseService.new(@callback_params)
     items = [

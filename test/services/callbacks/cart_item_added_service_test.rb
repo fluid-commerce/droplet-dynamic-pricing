@@ -97,6 +97,28 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     assert_equal({ success: true }, result)
   end
 
+  # STU2-2964: yoli-promos stamps cart.metadata.price_type = "wholesale" when its
+  # WHOLESALE unlock code is applied. Dynamic pricing must yield unconditionally
+  # (no per-company toggle needed, unlike yield_to_enrollment_wholesale?) so it
+  # never overwrites that wholesale price with a subscription price. The cart
+  # carries a subscription item so, absent the yield, cart_qualifies_for_preferred_pricing?
+  # would otherwise cause a reprice.
+  test "call skips cart when price_type is wholesale (yoli-promos WHOLESALE unlock)" do
+    wholesale_cart = @cart_data.dup
+    wholesale_cart["metadata"] = { "price_type" => "wholesale" }
+    wholesale_cart["items"] = [
+      { "id" => 674137, "price" => "80.0", "subscription" => true },
+    ]
+    raising_client = Object.new
+    raising_client.define_singleton_method(:carts) { raise "must not reprice a wholesale-priced cart" }
+
+    service = Callbacks::CartItemAddedService.new({ cart: wholesale_cart, cart_item: @cart_item })
+    service.define_singleton_method(:fluid_client) { raising_client }
+
+    result = service.call
+    assert_equal({ success: true }, result)
+  end
+
   test "call does NOT skip enrollment cart when company does not yield to wholesale" do
     # No integration_setting / toggle off → dynamic pricing must still run so
     # the company keeps preferred-customer pricing on its enrollment carts.
