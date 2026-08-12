@@ -46,6 +46,7 @@ node_modules
 .yarn/install-state.gz
 
 # ignore environment files
+.env
 .env.local
 
 # ignore terraform
