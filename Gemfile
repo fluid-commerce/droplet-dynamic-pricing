@@ -2,7 +2,7 @@ source "https://rubygems.org"
 
 ruby "3.4.2"
 gem "bundler", "~> 2.6.5"
-gem "rails", "~> 8.0.2"
+gem "rails", "~> 8.1.3"
 
 gem "cancancan", "~> 3.6"
 gem "bootsnap", require: false
@@ -14,7 +14,7 @@ gem "httparty", "~> 0.23.1"
 gem "jbuilder"
 gem "json_schemer", "~> 2.4"
 gem "kamal", require: false
-gem "minitest-rails", "~> 8.0.0"
+gem "minitest-rails", "~> 8.1.0"
 gem "pg", "~> 1.1"
 gem "propshaft"
 gem "puma", ">= 5.0"
