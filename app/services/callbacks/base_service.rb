@@ -406,6 +406,15 @@ private
     (metadata["bundle_group_base_price"] || metadata[:bundle_group_base_price]).presence
   end
 
+  # `value` unless it is blank or numerically zero, in which case nil so a `||`
+  # chain keeps walking. Returns the value AS GIVEN rather than a Float, so the
+  # price we send Fluid stays byte-identical to the payload's on the common path.
+  def nonzero_price(value)
+    return nil if value.blank?
+
+    value.to_f.zero? ? nil : value
+  end
+
   # ---------------------------------------------------------------------------
   # Country-safe pricing (STU2-3108)
   #
@@ -581,7 +590,12 @@ private
     item_id = cart_item["id"]
     raise CallbackError, "Item ID is required" if item_id.blank?
 
-    payload_price = cart_item["subscription_price"] ||
+    # Zero-aware, matching cart_items_with_subscription_price: a bundle parent
+    # arrives with subscription_price "0.0", which is a truthy String — a plain
+    # `||` would stop there, write zero, and let the zero-price guard drop the
+    # line, silently cancelling the reprice. The two pricing paths must not
+    # diverge, which is the whole reason this method is shared.
+    payload_price = nonzero_price(cart_item["subscription_price"]) ||
                     bundle_group_base_price(cart_item) ||
                     cart_item["price"]
     raise CallbackError, "Item price is not present in cart item" if payload_price.blank?

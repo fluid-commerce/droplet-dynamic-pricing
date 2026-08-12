@@ -648,6 +648,30 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     assert_equal 55.97, service.send(:cart_items_with_regular_price).first["price"]
   end
 
+  test "update_item_to_subscription_price treats a bundle's 0.0 subscription_price as zero, not truthy" do
+    # "0.0" is a truthy String: a plain `||` chain would stop there, write zero,
+    # and let the zero-price guard drop the line — silently cancelling the
+    # reprice. It must fall through to the bundle base price instead, matching
+    # cart_items_with_subscription_price.
+    bundle_variant_id = 285690
+    rows = { bundle_variant_id => [ { "country_code" => "CA", "currency_code" => "CAD", "active" => true,
+                                      "price" => "0.0", "subscription_price" => "0.0", } ] }
+    cart_item = { "id" => 1, "variant_id" => bundle_variant_id, "subscription_price" => "0.0",
+                  "price" => "246.99", "metadata" => { "bundle_group_base_price" => "172.99" }, }
+    service = build_pricing_service(country_code: "CA", items: [ cart_item ], rows: rows)
+    service.define_singleton_method(:cart_item) { cart_item }
+    written = []
+    carts = Object.new
+    carts.define_singleton_method(:update_items_prices) { |_token, items| written.concat(items) }
+    client = service.send(:fluid_client)
+    client.define_singleton_method(:carts) { carts }
+    service.define_singleton_method(:update_cart_items_volumes) { |*| nil }
+
+    service.send(:update_item_to_subscription_price)
+
+    assert_equal [ { "id" => 1, "price" => "172.99" } ], written
+  end
+
   test "a failed variant lookup falls through to the payload rather than blocking the reprice" do
     service = build_pricing_service(
       country_code: "PH",
