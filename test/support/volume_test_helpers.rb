@@ -6,7 +6,20 @@ module VolumeTestHelpers
     end
 
     def get(variant_id)
-      { "variant" => { "id" => variant_id, "variant_countries" => (@countries_by_variant_id[variant_id] || []) } }
+      rows = (@countries_by_variant_id[variant_id] || []).map { |row| row_with_active(row) }
+      { "variant" => { "id" => variant_id, "variant_countries" => rows } }
+    end
+
+  private
+
+    # Fluid's v1 endpoint always emits `active` on a country row
+    # (V1::VariantCountryBlueprinter), so a fixture that omits it stands for an
+    # ACTIVE row, not an absent flag. Fixtures testing the inactive path set it
+    # explicitly.
+    def row_with_active(row)
+      return row if row.key?("active") || row.key?(:active)
+
+      row.merge("active" => true)
     end
   end
 

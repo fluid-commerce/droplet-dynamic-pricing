@@ -379,7 +379,13 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     end
 
     def get(variant_id)
-      { "variant" => { "id" => variant_id, "variant_countries" => @variant_countries } }
+      # Fluid's v1 endpoint always emits `active` on a country row
+      # (V1::VariantCountryBlueprinter), so a fixture that omits it stands for an
+      # ACTIVE row, not an absent flag.
+      rows = @variant_countries.map do |row|
+        row.key?("active") || row.key?(:active) ? row : row.merge("active" => true)
+      end
+      { "variant" => { "id" => variant_id, "variant_countries" => rows } }
     end
   end
 

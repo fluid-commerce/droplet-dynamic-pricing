@@ -700,6 +700,28 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     assert_equal [ INCIDENT_VARIANT_ID ], service.send(:fake_variants).get_calls
   end
 
+  test "an inactive row for the cart's country is not used, even when it carries a price" do
+    # `active` off is the company saying the variant is not sold in that country.
+    # Fluid resolves through variant_countries.active (cart_item.rb:346-352), so
+    # its answer to "what does this cost here?" is "nothing" — ours has to match,
+    # or the droplet writes a switched-off figure and locks it. Doesn't occur in
+    # the catalogs checked (deactivated rows sit at 0.00), but the rule is the
+    # rule.
+    rows = { INCIDENT_VARIANT_ID => [
+      { "country_code" => "CA", "currency_code" => "CAD", "active" => false,
+        "price" => "64.97", "subscription_price" => "44.97", },
+    ] }
+    service = build_pricing_service(
+      country_code: "CA",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "44.97" } ],
+      rows: rows
+    )
+
+    assert_nil service.send(:variant_country_row, INCIDENT_VARIANT_ID)
+    assert_nil service.send(:variant_base_volumes, INCIDENT_VARIANT_ID),
+               "volumes must skip the item too, not fall back to another country"
+  end
+
   test "subscribe-and-save discount still applies (55.97 -> 38.97)" do
     rows = { 278059 => [ { "country_code" => "US", "currency_code" => "USD", "active" => true,
                            "price" => "55.97", "subscription_price" => "38.97", } ] }
@@ -838,7 +860,13 @@ class FakeVariantsResource
 
   def get(variant_id)
     @get_calls << variant_id
-    countries = @volumes_by_variant_id[variant_id] || []
+    countries = (@volumes_by_variant_id[variant_id] || []).map do |row|
+      # Fluid's v1 endpoint always emits `active` on a country row
+      # (V1::VariantCountryBlueprinter), so a fixture that omits it stands for an
+      # ACTIVE row, not an absent flag. Fixtures testing the inactive path set it
+      # explicitly.
+      row.key?("active") || row.key?(:active) ? row : row.merge("active" => true)
+    end
     { "variant" => { "id" => variant_id, "variant_countries" => countries } }
   end
 end

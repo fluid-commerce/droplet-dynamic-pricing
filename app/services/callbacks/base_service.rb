@@ -275,23 +275,33 @@ private
     item["variant_id"] || item.dig("variant", "id")
   end
 
-  # The variant's row for the cart's country. Prefers an active row but accepts
-  # an inactive one for the same country — the country (hence the currency) is
-  # what has to be right, and skipping inactive rows would refuse to price lines
-  # Fluid still sells.
+  # The variant's ACTIVE row for the cart's country — the same rule Fluid applies
+  # to itself in CartItem#variant_country_for_country_id, which resolves through
+  # `variant_countries.active.find_by(country_id:)` (cart_item.rb:346-352).
+  #
+  # `active` is how a company says "this variant is sold in this country". When
+  # it's off, Fluid's answer to "what does this cost here?" is "nothing" — so ours
+  # has to be too. An earlier version accepted an inactive row as a fallback,
+  # reasoning that a row with a price beats no price at all; that answered a
+  # different question. It let the droplet write a price onto a line Fluid would
+  # have left alone, and lock it, on the strength of a figure the company had
+  # switched off. In the catalogs checked, an inactive row carrying a price does
+  # not occur at all: the deactivated rows sit at 0.00.
   #
   # Returns nil when the cart has no resolvable country, or the country has no
-  # row at all. It deliberately does NOT fall back to an arbitrary country entry
-  # the way this used to (`|| countries.first`): that guess is the same class of
-  # bug as STU2-3108 and was already able to write another country's CV/QV.
+  # active row. Callers treat nil as "skip this item, log why" rather than
+  # guessing. It deliberately does NOT fall back to an arbitrary country entry the
+  # way this used to (`|| countries.first`): that guess is the same class of bug as
+  # STU2-3108 and was already able to write another country's CV/QV.
   def variant_country_row(variant_id)
     return nil if cart_country.blank?
 
     rows = variant_country_rows(variant_id)
     return nil if rows.blank?
 
-    for_country = rows.select { |row| row_field(row, "country_code") == cart_country }
-    for_country.find { |row| row_field(row, "active") } || for_country.first
+    rows.find do |row|
+      row_field(row, "country_code") == cart_country && row_field(row, "active")
+    end
   end
 
   # All of the variant's variant_countries rows, memoized per request (including
