@@ -254,8 +254,12 @@ private
 
   # The variant's per-unit base CV/QV plus prices for the cart's country. nil when
   # the country can't be matched, which skips the item.
+  #
+  # Resolves through cart_country, which still accepts the shipping target as
+  # STU2-2526 intended. Prices may not (see cart_pricing_country); volumes keep the
+  # wider resolution so this PR doesn't change what STU2-2526 settled.
   def variant_base_volumes(variant_id)
-    match = variant_country_row(variant_id)
+    match = variant_country_row(variant_id, country: cart_country)
     return nil if match.nil?
 
     {
@@ -273,20 +277,28 @@ private
     item["variant_id"] || item.dig("variant", "id")
   end
 
-  # The variant's ACTIVE row for the cart's country, matching Fluid's own
-  # variant_countries.active lookup (cart_item.rb:346-352): an inactive row means
-  # the company doesn't sell the variant there, so there is no price to use.
+  # The variant's active row for the cart's own country, matching the lookup Fluid
+  # applies to itself in CartItem#variant_country_for_country_id: an inactive row
+  # means the company doesn't sell the variant there, so there is no price to use.
   #
-  # nil when the country or its active row can't be resolved. Callers skip the
-  # item rather than falling back to another country's figures.
-  def variant_country_row(variant_id)
-    return nil if cart_country.blank?
+  # An ABSENT flag counts as active: every row the live endpoint returns carries a
+  # real boolean, and treating a missing key as "not sold" would stop pricing
+  # everything at once — worse than the case it guards against.
+  #
+  # `country` is explicit because the two callers must not share one: prices resolve
+  # against the cart's own country, volumes still accept the shipping target
+  # (STU2-2526). nil means skip the item, never fall back to another country.
+  def variant_country_row(variant_id, country: cart_pricing_country)
+    return nil if country.blank?
 
     rows = variant_country_rows(variant_id)
     return nil if rows.blank?
 
     rows.find do |row|
-      row_field(row, "country_code") == cart_country && row_field(row, "active")
+      next false unless row_field(row, "country_code") == country
+
+      active = row_field(row, "active")
+      active.nil? || active
     end
   end
 
@@ -314,12 +326,24 @@ private
     row[key].nil? ? row[key.to_sym] : row[key]
   end
 
-  # Fluid's cart payload exposes the country as an object (cart.country.iso) and
-  # on the shipping target (ship_to/shipping_address.country_code) rather than a
-  # flat cart.country_code. Accept all of these (STU2-2526).
+  # The cart's OWN country — where its currency comes from, and therefore the only
+  # country a price may be resolved against. Narrower than cart_country on purpose:
+  # taking a price from ship_to while the currency comes from the cart IS the
+  # STU2-3108 bug, so falling back to it here would reintroduce it under our lock.
+  # In production this resolves through the country association; the flat key is for
+  # payload shapes that send it.
+  def cart_pricing_country
+    cart&.dig("country_code") || cart&.dig(:country_code) || country_field_iso
+  end
+
+  # Fluid's cart payload exposes the country as an object (cart.country.iso) and on
+  # the shipping target (ship_to/shipping_address.country_code) rather than a flat
+  # cart.country_code. Accept all of these (STU2-2526).
+  #
+  # Used for volume resolution only. Anything that decides a PRICE must use
+  # cart_pricing_country.
   def cart_country
-    cart&.dig("country_code") ||
-      country_field_iso ||
+    cart_pricing_country ||
       cart&.dig("ship_to", "country_code") ||
       cart&.dig("shipping_address", "country_code")
   end
@@ -398,67 +422,68 @@ private
     (metadata["bundle_group_base_price"] || metadata[:bundle_group_base_price]).presence
   end
 
-  # Whether Fluid prices this item through bundle groups instead of
-  # variant_country — its master variant may well carry priced rows, so reading
-  # them would overwrite the bundle total and lock it.
+  # Whether the item is a bundle, in which case its price never comes from
+  # variant_country here. A bundle's master variant may well carry priced rows —
+  # the local one is priced in all three countries while its lines price at 0.0 —
+  # so reading the row would overwrite Fluid's bundle total and lock it.
   #
-  # Mirrors ItemPricing#use_bundle_group_pricing?, using "bundle_group_cv" in
-  # place of the product_bundle_groups lookup the droplet can't do:
-  # build_bundle_metadata always stamps it, the legacy path never does
-  # (bundle_group_pricing.rb:314, item_service.rb:413), which is the same
-  # discriminator ItemPricing#assign_volumes! uses on itself.
-  def bundle_group_priced?(item)
+  # Broader than Fluid's ItemPricing#use_bundle_group_pricing?, which also asks
+  # whether the product has bundle groups. The droplet can't see that, and inferring
+  # it from a metadata key Fluid happens to stamp fails in the dangerous direction —
+  # a missing key would send the master's row over the bundle total. Legacy bundles
+  # lose the country correction as a result, but not writing means not locking, so
+  # Fluid can still resolve them.
+  def bundle_priced?(item)
     metadata = item_metadata(item)
-    return false unless metadata["is_bundle"] == true || metadata[:is_bundle] == true
-
-    bundle_group_base_price(item).present? ||
-      metadata.key?("bundle_group_cv") || metadata.key?(:bundle_group_cv)
+    metadata["is_bundle"] == true || metadata[:is_bundle] == true
   end
 
   # `value` unless blank or numerically zero, so a `||` chain keeps walking.
-  # Returned as given, not as a Float, to keep the payload byte-identical.
   def nonzero_price(value)
     return nil if value.blank?
 
     value.to_f.zero? ? nil : value
   end
 
-  # The price to write for `item`, taken from the variant's row for the cart's
-  # country rather than the callback payload (STU2-3108). Echoing the payload let
-  # a price Fluid had resolved against a different country be written as an admin
+  # The price to write for `item`, taken from the variant's row for the cart's own
+  # country rather than the callback payload (STU2-3108). Echoing the payload let a
+  # price Fluid had resolved against a different country be written as an admin
   # override and locked, so the right price could never come back — a PH cart was
   # charged the CAD figure, 113.85 instead of 2,499.
   #
-  # `kind` picks the column. nil means don't reprice this item at all.
+  # `kind` picks the column. Always returns a Float or nil; nil means don't reprice
+  # this item at all.
   def country_safe_price(item, payload_price, kind:)
     variant_id = item_variant_id(item)
 
     # Nothing to resolve or compare against; keep the payload price rather than
     # refuse to price the line.
-    return payload_price if variant_id.blank?
+    return payload_price.to_f if variant_id.blank?
 
-    # Bundle group items don't price from variant_country, and aren't exposed to
-    # this bug either: every bundle path resolves through cart.country&.iso
-    # (item_service.rb:387,391, item_pricing.rb:200), the same source as the
-    # currency, never ship_to.
-    return payload_price if bundle_group_priced?(item)
+    # Bundles never price from variant_country, and aren't exposed to this bug
+    # either: every bundle path in Fluid resolves through the cart's own country,
+    # the same source as the currency, never the shipping address.
+    return payload_price.to_f if bundle_priced?(item)
 
-    if cart_country.blank?
+    # Log-only until we know how often this fires: refusing is the safer end state,
+    # but it would also stop repricing a guest cart with no address yet.
+    if cart_pricing_country.blank?
       Rails.logger.warn(
-        "[DynamicPricing] Skipping reprice of item #{item['id']} on cart #{cart_token}: " \
-        "cart country could not be resolved (variant #{variant_id})"
+        "[DynamicPricing] Cannot resolve the pricing country for item #{item['id']} " \
+        "on cart #{cart_token} (variant #{variant_id}); forwarding the payload price " \
+        "#{payload_price.inspect} unchecked"
       )
-      return nil
+      return payload_price.to_f
     end
 
     # Lookup failed (transient error or 404) — fall through to the payload rather
     # than block the reprice on a blip.
     rows = variant_country_rows(variant_id)
-    return payload_price if rows.blank?
+    return payload_price.to_f if rows.blank?
 
     field = price_field_for(kind)
-    authoritative = row_field(variant_country_row(variant_id), field)
-    return authoritative.to_f if authoritative.to_f.positive?
+    authoritative = row_field(variant_country_row(variant_id), field).to_f
+    return authoritative if authoritative.positive?
 
     # Row carries no usable price — fee and adjustment SKUs sit at 0.0 on every
     # row, about a quarter of the catalog. They still need repricing, so use the
@@ -470,21 +495,40 @@ private
     kind == :subscription ? "subscription_price" : "price"
   end
 
+  # The variant's row for a country OTHER than the cart's whose price matches
+  # `value`, or nil. Shared evidence for both directions of the leak: a payload
+  # price that came from the wrong country, and a cart line still holding one.
+  #
+  # A heuristic, not proof: it assumes distinct countries carry distinct non-zero
+  # prices, which holds on the live catalog only because each country there has its
+  # own currency. A false positive costs a skipped reprice and an alert, never a
+  # wrong charge.
+  def foreign_priced_row(rows, value)
+    amount = value.to_f
+    return nil unless amount.positive?
+
+    rows.find do |row|
+      row_field(row, "country_code") != cart_pricing_country &&
+        [ row_field(row, "price"), row_field(row, "subscription_price") ].any? { |p| same_money?(p, amount) }
+    end
+  end
+
+  def same_money?(one, two)
+    return false if one.nil? || two.nil?
+
+    one.to_f.round(2) == two.to_f.round(2)
+  end
+
   # Refuses a payload price that belongs to a DIFFERENT country's row for the same
-  # variant — the shape of the leak this ticket is about, and conclusive rather
-  # than coincidental since no two countries in the catalog share a non-zero
-  # price. Logs, reports and drops the write, like the zero-price guard: an alert
-  # beats an undercharge, and this is the part that holds if the upstream cause
-  # returns in another shape.
+  # variant — the shape of the leak this ticket is about. Logs, reports and drops
+  # the write, like the zero-price guard: an alert beats an undercharge, and this is
+  # the part that holds if the upstream cause returns in another shape.
   def guarded_payload_price(item, variant_id, payload_price, rows, field)
     value = payload_price.to_f
-    return payload_price unless value.positive?
+    return value unless value.positive?
 
-    foreign = rows.find do |row|
-      row_field(row, "country_code") != cart_country &&
-        [ row_field(row, "price"), row_field(row, "subscription_price") ].any? { |p| p.to_f == value }
-    end
-    return payload_price if foreign.nil?
+    foreign = foreign_priced_row(rows, value)
+    return value if foreign.nil?
 
     foreign_country = row_field(foreign, "country_code")
     # Same column the refused write would have used, so the alert compares like
@@ -493,13 +537,13 @@ private
     message = "[DynamicPricing] Refusing cross-country price for item #{item['id']} " \
               "(variant #{variant_id}) on cart #{cart_token}: payload price #{value} belongs to " \
               "#{foreign_country} (#{row_field(foreign, 'currency_code')}), but the cart's country " \
-              "is #{cart_country} whose #{field} is #{expected.inspect}"
+              "is #{cart_pricing_country} whose #{field} is #{expected.inspect}"
     Rails.logger.warn(message)
     report_exception(
       CrossCountryPriceError.new(message),
       item_id: item["id"],
       variant_id: variant_id,
-      cart_country: cart_country,
+      cart_country: cart_pricing_country,
       payload_price: payload_price,
       expected_price: expected,
       foreign_country: foreign_country
@@ -615,47 +659,68 @@ private
 
     update_cart_items_prices(item_data)
 
-    # Swept lines need their volumes refreshed too: update_volumes stamps
-    # cv_manually_updated (cart_item_management_service.rb:50), which makes
-    # ItemPricing skip the line forever (item_pricing.rb:103) — the volumes
-    # analogue of the price lock, so CV/QV written under the old country would
-    # otherwise stay.
+    # Swept lines need their volumes refreshed too: Fluid's update_volumes endpoint
+    # stamps volume_adjustments.cv_manually_updated, which makes its own
+    # ItemPricing#assign_volumes! skip the line forever — the volumes analogue of the
+    # price lock, so CV/QV written under the old country would otherwise stay.
     update_cart_items_volumes([ cart_item ] + stranded.map { |line| line[:item] }, mode: :subscription)
   end
 
-  # The OTHER lines in the cart holding a figure from a country the cart has since
-  # left, as [{ item:, price: }].
+  # At most this many other lines corrected per callback. Each correction needs the
+  # variant's country rows, and the fetch is one sequential request; Fluid gives a
+  # callback 20 seconds at most (Callback validates timeout_in_seconds <= 20). A cap
+  # keeps a large cart from turning the reprice into a timeout, at the cost of
+  # correcting the rest on the next callback.
+  MAX_STRANDED_LINES_PER_CALLBACK = 5
+
+  # The OTHER lines in the cart still holding another country's figure, as
+  # [{ item:, price: }].
   #
   # Every price the droplet writes gets price_locked stamped on it, and Fluid skips
-  # locked lines when repricing (ItemPricing#repriceable?). So a line written
-  # before a country change is stranded at the old number under the new currency,
-  # and only the droplet can overwrite it. A callback names one item, so the rest
-  # have to be swept.
+  # locked lines when repricing (ItemPricing#repriceable?). So a line written before
+  # a country change stays at the old number under the new currency, and only the
+  # droplet can overwrite it. A callback names one item, so the rest have to be
+  # swept.
   #
-  # Narrow on purpose — only lines whose country row carries a positive figure
-  # differing from what they hold, never bundle group items or items without a
-  # resolvable variant — so a healthy cart yields nothing and writes nothing.
+  # Correcting a line needs positive evidence that it holds a FOREIGN price, not
+  # merely one that differs from the country row — a promo or quantity break differs
+  # too, and rewriting those would lock a price Fluid never set. Same evidence
+  # guarded_payload_price uses in the other direction.
+  #
+  # Cheap tests first so most lines never trigger a fetch.
   def stranded_cart_lines(except_item_id:)
-    return [] if cart_country.blank?
+    return [] if cart_pricing_country.blank?
 
-    cart_items.filter_map do |item|
+    corrected = []
+    cart_items.each do |item|
+      break if corrected.size >= MAX_STRANDED_LINES_PER_CALLBACK
       next if item["id"] == except_item_id || item["id"].blank?
-      next if bundle_group_priced?(item)
+      next if bundle_priced?(item)
+
+      # No fetch: Fluid's freshly computed figure for this cart already agrees with
+      # the line.
+      reference = nonzero_price(item["subscription_price"])
+      next if reference.nil? || same_money?(item["price"], reference)
 
       variant_id = item_variant_id(item)
       next if variant_id.blank?
 
+      rows = variant_country_rows(variant_id)
+      next if rows.blank?
+      next if foreign_priced_row(rows, item["price"]).nil?
+
       authoritative = row_field(variant_country_row(variant_id), "subscription_price").to_f
       next unless authoritative.positive?
-      next if item["price"].to_f == authoritative
+      next if same_money?(item["price"], authoritative)
 
       Rails.logger.warn(
         "[DynamicPricing] Correcting stranded price on item #{item['id']} " \
         "(variant #{variant_id}) on cart #{cart_token}: line holds #{item['price']} " \
-        "but #{cart_country} resolves to #{authoritative}"
+        "which belongs to another country, but #{cart_pricing_country} resolves to #{authoritative}"
       )
-      { item: item, price: authoritative }
+      corrected << { item: item, price: authoritative }
     end
+    corrected
   end
 
   def has_active_subscriptions?(customer_id)

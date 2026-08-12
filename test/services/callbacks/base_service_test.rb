@@ -63,7 +63,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
     result = service.send(:cart_items_with_regular_price)
 
-    assert_equal "333.0", result.first["price"]
+    assert_equal 333.0, result.first["price"]
   end
 
   test "cart_items_with_subscription_price falls back to item.price when subscription_price is zero" do
@@ -78,7 +78,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
     result = service.send(:cart_items_with_subscription_price)
 
-    assert_equal "333.0", result.first["price"]
+    assert_equal 333.0, result.first["price"]
   end
 
   # --- price_type_wholesale? (STU2-2964) ---
@@ -601,7 +601,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     result = service.send(:cart_items_with_subscription_price)
 
     assert_equal 1, result.size
-    assert_equal "172.99", result.first["price"]
+    assert_equal 172.99, result.first["price"]
   end
 
   test "a bundle group line keeps its bundle figure even when the master variant is priced" do
@@ -617,7 +617,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
     result = service.send(:cart_items_with_subscription_price)
 
-    assert_equal "172.99", result.first["price"]
+    assert_equal 172.99, result.first["price"]
     refute_equal 99.0, result.first["price"], "must not read the master variant's country row"
   end
 
@@ -633,13 +633,16 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
     result = service.send(:cart_items_with_subscription_price)
 
-    assert_equal "150.0", result.first["price"], "the payload price is Fluid's bundle figure"
+    assert_equal 150.0, result.first["price"], "the payload price is Fluid's bundle figure"
     refute_equal 99.0, result.first["price"]
   end
 
-  test "a legacy bundle line still prices from the country row" do
-    # Legacy items never get "bundle_group_cv" and Fluid prices them through
-    # variant_country like any other, so must we — or they lose the protection.
+  test "any bundle line is left to Fluid, legacy ones included" do
+    # Telling a legacy ProductBundle item from a bundle-group one would mean keying
+    # on a metadata key Fluid happens to stamp, and that inference fails in the
+    # dangerous direction — a missing key would send the master variant's row over
+    # the bundle total. Legacy bundles lose the country correction as a result, but
+    # forwarding the payload leaves the line unlocked for Fluid to resolve.
     service = build_pricing_service(
       country_code: "PH",
       items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "113.85",
@@ -648,18 +651,40 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
     result = service.send(:cart_items_with_subscription_price)
 
-    assert_equal 2499.0, result.first["price"]
+    assert_equal 113.85, result.first["price"]
   end
 
-  test "cart_items_with_subscription_price skips the item when the cart country cannot be resolved" do
+  test "an unresolvable pricing country warns and forwards the payload, for now" do
+    # Refusing is the safer end state, but it would also stop repricing a guest cart
+    # with no address yet. Staged: warn now, measure how often it fires, then refuse.
     service = build_pricing_service(
       country_code: nil,
       items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "113.85" } ]
     )
+    warnings = []
+    service.define_singleton_method(:warn_line) { |msg| warnings << msg }
+    Rails.logger.stub(:warn, ->(msg) { warnings << msg }) do
+      assert_equal 113.85, service.send(:cart_items_with_subscription_price).first["price"]
+    end
 
-    result = service.send(:cart_items_with_subscription_price)
+    assert warnings.any? { |w| w.to_s.include?("Cannot resolve the pricing country") },
+           "the discrepancy has to be recorded even while we forward the payload"
+  end
 
-    assert_empty result, "no country means no safe price — skip rather than guess"
+  test "a price is never resolved from the shipping country" do
+    # cart_country accepts ship_to for volumes (STU2-2526); resolving a PRICE that
+    # way is the bug this ticket is about, since the currency comes from the cart.
+    cart = {
+      "cart_token" => "ct_abc",
+      "company" => { "id" => @company.fluid_company_id },
+      "ship_to" => { "country_code" => "CA" },
+      "items" => [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID } ],
+    }
+    service = Callbacks::BaseService.new({ cart: cart })
+
+    assert_equal "CA", service.send(:cart_country), "volumes still see ship_to"
+    assert_nil service.send(:cart_pricing_country), "prices must not"
+    assert_nil service.send(:variant_country_row, INCIDENT_VARIANT_ID)
   end
 
   test "variant_country_row never falls back to another country's row" do
@@ -740,7 +765,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
     service.send(:update_item_to_subscription_price)
 
-    assert_equal [ { "id" => 1, "price" => "172.99" } ], written
+    assert_equal [ { "id" => 1, "price" => 172.99 } ], written
   end
 
   # --- stranded lines after a country change (the lock interaction) ---
@@ -750,7 +775,11 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     # Fluid cannot re-resolve a locked line, so only the droplet can fix it — and a
     # callback names just item 1, so item 2 has to be swept.
     cart_item = { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "2499.0" }
-    stranded  = { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "price" => "113.85" }
+    # Fluid recomputes subscription_price for the cart's current country on every
+    # payload, so a stranded line shows the old figure in `price` and the correct one
+    # in `subscription_price`. 113.85 is CA's, which is the evidence the sweep needs.
+    stranded  = { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "price" => "113.85",
+                  "subscription_price" => "2499.0", }
     service = build_pricing_service(country_code: "PH", items: [ cart_item, stranded ])
     service.define_singleton_method(:cart_item) { cart_item }
     written = []
@@ -762,6 +791,62 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     service.send(:update_item_to_subscription_price)
 
     assert_equal [ { "id" => 1, "price" => 2499.0 }, { "id" => 2, "price" => 2499.0 } ], written
+  end
+
+  test "the sweep leaves a line alone when its price is no country's figure" do
+    # A promo, a quantity break or an admin edit all leave a line that simply
+    # differs from the country row. Rewriting those would lock a price Fluid never
+    # set — the failure this ticket is about, caused by the fix. Only a price that
+    # IS another country's figure is evidence of stranding.
+    cart_item = { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "2499.0" }
+    discounted = { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "price" => "1999.0",
+                   "subscription_price" => "2499.0", }
+    service = build_pricing_service(country_code: "PH", items: [ cart_item, discounted ])
+
+    assert_empty service.send(:stranded_cart_lines, except_item_id: 1)
+  end
+
+  test "the sweep needs no variant fetch for a line already holding Fluid's figure" do
+    # The cheap test runs first: Fluid recomputes subscription_price for the cart's
+    # country on every payload, so a line matching it cannot be stranded. Keeps the
+    # sweep off the N+1 path in a healthy cart, which matters against a callback
+    # timeout capped at 20s.
+    cart_item = { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "2499.0" }
+    healthy = { "id" => 2, "variant_id" => 999_111, "price" => "2499.0",
+                "subscription_price" => "2499.0", }
+    service = build_pricing_service(country_code: "PH", items: [ cart_item, healthy ])
+
+    assert_empty service.send(:stranded_cart_lines, except_item_id: 1)
+    assert_empty service.send(:fake_variants).get_calls, "no fetch for a line that already agrees"
+  end
+
+  test "the sweep corrects at most MAX_STRANDED_LINES_PER_CALLBACK lines" do
+    cap = Callbacks::BaseService::MAX_STRANDED_LINES_PER_CALLBACK
+    items = [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "2499.0" } ]
+    (2..(cap + 4)).each do |id|
+      items << { "id" => id, "variant_id" => INCIDENT_VARIANT_ID, "price" => "113.85",
+                 "subscription_price" => "2499.0", }
+    end
+    service = build_pricing_service(country_code: "PH", items: items)
+
+    assert_equal cap, service.send(:stranded_cart_lines, except_item_id: 1).size
+  end
+
+  test "a country row with no active flag counts as active" do
+    # The live endpoint always sends the flag, but treating an absent key as "not
+    # sold" would stop pricing everything at once — a far worse failure than the one
+    # it would guard against.
+    rows = { INCIDENT_VARIANT_ID => [
+      { "country_code" => "PH", "currency_code" => "PHP", "price" => "2499.0",
+        "subscription_price" => "2499.0", },
+    ] }
+    service = build_pricing_service(
+      country_code: "PH",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "113.85" } ],
+      rows: rows
+    )
+
+    assert_equal 2499.0, service.send(:cart_items_with_subscription_price).first["price"]
   end
 
   test "the sweep is a no-op when every line already matches the cart's country" do
@@ -789,7 +874,8 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     # update_volumes stamps cv_manually_updated, which makes Fluid's own
     # ItemPricing skip the line forever — the volumes analogue of the price lock.
     cart_item = { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "2499.0" }
-    stranded  = { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "price" => "113.85" }
+    stranded  = { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "price" => "113.85",
+                  "subscription_price" => "2499.0", }
     service = build_pricing_service(country_code: "PH", items: [ cart_item, stranded ])
     service.define_singleton_method(:cart_item) { cart_item }
     carts = Object.new
@@ -806,7 +892,8 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
   test "the sweep does nothing when the cart country cannot be resolved" do
     items = [
       { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "2499.0" },
-      { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "price" => "113.85" },
+      { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "price" => "113.85",
+        "subscription_price" => "2499.0", },
     ]
     service = build_pricing_service(country_code: nil, items: items)
 
@@ -822,10 +909,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
     result = service.send(:cart_items_with_subscription_price)
 
-    # Forwarded as given, not coerced: the payload path stays byte-identical to
-    # what Fluid sent, so a passthrough can't introduce a rounding difference of
-    # its own.
-    assert_equal "2499.0", result.first["price"]
+    assert_equal 2499.0, result.first["price"]
   end
 end
 
@@ -839,12 +923,7 @@ class FakeVariantsResource
 
   def get(variant_id)
     @get_calls << variant_id
-    countries = (@volumes_by_variant_id[variant_id] || []).map do |row|
-      # Fluid's v1 endpoint always emits `active`, so a fixture that omits it means
-      # an ACTIVE row. Fixtures testing the inactive path set it explicitly.
-      row.key?("active") || row.key?(:active) ? row : row.merge("active" => true)
-    end
-    { "variant" => { "id" => variant_id, "variant_countries" => countries } }
+    { "variant" => { "id" => variant_id, "variant_countries" => @volumes_by_variant_id[variant_id] || [] } }
   end
 end
 

@@ -205,7 +205,8 @@ class Callbacks::CartItemUpdatedServiceTest < ActiveSupport::TestCase
     expected_item_data = [
       {
         "id" => @cart_item["id"],
-        "price" => @cart_item["subscription_price"],
+        # Float: the droplet resolves prices to numbers, whatever shape the payload used.
+        "price" => @cart_item["subscription_price"].to_f,
       },
     ]
     assert_equal expected_item_data, call[:items]
@@ -234,7 +235,7 @@ class Callbacks::CartItemUpdatedServiceTest < ActiveSupport::TestCase
     expected_item_data = [
       {
         "id" => cart_item_without_subscription_price["id"],
-        "price" => cart_item_without_subscription_price["price"],
+        "price" => cart_item_without_subscription_price["price"].to_f,
       },
     ]
     assert_equal expected_item_data, call[:items]
