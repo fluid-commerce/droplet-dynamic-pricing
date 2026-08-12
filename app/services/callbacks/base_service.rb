@@ -252,14 +252,20 @@ private
     [ (total.to_f / qty).round, 0 ].max
   end
 
-  # The variant's per-unit base CV/QV plus prices for the cart's country. nil when
-  # the country can't be matched, which skips the item.
+  # The variant's per-unit base CV/QV plus retail/subscription price for the cart's
+  # country, falling back to the first country entry. Returns nil when the variant
+  # can't be resolved.
   #
-  # Resolves through cart_country, which still accepts the shipping target as
-  # STU2-2526 intended. Prices may not (see cart_pricing_country); volumes keep the
-  # wider resolution so this PR doesn't change what STU2-2526 settled.
+  # Resolves its own row rather than going through variant_country_row: volumes are
+  # STU2-2526's, and that ticket settled both the wider country lookup (cart_country
+  # accepts the shipping target) and this fallback. Prices are stricter on both
+  # counts — see cart_pricing_country and variant_country_row — but that belongs to
+  # STU2-3108, and pulling volumes along would change behaviour no one asked about.
   def variant_base_volumes(variant_id)
-    match = variant_country_row(variant_id, country: cart_country)
+    rows = variant_country_rows(variant_id)
+    return nil if rows.blank?
+
+    match = rows.find { |row| row_field(row, "country_code") == cart_country } || rows.first
     return nil if match.nil?
 
     {
@@ -285,17 +291,17 @@ private
   # real boolean, and treating a missing key as "not sold" would stop pricing
   # everything at once — worse than the case it guards against.
   #
-  # `country` is explicit because the two callers must not share one: prices resolve
-  # against the cart's own country, volumes still accept the shipping target
-  # (STU2-2526). nil means skip the item, never fall back to another country.
-  def variant_country_row(variant_id, country: cart_pricing_country)
-    return nil if country.blank?
+  # nil when the country or its active row can't be resolved: a price is skipped
+  # rather than taken from another country. Volume resolution is separate and
+  # deliberately unchanged — see variant_base_volumes.
+  def variant_country_row(variant_id)
+    return nil if cart_pricing_country.blank?
 
     rows = variant_country_rows(variant_id)
     return nil if rows.blank?
 
     rows.find do |row|
-      next false unless row_field(row, "country_code") == country
+      next false unless row_field(row, "country_code") == cart_pricing_country
 
       active = row_field(row, "active")
       active.nil? || active

@@ -688,15 +688,16 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
   end
 
   test "variant_country_row never falls back to another country's row" do
-    # Cart is in a country the variant has no row for. The old `|| countries.first`
-    # would have adopted CA's row (price AND volumes).
+    # Cart is in a country the variant has no row for, so there is no price. Volumes
+    # keep their own resolution (STU2-2526) and still fall back — out of scope here.
     service = build_pricing_service(
       country_code: "MX",
       items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID } ]
     )
 
     assert_nil service.send(:variant_country_row, INCIDENT_VARIANT_ID)
-    assert_nil service.send(:variant_base_volumes, INCIDENT_VARIANT_ID)
+    assert_equal "113.85", service.send(:variant_base_volumes, INCIDENT_VARIANT_ID)[:price],
+                 "volumes are STU2-2526's and unchanged by this ticket"
   end
 
   test "variant country rows are fetched once per variant across several cart items" do
@@ -728,8 +729,6 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     )
 
     assert_nil service.send(:variant_country_row, INCIDENT_VARIANT_ID)
-    assert_nil service.send(:variant_base_volumes, INCIDENT_VARIANT_ID),
-               "volumes must skip the item too, not fall back to another country"
   end
 
   test "subscribe-and-save discount still applies (55.97 -> 38.97)" do
