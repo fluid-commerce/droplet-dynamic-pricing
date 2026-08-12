@@ -463,9 +463,8 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
   # --- country-safe pricing (STU2-3108) ---
   #
-  # Fixture mirrors the real variant from the incident: 278058 (10111-UNV) is
-  # priced US $99.00 / CA $113.85 CAD / PH ₱2,499.00, which is what makes it able
-  # to express every cross-country case.
+  # Fixture mirrors the variant from the incident: 278058 (10111-UNV), priced
+  # US 99.00 / CA 113.85 / PH 2,499.00 — enough to express every case.
 
   INCIDENT_VARIANT_ID = 278058
   INCIDENT_ROWS = [
@@ -477,11 +476,8 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
       "price" => "99.0", "subscription_price" => "99.0", "cv" => 0, "qv" => 0, },
   ].freeze
 
-  # What Fluid's BundleGroupPricing.build_bundle_metadata stamps on a bundle group
-  # cart item. "bundle_group_cv" is written unconditionally there, which is how the
-  # droplet tells a group bundle (priced through bundle groups) from a legacy
-  # ProductBundle item (priced through variant_country) — the same discriminator
-  # Fluid's own ItemPricing#assign_volumes! uses.
+  # What BundleGroupPricing.build_bundle_metadata stamps on a bundle group item.
+  # "bundle_group_cv" is the key that tells it from a legacy ProductBundle item.
   BUNDLE_GROUP_METADATA = {
     "is_bundle" => true,
     "bundled_items" => [],
@@ -609,12 +605,9 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
   end
 
   test "a bundle group line keeps its bundle figure even when the master variant is priced" do
-    # Verified against real data rather than assumed: the local bundle's master
-    # variant (33693) carries a positive row for every country — 99.00 US /
-    # 113.85 CA / 2499.00 MX — while its cart items sit at a metadata base price of
-    # 0.0. Reading the row would write 99.00 onto a line Fluid prices at zero and
-    # then lock it. Fluid never prices a bundle group item from variant_country
-    # (ItemPricing#use_bundle_group_pricing?), so neither may we.
+    # Real data, not a hypothesis: the local bundle's master (33693) is priced in
+    # all three countries while its lines sit at 0.0. Reading the row would write
+    # 99.00 onto a line Fluid prices at zero, and lock it.
     service = build_pricing_service(
       country_code: "US",
       items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "0.0",
@@ -629,10 +622,8 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
   end
 
   test "a bundle group line with no cached base price still bypasses the country row" do
-    # Fluid's gate is `bundle_group_base_price.present? || product_bundle_groups.any?`.
-    # A bundle added in a country with no enabled entry lands with the base price
-    # missing and Fluid still prices it through bundle groups, so the presence of
-    # "bundle_group_cv" has to be enough on its own.
+    # A bundle added in a country with no enabled entry lands with no base price and
+    # is still bundle-priced, so "bundle_group_cv" has to be enough on its own.
     metadata = BUNDLE_GROUP_METADATA.dup
     service = build_pricing_service(
       country_code: "US",
@@ -647,10 +638,8 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
   end
 
   test "a legacy bundle line still prices from the country row" do
-    # Legacy ProductBundle items get "is_bundle" and "bundled_items" but never
-    # "bundle_group_cv" (item_service.rb#build_legacy_bundle_metadata!), and Fluid
-    # prices them through variant_country like any other item. So must we —
-    # otherwise they lose the STU2-3108 protection.
+    # Legacy items never get "bundle_group_cv" and Fluid prices them through
+    # variant_country like any other, so must we — or they lose the protection.
     service = build_pricing_service(
       country_code: "PH",
       items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "113.85",
@@ -701,12 +690,8 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
   end
 
   test "an inactive row for the cart's country is not used, even when it carries a price" do
-    # `active` off is the company saying the variant is not sold in that country.
-    # Fluid resolves through variant_countries.active (cart_item.rb:346-352), so
-    # its answer to "what does this cost here?" is "nothing" — ours has to match,
-    # or the droplet writes a switched-off figure and locks it. Doesn't occur in
-    # the catalogs checked (deactivated rows sit at 0.00), but the rule is the
-    # rule.
+    # `active` off means the company doesn't sell it there, and Fluid resolves
+    # through variant_countries.active — so there is no price for us to write.
     rows = { INCIDENT_VARIANT_ID => [
       { "country_code" => "CA", "currency_code" => "CAD", "active" => false,
         "price" => "64.97", "subscription_price" => "44.97", },
@@ -737,10 +722,8 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
   end
 
   test "update_item_to_subscription_price treats a bundle's 0.0 subscription_price as zero, not truthy" do
-    # "0.0" is a truthy String: a plain `||` chain would stop there, write zero,
-    # and let the zero-price guard drop the line — silently cancelling the
-    # reprice. It must fall through to the bundle base price instead, matching
-    # cart_items_with_subscription_price.
+    # "0.0" is a truthy String, so a plain `||` would write zero and let the
+    # zero-price guard drop the line, silently cancelling the reprice.
     bundle_variant_id = 285690
     rows = { bundle_variant_id => [ { "country_code" => "CA", "currency_code" => "CAD", "active" => true,
                                       "price" => "0.0", "subscription_price" => "0.0", } ] }
@@ -790,10 +773,8 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
   end
 
   test "the sweep leaves bundle group lines alone even when the master variant is priced" do
-    # A bundle's master variant carrying a priced row is not hypothetical: the
-    # local bundle's master (33693) is 99.00 US / 113.85 CA / 2499.00 MX while its
-    # cart items sit at a metadata base price of 0.0. Without the bundle gate the
-    # sweep would "correct" a bundle line to the master variant's figure.
+    # Without the bundle gate the sweep would "correct" a bundle line to its
+    # master variant's figure — which the local bundle really does carry.
     items = [
       { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "2499.0" },
       { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "price" => "172.99",
@@ -805,10 +786,8 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
   end
 
   test "the sweep refreshes the volumes of the lines it corrects, not only their prices" do
-    # Fluid's update_volumes endpoint stamps cv_manually_updated, which makes its
-    # own ItemPricing skip the line forever — the volumes analogue of the price
-    # lock. A swept line whose CV/QV were written under the old country would keep
-    # them otherwise.
+    # update_volumes stamps cv_manually_updated, which makes Fluid's own
+    # ItemPricing skip the line forever — the volumes analogue of the price lock.
     cart_item = { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "2499.0" }
     stranded  = { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "price" => "113.85" }
     service = build_pricing_service(country_code: "PH", items: [ cart_item, stranded ])
@@ -861,10 +840,8 @@ class FakeVariantsResource
   def get(variant_id)
     @get_calls << variant_id
     countries = (@volumes_by_variant_id[variant_id] || []).map do |row|
-      # Fluid's v1 endpoint always emits `active` on a country row
-      # (V1::VariantCountryBlueprinter), so a fixture that omits it stands for an
-      # ACTIVE row, not an absent flag. Fixtures testing the inactive path set it
-      # explicitly.
+      # Fluid's v1 endpoint always emits `active`, so a fixture that omits it means
+      # an ACTIVE row. Fixtures testing the inactive path set it explicitly.
       row.key?("active") || row.key?(:active) ? row : row.merge("active" => true)
     end
     { "variant" => { "id" => variant_id, "variant_countries" => countries } }
