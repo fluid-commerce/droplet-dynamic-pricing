@@ -614,10 +614,52 @@ private
     item_data = [ {
       "id" => item_id,
       "price" => final_price,
-    } ]
+    } ] + stranded_cart_line_prices(except_item_id: item_id)
 
     update_cart_items_prices(item_data)
     update_cart_items_volumes([ cart_item ], mode: :subscription)
+  end
+
+  # Prices for the OTHER lines in the cart that are holding a figure from a
+  # different country than the cart's.
+  #
+  # This exists because of how Fluid's lock interacts with a country change.
+  # Every price the droplet writes gets `metadata.price_locked` stamped on it by
+  # update_cart_items_prices_action, and a locked line is skipped by Fluid's own
+  # pricing pipeline (Commerce::Carts::Calculators::ItemPricing#repriceable?). So
+  # when the cart's country moves after a write, Fluid cannot re-resolve the line
+  # and it is stranded holding the old country's number under the new currency —
+  # reproduced locally as a cart that flipped US -> MX -> CA while its line stayed
+  # at the Mexican figure. The droplet is the only actor that can fix it, since
+  # its PATCH overwrites a locked line.
+  #
+  # A callback only ever names one item, so repricing just that one leaves every
+  # other line stale. This sweeps the rest on any callback that arrives.
+  #
+  # Deliberately narrow: it only proposes a price when the country row carries a
+  # positive figure that differs from what the line holds. Bundle parents (0.0 on
+  # every row) and anything without a resolvable variant or country are left
+  # alone, so a healthy cart produces an empty list and no extra write.
+  def stranded_cart_line_prices(except_item_id:)
+    return [] if cart_country.blank?
+
+    cart_items.filter_map do |item|
+      next if item["id"] == except_item_id || item["id"].blank?
+
+      variant_id = item["variant_id"] || item.dig("variant", "id")
+      next if variant_id.blank?
+
+      authoritative = row_field(variant_country_row(variant_id), "subscription_price").to_f
+      next unless authoritative.positive?
+      next if item["price"].to_f == authoritative
+
+      Rails.logger.warn(
+        "[DynamicPricing] Correcting stranded price on item #{item['id']} " \
+        "(variant #{variant_id}) on cart #{cart_token}: line holds #{item['price']} " \
+        "but #{cart_country} resolves to #{authoritative}"
+      )
+      { "id" => item["id"], "price" => authoritative }
+    end
   end
 
   def has_active_subscriptions?(customer_id)

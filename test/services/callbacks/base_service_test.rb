@@ -672,6 +672,63 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     assert_equal [ { "id" => 1, "price" => "172.99" } ], written
   end
 
+  # --- stranded lines after a country change (the lock interaction) ---
+
+  test "update_item_to_subscription_price also corrects other lines stranded in another country" do
+    # The cart moved to PH after an earlier write locked the CA figure on item 2.
+    # Fluid cannot re-resolve a locked line, so only the droplet can fix it — and a
+    # callback names just item 1, so item 2 has to be swept.
+    cart_item = { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "2499.0" }
+    stranded  = { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "price" => "113.85" }
+    service = build_pricing_service(country_code: "PH", items: [ cart_item, stranded ])
+    service.define_singleton_method(:cart_item) { cart_item }
+    written = []
+    carts = Object.new
+    carts.define_singleton_method(:update_items_prices) { |_token, items| written.concat(items) }
+    service.send(:fluid_client).define_singleton_method(:carts) { carts }
+    service.define_singleton_method(:update_cart_items_volumes) { |*| nil }
+
+    service.send(:update_item_to_subscription_price)
+
+    assert_equal [ { "id" => 1, "price" => 2499.0 }, { "id" => 2, "price" => 2499.0 } ], written
+  end
+
+  test "the sweep is a no-op when every line already matches the cart's country" do
+    cart_item = { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "2499.0" }
+    healthy   = { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "price" => "2499.0" }
+    service = build_pricing_service(country_code: "PH", items: [ cart_item, healthy ])
+
+    assert_empty service.send(:stranded_cart_line_prices, except_item_id: 1)
+  end
+
+  test "the sweep leaves bundle parents alone" do
+    # Every country row is 0.0, so there is no authoritative figure to compare
+    # against and the line must not be touched.
+    bundle_variant_id = 285690
+    rows = { bundle_variant_id => [
+      { "country_code" => "PH", "currency_code" => "PHP", "active" => true,
+        "price" => "0.0", "subscription_price" => "0.0", },
+    ] }
+    items = [
+      { "id" => 1, "variant_id" => bundle_variant_id, "subscription_price" => "0.0" },
+      { "id" => 2, "variant_id" => bundle_variant_id, "price" => "172.99",
+        "metadata" => { "bundle_group_base_price" => "172.99" }, },
+    ]
+    service = build_pricing_service(country_code: "PH", items: items, rows: rows)
+
+    assert_empty service.send(:stranded_cart_line_prices, except_item_id: 1)
+  end
+
+  test "the sweep does nothing when the cart country cannot be resolved" do
+    items = [
+      { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "2499.0" },
+      { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "price" => "113.85" },
+    ]
+    service = build_pricing_service(country_code: nil, items: items)
+
+    assert_empty service.send(:stranded_cart_line_prices, except_item_id: 1)
+  end
+
   test "a failed variant lookup falls through to the payload rather than blocking the reprice" do
     service = build_pricing_service(
       country_code: "PH",
