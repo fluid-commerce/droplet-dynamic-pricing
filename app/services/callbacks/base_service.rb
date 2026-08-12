@@ -177,7 +177,7 @@ private
 
     Array(items).each do |item|
       item_id = item["id"]
-      variant_id = item["variant_id"] || item.dig("variant", "id")
+      variant_id = item_variant_id(item)
       next if item_id.blank? || variant_id.blank?
 
       base = variant_base_volumes(variant_id)
@@ -266,8 +266,13 @@ private
       pc_qv: row_field(match, "pc_qv"),
       price: row_field(match, "price"),
       subscription_price: row_field(match, "subscription_price"),
-      currency_code: row_field(match, "currency_code"),
     }
+  end
+
+  # A cart item's variant id, flat ("variant_id") or nested ("variant" => {"id"}).
+  # Both shapes occur across Fluid's cart payloads.
+  def item_variant_id(item)
+    item["variant_id"] || item.dig("variant", "id")
   end
 
   # The variant's row for the cart's country. Prefers an active row but accepts
@@ -369,7 +374,7 @@ private
   # still filters zero prices.
   def cart_items_with_subscription_price
     cart_items.filter_map do |item|
-      payload_price = item["subscription_price"].to_f.nonzero? ||
+      payload_price = nonzero_price(item["subscription_price"]) ||
                       bundle_group_base_price(item) ||
                       item["price"]
       price = country_safe_price(item, payload_price, kind: :subscription)
@@ -385,7 +390,7 @@ private
   # item.price — a bundle parent has no base price of its own.
   def cart_items_with_regular_price
     cart_items.filter_map do |item|
-      payload_price = item.dig("product", "price").to_f.nonzero? ||
+      payload_price = nonzero_price(item.dig("product", "price")) ||
                       bundle_group_base_price(item) ||
                       item["price"]
       price = country_safe_price(item, payload_price, kind: :regular)
@@ -395,15 +400,56 @@ private
     end
   end
 
-  # A bundle parent's variant_countries rows are all 0.0 — the real figure lives
-  # in the cart item's metadata, where Fluid's BundleGroupPricing stamps it
-  # already expressed in the cart's currency. Prefer it over the blind
-  # item["price"] fallback so a bundle reprice rests on Fluid's own bundle
-  # figure rather than whatever happens to be on the line. Returns nil (not 0.0)
-  # when absent, so the `||` chain keeps walking.
+  # A cart item's metadata, string or symbol key. Never nil.
+  def item_metadata(item)
+    item["metadata"] || item[:metadata] || {}
+  end
+
+  # A bundle group item's real figure lives in the cart item's metadata, where
+  # Fluid's BundleGroupPricing stamps it already expressed in the cart's
+  # currency. Prefer it over the blind item["price"] fallback so a bundle
+  # reprice rests on Fluid's own bundle figure rather than whatever happens to be
+  # on the line.
+  #
+  # Deliberately NOT zero-aware: Fluid writes "0.0" when the bundle genuinely
+  # prices at zero, and that is more authoritative than the line's stale number.
+  # Returning it lets the zero-price guard in update_cart_items_prices drop the
+  # write, leaving the line as Fluid left it — the same contract ItemPricing
+  # keeps for itself ("leave item.price untouched rather than writing 0").
+  # Returns nil only when the key is absent, so the `||` chain keeps walking.
   def bundle_group_base_price(item)
-    metadata = item["metadata"] || item[:metadata] || {}
+    metadata = item_metadata(item)
     (metadata["bundle_group_base_price"] || metadata[:bundle_group_base_price]).presence
+  end
+
+  # Whether Fluid prices this item through bundle groups instead of
+  # variant_country. Mirrors Commerce::Carts::Calculators::ItemPricing
+  # #use_bundle_group_pricing?, which is
+  #
+  #   bundle_item? && (metadata["bundle_group_base_price"].present? ||
+  #                    product.product_bundle_groups.any?)
+  #
+  # The droplet can't see product_bundle_groups, but it doesn't need to:
+  # BundleGroupPricing.build_bundle_metadata stamps "bundle_group_cv"
+  # unconditionally (bundle_group_pricing.rb:314-317) while the legacy
+  # ProductBundle path stamps only "is_bundle" and "bundled_items"
+  # (item_service.rb:413-422). So the key's presence marks the group-bundle path
+  # exactly — it is the same discriminator ItemPricing#assign_volumes! uses on
+  # itself. Legacy bundles fall through to the variant_country path here, as they
+  # do in Fluid.
+  #
+  # Checked against real data: the local bundle's master variant carries a
+  # positive row for every country (99.00 / 113.85 / 2499.00) while its cart
+  # items sit at metadata base price "0.0". Without this gate, country_safe_price
+  # reads that row and writes 99.00 onto a line Fluid prices at zero — then locks
+  # it. The master variant having no priced row is a habit, not a rule, which is
+  # why the gate keys on Fluid's own signal instead.
+  def bundle_group_priced?(item)
+    metadata = item_metadata(item)
+    return false unless metadata["is_bundle"] == true || metadata[:is_bundle] == true
+
+    bundle_group_base_price(item).present? ||
+      metadata.key?("bundle_group_cv") || metadata.key?(:bundle_group_cv)
   end
 
   # `value` unless it is blank or numerically zero, in which case nil so a `||`
@@ -438,11 +484,22 @@ private
   # Returns nil when the item must not be repriced at all, and the caller drops
   # it from the batch.
   def country_safe_price(item, payload_price, kind:)
-    variant_id = item["variant_id"] || item.dig("variant", "id")
+    variant_id = item_variant_id(item)
 
     # No variant means no country rows to resolve or compare against. Keep the
     # payload price rather than refusing to price the line at all.
     return payload_price if variant_id.blank?
+
+    # Bundle group items don't price from variant_country at all, so neither the
+    # row nor the cross-country guard applies — reading the master variant's row
+    # would overwrite Fluid's bundle total with an unrelated number, and comparing
+    # a bundle total against that variant's per-country prices only manufactures
+    # false refusals. They are also not exposed to STU2-3108 in the first place:
+    # every bundle pricing path resolves through cart.country&.iso
+    # (item_service.rb:387,391 and item_pricing.rb:200) — the same source as
+    # cart.currency_code — never through ship_to, which is where the divergence
+    # this method exists for comes from.
+    return payload_price if bundle_group_priced?(item)
 
     if cart_country.blank?
       Rails.logger.warn(
@@ -457,7 +514,7 @@ private
     # fall through to the payload rather than blocking the reprice on a blip.
     return payload_price if rows.blank?
 
-    field = kind == :subscription ? "subscription_price" : "price"
+    field = price_field_for(kind)
     authoritative = row_field(variant_country_row(variant_id), field)
     return authoritative.to_f if authoritative.to_f.positive?
 
@@ -466,7 +523,12 @@ private
     # bundle_group_base_price), as are fee/adjustment SKUs — together about a
     # quarter of Yoli's catalog. Those still have to be repriced, so fall back to
     # the payload, but never let another country's price through unchallenged.
-    guarded_payload_price(item, variant_id, payload_price, rows)
+    guarded_payload_price(item, variant_id, payload_price, rows, field)
+  end
+
+  # Which variant_countries column `kind` reads.
+  def price_field_for(kind)
+    kind == :subscription ? "subscription_price" : "price"
   end
 
   # Refuses a payload price that belongs to a DIFFERENT country's row for the
@@ -476,7 +538,7 @@ private
   # update_cart_items_prices — log loudly, report, drop the write — which is what
   # turns this class of incident into an alert instead of an undercharge, and is
   # the part that holds even if Fluid core regresses again.
-  def guarded_payload_price(item, variant_id, payload_price, rows)
+  def guarded_payload_price(item, variant_id, payload_price, rows, field)
     value = payload_price.to_f
     return payload_price unless value.positive?
 
@@ -487,11 +549,13 @@ private
     return payload_price if foreign.nil?
 
     foreign_country = row_field(foreign, "country_code")
-    expected = row_field(variant_country_row(variant_id), "price")
+    # Report the same column the refused write would have used, so whoever reads
+    # the alert compares like with like.
+    expected = row_field(variant_country_row(variant_id), field)
     message = "[DynamicPricing] Refusing cross-country price for item #{item['id']} " \
               "(variant #{variant_id}) on cart #{cart_token}: payload price #{value} belongs to " \
               "#{foreign_country} (#{row_field(foreign, 'currency_code')}), but the cart's country " \
-              "is #{cart_country} whose row price is #{expected.inspect}"
+              "is #{cart_country} whose #{field} is #{expected.inspect}"
     Rails.logger.warn(message)
     report_exception(
       CrossCountryPriceError.new(message),
@@ -611,13 +675,21 @@ private
       return
     end
 
-    item_data = [ {
-      "id" => item_id,
-      "price" => final_price,
-    } ] + stranded_cart_line_prices(except_item_id: item_id)
+    stranded = stranded_cart_lines(except_item_id: item_id)
+    item_data = [ { "id" => item_id, "price" => final_price } ] +
+                stranded.map { |line| { "id" => line[:item]["id"], "price" => line[:price] } }
 
     update_cart_items_prices(item_data)
-    update_cart_items_volumes([ cart_item ], mode: :subscription)
+
+    # The swept lines need their volumes refreshed too, not just their prices.
+    # Fluid's update_volumes endpoint stamps metadata.volume_adjustments
+    # .cv_manually_updated (cart_item_management_service.rb:50-56), which makes
+    # ItemPricing#assign_volumes! skip the line forever (item_pricing.rb:103) —
+    # the volumes analogue of the price lock. So a line whose CV/QV were written
+    # under the old country keeps them after the country moves, and the droplet is
+    # again the only actor that can correct them. No-op unless the company opted
+    # into volume adjustment, which is off by default.
+    update_cart_items_volumes([ cart_item ] + stranded.map { |line| line[:item] }, mode: :subscription)
   end
 
   # Prices for the OTHER lines in the cart that are holding a figure from a
@@ -637,16 +709,21 @@ private
   # other line stale. This sweeps the rest on any callback that arrives.
   #
   # Deliberately narrow: it only proposes a price when the country row carries a
-  # positive figure that differs from what the line holds. Bundle parents (0.0 on
-  # every row) and anything without a resolvable variant or country are left
-  # alone, so a healthy cart produces an empty list and no extra write.
-  def stranded_cart_line_prices(except_item_id:)
+  # positive figure that differs from what the line holds. Bundle group items are
+  # skipped outright (they don't price from variant_country — see
+  # bundle_group_priced?), as is anything without a resolvable variant or
+  # country, so a healthy cart produces an empty list and no extra write.
+  #
+  # Returns [{ item:, price: }] so the caller can also refresh the volumes of the
+  # lines it corrects.
+  def stranded_cart_lines(except_item_id:)
     return [] if cart_country.blank?
 
     cart_items.filter_map do |item|
       next if item["id"] == except_item_id || item["id"].blank?
+      next if bundle_group_priced?(item)
 
-      variant_id = item["variant_id"] || item.dig("variant", "id")
+      variant_id = item_variant_id(item)
       next if variant_id.blank?
 
       authoritative = row_field(variant_country_row(variant_id), "subscription_price").to_f
@@ -658,7 +735,7 @@ private
         "(variant #{variant_id}) on cart #{cart_token}: line holds #{item['price']} " \
         "but #{cart_country} resolves to #{authoritative}"
       )
-      { "id" => item["id"], "price" => authoritative }
+      { item: item, price: authoritative }
     end
   end
 

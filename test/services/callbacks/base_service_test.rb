@@ -477,6 +477,18 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
       "price" => "99.0", "subscription_price" => "99.0", "cv" => 0, "qv" => 0, },
   ].freeze
 
+  # What Fluid's BundleGroupPricing.build_bundle_metadata stamps on a bundle group
+  # cart item. "bundle_group_cv" is written unconditionally there, which is how the
+  # droplet tells a group bundle (priced through bundle groups) from a legacy
+  # ProductBundle item (priced through variant_country) — the same discriminator
+  # Fluid's own ItemPricing#assign_volumes! uses.
+  BUNDLE_GROUP_METADATA = {
+    "is_bundle" => true,
+    "bundled_items" => [],
+    "bundle_group_cv" => 0,
+    "bundle_group_qv" => 0,
+  }.freeze
+
   def build_pricing_service(items:, country_code:, rows: { INCIDENT_VARIANT_ID => INCIDENT_ROWS })
     cart = {
       "cart_token" => "ct_abc",
@@ -596,6 +608,60 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     assert_equal "172.99", result.first["price"]
   end
 
+  test "a bundle group line keeps its bundle figure even when the master variant is priced" do
+    # Verified against real data rather than assumed: the local bundle's master
+    # variant (33693) carries a positive row for every country — 99.00 US /
+    # 113.85 CA / 2499.00 MX — while its cart items sit at a metadata base price of
+    # 0.0. Reading the row would write 99.00 onto a line Fluid prices at zero and
+    # then lock it. Fluid never prices a bundle group item from variant_country
+    # (ItemPricing#use_bundle_group_pricing?), so neither may we.
+    service = build_pricing_service(
+      country_code: "US",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "0.0",
+                 "price" => "246.99",
+                 "metadata" => BUNDLE_GROUP_METADATA.merge("bundle_group_base_price" => "172.99"), } ]
+    )
+
+    result = service.send(:cart_items_with_subscription_price)
+
+    assert_equal "172.99", result.first["price"]
+    refute_equal 99.0, result.first["price"], "must not read the master variant's country row"
+  end
+
+  test "a bundle group line with no cached base price still bypasses the country row" do
+    # Fluid's gate is `bundle_group_base_price.present? || product_bundle_groups.any?`.
+    # A bundle added in a country with no enabled entry lands with the base price
+    # missing and Fluid still prices it through bundle groups, so the presence of
+    # "bundle_group_cv" has to be enough on its own.
+    metadata = BUNDLE_GROUP_METADATA.dup
+    service = build_pricing_service(
+      country_code: "US",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "150.0",
+                 "metadata" => metadata, } ]
+    )
+
+    result = service.send(:cart_items_with_subscription_price)
+
+    assert_equal "150.0", result.first["price"], "the payload price is Fluid's bundle figure"
+    refute_equal 99.0, result.first["price"]
+  end
+
+  test "a legacy bundle line still prices from the country row" do
+    # Legacy ProductBundle items get "is_bundle" and "bundled_items" but never
+    # "bundle_group_cv" (item_service.rb#build_legacy_bundle_metadata!), and Fluid
+    # prices them through variant_country like any other item. So must we —
+    # otherwise they lose the STU2-3108 protection.
+    service = build_pricing_service(
+      country_code: "PH",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "113.85",
+                 "metadata" => { "is_bundle" => true, "bundled_items" => [] }, } ]
+    )
+
+    result = service.send(:cart_items_with_subscription_price)
+
+    assert_equal 2499.0, result.first["price"]
+  end
+
   test "cart_items_with_subscription_price skips the item when the cart country cannot be resolved" do
     service = build_pricing_service(
       country_code: nil,
@@ -698,25 +764,42 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     healthy   = { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "price" => "2499.0" }
     service = build_pricing_service(country_code: "PH", items: [ cart_item, healthy ])
 
-    assert_empty service.send(:stranded_cart_line_prices, except_item_id: 1)
+    assert_empty service.send(:stranded_cart_lines, except_item_id: 1)
   end
 
-  test "the sweep leaves bundle parents alone" do
-    # Every country row is 0.0, so there is no authoritative figure to compare
-    # against and the line must not be touched.
-    bundle_variant_id = 285690
-    rows = { bundle_variant_id => [
-      { "country_code" => "PH", "currency_code" => "PHP", "active" => true,
-        "price" => "0.0", "subscription_price" => "0.0", },
-    ] }
+  test "the sweep leaves bundle group lines alone even when the master variant is priced" do
+    # A bundle's master variant carrying a priced row is not hypothetical: the
+    # local bundle's master (33693) is 99.00 US / 113.85 CA / 2499.00 MX while its
+    # cart items sit at a metadata base price of 0.0. Without the bundle gate the
+    # sweep would "correct" a bundle line to the master variant's figure.
     items = [
-      { "id" => 1, "variant_id" => bundle_variant_id, "subscription_price" => "0.0" },
-      { "id" => 2, "variant_id" => bundle_variant_id, "price" => "172.99",
-        "metadata" => { "bundle_group_base_price" => "172.99" }, },
+      { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "2499.0" },
+      { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "price" => "172.99",
+        "metadata" => BUNDLE_GROUP_METADATA.merge("bundle_group_base_price" => "172.99"), },
     ]
-    service = build_pricing_service(country_code: "PH", items: items, rows: rows)
+    service = build_pricing_service(country_code: "PH", items: items)
 
-    assert_empty service.send(:stranded_cart_line_prices, except_item_id: 1)
+    assert_empty service.send(:stranded_cart_lines, except_item_id: 1)
+  end
+
+  test "the sweep refreshes the volumes of the lines it corrects, not only their prices" do
+    # Fluid's update_volumes endpoint stamps cv_manually_updated, which makes its
+    # own ItemPricing skip the line forever — the volumes analogue of the price
+    # lock. A swept line whose CV/QV were written under the old country would keep
+    # them otherwise.
+    cart_item = { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "2499.0" }
+    stranded  = { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "price" => "113.85" }
+    service = build_pricing_service(country_code: "PH", items: [ cart_item, stranded ])
+    service.define_singleton_method(:cart_item) { cart_item }
+    carts = Object.new
+    carts.define_singleton_method(:update_items_prices) { |_token, _items| nil }
+    service.send(:fluid_client).define_singleton_method(:carts) { carts }
+    volume_items = []
+    service.define_singleton_method(:update_cart_items_volumes) { |items, **| volume_items.concat(items) }
+
+    service.send(:update_item_to_subscription_price)
+
+    assert_equal [ 1, 2 ], volume_items.map { |item| item["id"] }
   end
 
   test "the sweep does nothing when the cart country cannot be resolved" do
@@ -726,7 +809,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     ]
     service = build_pricing_service(country_code: nil, items: items)
 
-    assert_empty service.send(:stranded_cart_line_prices, except_item_id: 1)
+    assert_empty service.send(:stranded_cart_lines, except_item_id: 1)
   end
 
   test "a failed variant lookup falls through to the payload rather than blocking the reprice" do
@@ -738,7 +821,10 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
     result = service.send(:cart_items_with_subscription_price)
 
-    assert_equal 2499.0, result.first["price"]
+    # Forwarded as given, not coerced: the payload path stays byte-identical to
+    # what Fluid sent, so a passthrough can't introduce a rounding difference of
+    # its own.
+    assert_equal "2499.0", result.first["price"]
   end
 end
 
