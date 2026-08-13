@@ -7,13 +7,15 @@ class CartPricingEvent < ApplicationRecord
 
   # Event types emitted by the callback services (app/services/callbacks/*).
   # customer_logged_in covers CustomerLoggedInService + CartCustomerAttachedService
-  # (which inherits it); customer_detached covers CartCustomerDetachedService.
+  # (which inherits it); customer_detached covers CartCustomerDetachedService;
+  # country_changed covers CartCountryChangedService.
   enum :event_type, {
     cart_created: "cart_created",
     item_added: "item_added",
     item_updated: "item_updated",
     customer_logged_in: "customer_logged_in",
     customer_detached: "customer_detached",
+    country_changed: "country_changed",
   }, prefix: true
 
   scope :recent, -> { order(created_at: :desc) }

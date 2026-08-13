@@ -115,6 +115,14 @@ private
 
     active_callbacks.each do |callback|
       begin
+        # No country_codes, deliberately. Fluid reads that field as a delivery
+        # filter, and it is inverted from how it sounds: a dispatch that carries
+        # no country — every Callback::Client.notify caller, cart_country_changed
+        # among them — matches ONLY registrations whose country_codes is empty
+        # (Callback::Registration.scoped_to_country). Listing the countries this
+        # droplet prices for would silently stop those callbacks from arriving,
+        # with no error and nothing logged. Registering globally is what makes
+        # cart_country_changed reach us at all.
         callback_attributes = {
           definition_name: callback.name,
           url: callback.url,

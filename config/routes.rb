@@ -22,6 +22,7 @@ Rails.application.routes.draw do
     resources :customer_logged_in, only: :create
     resources :cart_customer_attached, only: :create
     resources :cart_customer_detached, only: :create
+    resources :cart_country_changed, only: :create
   end
 
   namespace :admin do
