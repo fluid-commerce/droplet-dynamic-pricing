@@ -454,12 +454,61 @@ private
     return authoritative if authoritative.positive?
 
     # No usable row price — fee and adjustment SKUs sit at 0.0 everywhere and still
-    # need repricing, so the payload is all there is.
-    payload_price.to_f
+    # need repricing, so use the payload, but not unchallenged.
+    guarded_payload_price(item, variant_id, payload_price, rows, field)
   end
 
   def price_field_for(kind)
     kind == :subscription ? "subscription_price" : "price"
+  end
+
+  # A row for some country OTHER than the cart's whose price matches `value`.
+  # Heuristic, not proof — it assumes distinct countries carry distinct non-zero
+  # prices, which holds on the live catalog only because each has its own currency.
+  # A false positive costs a skipped reprice and an alert, never a wrong charge.
+  def foreign_priced_row(rows, value)
+    amount = value.to_f
+    return nil unless amount.positive?
+
+    rows.find do |row|
+      row_field(row, "country_code") != cart_pricing_country &&
+        [ row_field(row, "price"), row_field(row, "subscription_price") ].any? { |p| same_money?(p, amount) }
+    end
+  end
+
+  def same_money?(one, two)
+    return false if one.nil? || two.nil?
+
+    one.to_f.round(2) == two.to_f.round(2)
+  end
+
+  # Drops a payload price that belongs to another country's row for the same variant
+  # and raises an alert instead — the part that keeps holding if the upstream cause
+  # returns in a different shape.
+  def guarded_payload_price(item, variant_id, payload_price, rows, field)
+    value = payload_price.to_f
+    return value unless value.positive?
+
+    foreign = foreign_priced_row(rows, value)
+    return value if foreign.nil?
+
+    foreign_country = row_field(foreign, "country_code")
+    expected = row_field(variant_country_row(variant_id), field)
+    message = "[DynamicPricing] Refusing cross-country price for item #{item['id']} " \
+              "(variant #{variant_id}) on cart #{cart_token}: payload price #{value} belongs to " \
+              "#{foreign_country} (#{row_field(foreign, 'currency_code')}), but the cart's country " \
+              "is #{cart_pricing_country} whose #{field} is #{expected.inspect}"
+    Rails.logger.warn(message)
+    report_exception(
+      CrossCountryPriceError.new(message),
+      item_id: item["id"],
+      variant_id: variant_id,
+      cart_country: cart_pricing_country,
+      payload_price: payload_price,
+      expected_price: expected,
+      foreign_country: foreign_country
+    )
+    nil
   end
 
   def get_customer_id_by_email(email)

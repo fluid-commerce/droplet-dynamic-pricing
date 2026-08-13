@@ -549,6 +549,34 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     assert_equal 113.85, result.first["price"]
   end
 
+  test "cart_items_with_subscription_price refuses a payload price belonging to another country" do
+    # The cart's own country row is unusable (0.0), so the payload is the only
+    # candidate — and it turns out to be CA's figure. Refuse rather than lock it.
+    rows = {
+      INCIDENT_VARIANT_ID => [
+        { "country_code" => "PH", "currency_code" => "PHP", "active" => true,
+          "price" => "0.0", "subscription_price" => "0.0", },
+        { "country_code" => "CA", "currency_code" => "CAD", "active" => true,
+          "price" => "113.85", "subscription_price" => "113.85", },
+      ],
+    }
+    service = build_pricing_service(
+      country_code: "PH",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "113.85" } ],
+      rows: rows
+    )
+    reported = []
+    service.define_singleton_method(:report_exception) { |e, **ctx| reported << [ e, ctx ] }
+
+    result = service.send(:cart_items_with_subscription_price)
+
+    assert_empty result, "the item must be dropped from the batch, not written"
+    assert_equal 1, reported.size
+    assert_instance_of CrossCountryPriceError, reported.first[0]
+    assert_equal "CA", reported.first[1][:foreign_country]
+    assert_equal "PH", reported.first[1][:cart_country]
+  end
+
   test "cart_items_with_subscription_price keeps bundle parents priced from cart item metadata" do
     # A bundle parent is 0.0 on every country row; the real figure rides in the
     # cart item's metadata. It must still be repriced, not dropped.
