@@ -10,10 +10,53 @@ jobs:
   validate-linear-issue:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      # Inlined from fluid-commerce/linear-issue-validator@main, which pins the bot
+      # identity Linear no longer uses and cannot be configured from here (its only
+      # input is github-token). Nothing in the check reads the repository, so the
+      # checkout the shared action needed is gone with it.
       - name: Validate Linear issue reference
-        uses: fluid-commerce/linear-issue-validator@main
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          PR_COMMENT_URL: ${{ github.event.issue.pull_request.url }}
+        run: |
+          set -euo pipefail
+
+          # A comment on a plain issue carries no pull request to validate. The
+          # shared action exited 1 on this path, which is why the workflow reported
+          # failure on main every time anyone commented on an issue. Nothing to
+          # check is not the same as a check that failed.
+          if [[ "$EVENT_NAME" == "issue_comment" && -z "$PR_COMMENT_URL" ]]; then
+            echo "Not a pull request comment; nothing to validate."
+            exit 0
+          fi
+
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "No pull request in this event; nothing to validate."
+            exit 0
+          fi
+
+          # Linear now comments as linear-code[bot] (app slug linear-code) since the
+          # Linear Code app replaced the original linear[bot]. The shared action
+          # required BOTH the old login and the old slug, so every pull request
+          # started failing this check the moment the app changed. Both identities
+          # are accepted here: pull requests linked before the switch still carry
+          # comments from the old one.
+          #
+          # The login alone is proof enough — GitHub reserves the [bot] suffix, so a
+          # human account cannot claim it.
+          authors=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --paginate --jq '.[].user.login')
+
+          if grep -qxE 'linear(-code)?\[bot\]' <<< "$authors"; then
+            echo "Linear issue comment found on #${PR_NUMBER}."
+            exit 0
+          fi
+
+          echo "No Linear issue comment found on #${PR_NUMBER}."
+          echo
+          echo "Link this pull request to a Linear issue so Linear comments on it:"
+          echo "  - name the branch after the issue (e.g. you/stu2-1234-short-slug), or"
+          echo "  - paste the issue URL in the pull request description."
+          exit 1
