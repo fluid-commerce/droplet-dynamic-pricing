@@ -1,7 +1,20 @@
 name: deploy production
 
 on:
+  # Called by ci.yml once every check on main has passed, so a merge deploys
+  # itself and only green code ever reaches production. Kept dispatchable for
+  # rollbacks and for deploying a commit CI never ran.
+  workflow_call:
   workflow_dispatch:
+
+# One production deploy at a time. Two merges in quick succession would otherwise
+# submit two Cloud Builds that race to update the same Cloud Run service, and the
+# loser can leave the older image serving. In-flight runs are never cancelled:
+# the migrate step runs `--execute-now --wait`, and killing a deploy mid-migration
+# is worse than waiting for it.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
 
 env:
   PROJECT_ID: fluid-417204

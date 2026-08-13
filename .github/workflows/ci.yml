@@ -189,3 +189,16 @@ jobs:
           key: ${{ runner.os }}-build-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-build-
+
+  # Deploy on merge to main, and only once every other check has passed. Living
+  # here rather than on `push` in deploy-production.yml is the whole point: a
+  # workflow of its own would start the moment the merge commit lands and race
+  # this one, deploying a commit whose tests are still running — or red.
+  #
+  # Skipped on pull requests (github.ref is refs/pull/N/merge there), so it shows
+  # up as skipped rather than pending on a PR.
+  deploy-production:
+    if: github.ref == 'refs/heads/main'
+    needs: [tests, rubocop, rails-security-scan]
+    uses: ./.github/workflows/deploy-production.yml
+    secrets: inherit
