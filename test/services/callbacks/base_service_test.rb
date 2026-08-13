@@ -789,6 +789,8 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     rows = { INCIDENT_VARIANT_ID => [
       { "country_code" => "PH", "currency_code" => "PHP", "price" => "2499.0",
         "subscription_price" => "2499.0", },
+      { "country_code" => "CA", "currency_code" => "CAD", "active" => true,
+        "price" => "113.85", "subscription_price" => "113.85", },
     ] }
     service = build_pricing_service(
       country_code: "PH",
@@ -797,6 +799,49 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     )
 
     assert_equal 2499.0, service.send(:cart_items_with_subscription_price).first["price"]
+  end
+
+  test "a price Fluid resolved for this cart is left alone even when the row differs" do
+    # Fluid reaches a price through more than the variant_country columns: a
+    # percentage subscription plan computes off the retail price and ignores the
+    # subscription_price column entirely (SubscriptionPriceCalculator), and a
+    # wholesale rep reads the wholesale columns. Overwriting its figure with the row
+    # would lock in a number Fluid never charges — a wider bug than the one this
+    # ticket is about, and one that fires on every cart, not only on a country move.
+    #
+    # 44.99 is 25% off the US retail row and belongs to no country, so there is no
+    # evidence of a leak and the droplet stays out of it.
+    rows = { 278059 => [
+      { "country_code" => "US", "currency_code" => "USD", "active" => true,
+        "price" => "59.99", "subscription_price" => "49.99", },
+      { "country_code" => "CA", "currency_code" => "CAD", "active" => true,
+        "price" => "79.99", "subscription_price" => "69.99", },
+    ] }
+    service = build_pricing_service(
+      country_code: "US",
+      items: [ { "id" => 1, "variant_id" => 278059, "subscription_price" => "44.99" } ],
+      rows: rows
+    )
+
+    assert_equal 44.99, service.send(:cart_items_with_subscription_price).first["price"],
+                 "must not overwrite Fluid's plan-aware price with the catalog column"
+  end
+
+  test "a price that belongs to another country is still corrected" do
+    # The counterpart: 69.99 IS CA's figure, so the cart's own row wins.
+    rows = { 278059 => [
+      { "country_code" => "US", "currency_code" => "USD", "active" => true,
+        "price" => "59.99", "subscription_price" => "49.99", },
+      { "country_code" => "CA", "currency_code" => "CAD", "active" => true,
+        "price" => "79.99", "subscription_price" => "69.99", },
+    ] }
+    service = build_pricing_service(
+      country_code: "US",
+      items: [ { "id" => 1, "variant_id" => 278059, "subscription_price" => "69.99" } ],
+      rows: rows
+    )
+
+    assert_equal 49.99, service.send(:cart_items_with_subscription_price).first["price"]
   end
 
   test "a failed variant lookup falls through to the payload rather than blocking the reprice" do

@@ -367,8 +367,8 @@ private
 
   # { id, price } per cart item at its subscription price, resolved from the cart's
   # country. Items country_safe_price refuses are dropped.
-  def cart_items_with_subscription_price
-    cart_items.filter_map do |item|
+  def cart_items_with_subscription_price(items = cart_items)
+    items.filter_map do |item|
       payload_price = nonzero_price(item["subscription_price"]) ||
                       bundle_group_base_price(item) ||
                       item["price"]
@@ -380,8 +380,8 @@ private
   end
 
   # As above, at the non-subscription price.
-  def cart_items_with_regular_price
-    cart_items.filter_map do |item|
+  def cart_items_with_regular_price(items = cart_items)
+    items.filter_map do |item|
       payload_price = nonzero_price(item.dig("product", "price")) ||
                       bundle_group_base_price(item) ||
                       item["price"]
@@ -404,6 +404,16 @@ private
     (metadata["bundle_group_base_price"] || metadata[:bundle_group_base_price]).presence
   end
 
+  # Lines this droplet wrote: Fluid stamps price_locked on every price we set
+  # (Commerce::Api::Carts::UpdateCartItemsPricesAction) and then skips them when it
+  # reprices, so these are the only ones a country change can strand.
+  def locked_cart_items
+    cart_items.select do |item|
+      metadata = item_metadata(item)
+      (metadata["price_locked"] || metadata[:price_locked]) == true
+    end
+  end
+
   # A bundle's price never comes from variant_country. Its master variant may well
   # carry priced rows while its lines price at 0.0, so reading the row would
   # overwrite Fluid's bundle total and lock it. Broader than Fluid's
@@ -422,11 +432,16 @@ private
     value.to_f.zero? ? nil : value
   end
 
-  # The price to write for `item`, from the variant's row for the cart's own country
-  # rather than the callback payload (STU2-3108). Echoing the payload let a price
-  # Fluid had resolved against another country be written as an admin override and
-  # locked, so the right price could never come back — a PH cart was charged the CAD
-  # figure, 113.85 instead of 2,499.
+  # The price to write for `item` (STU2-3108). Echoing the payload let a price Fluid
+  # had resolved against another country be written as an admin override and locked,
+  # so the right price could never come back — a PH cart was charged the CAD figure,
+  # 113.85 instead of 2,499.
+  #
+  # The payload still wins by default. Fluid resolves a price through more than the
+  # variant_country columns — a percentage subscription plan computes off the retail
+  # price, a wholesale rep reads the wholesale columns — so replacing its figure
+  # outright would trade this bug for a wider one. The row is used only once the
+  # payload is shown to belong to a country the cart is not in.
   #
   # Float, or nil to skip the item entirely.
   def country_safe_price(item, payload_price, kind:)
@@ -449,13 +464,16 @@ private
     rows = variant_country_rows(variant_id)
     return payload_price.to_f if rows.blank?
 
+    foreign = foreign_priced_row(rows, payload_price)
+    return payload_price.to_f if foreign.nil?
+
     field = price_field_for(kind)
     authoritative = row_field(variant_country_row(variant_id), field).to_f
     return authoritative if authoritative.positive?
 
-    # No usable row price — fee and adjustment SKUs sit at 0.0 everywhere and still
-    # need repricing, so use the payload, but not unchallenged.
-    guarded_payload_price(item, variant_id, payload_price, rows, field)
+    # The payload is another country's and the cart's own row has nothing to put in
+    # its place — fee and adjustment SKUs sit at 0.0 everywhere.
+    refuse_cross_country_price(item, variant_id, payload_price, foreign, field)
   end
 
   def price_field_for(kind)
@@ -482,22 +500,15 @@ private
     one.to_f.round(2) == two.to_f.round(2)
   end
 
-  # Drops a payload price that belongs to another country's row for the same variant
-  # and raises an alert instead — the part that keeps holding if the upstream cause
-  # returns in a different shape.
-  def guarded_payload_price(item, variant_id, payload_price, rows, field)
-    value = payload_price.to_f
-    return value unless value.positive?
-
-    foreign = foreign_priced_row(rows, value)
-    return value if foreign.nil?
-
+  # Drops the write and raises an alert instead — the part that keeps holding if the
+  # upstream cause returns in a different shape.
+  def refuse_cross_country_price(item, variant_id, payload_price, foreign, field)
     foreign_country = row_field(foreign, "country_code")
     expected = row_field(variant_country_row(variant_id), field)
     message = "[DynamicPricing] Refusing cross-country price for item #{item['id']} " \
-              "(variant #{variant_id}) on cart #{cart_token}: payload price #{value} belongs to " \
-              "#{foreign_country} (#{row_field(foreign, 'currency_code')}), but the cart's country " \
-              "is #{cart_pricing_country} whose #{field} is #{expected.inspect}"
+              "(variant #{variant_id}) on cart #{cart_token}: payload price #{payload_price.to_f} " \
+              "belongs to #{foreign_country} (#{row_field(foreign, 'currency_code')}), but the " \
+              "cart's country is #{cart_pricing_country} whose #{field} is #{expected.inspect}"
     Rails.logger.warn(message)
     report_exception(
       CrossCountryPriceError.new(message),

@@ -9,6 +9,8 @@ class Callbacks::CartCountryChangedServiceTest < ActiveSupport::TestCase
     companies(:acme)
   end
 
+  LOCKED = { "price_locked" => true }.freeze
+
   # A PH cart still holding the figure locked while it was in US: subscription_price
   # is the new country's number, item.price the stale one.
   def cart_data(price_type: "preferred_customer")
@@ -25,8 +27,10 @@ class Callbacks::CartCountryChangedServiceTest < ActiveSupport::TestCase
         "subdomain" => "test",
       },
       "items" => [
-        { "id" => 674137, "price" => "99.0",  "subscription_price" => "2499.0" },
-        { "id" => 674138, "price" => "113.85", "subscription_price" => "1999.0" },
+        { "id" => 674137, "price" => "99.0", "subscription_price" => "2499.0",
+          "metadata" => LOCKED, },
+        { "id" => 674138, "price" => "113.85", "subscription_price" => "1999.0",
+          "metadata" => LOCKED, },
       ],
     }
   end
@@ -87,19 +91,55 @@ class Callbacks::CartCountryChangedServiceTest < ActiveSupport::TestCase
     assert_equal "preferred_customer", result.dig(:metadata, "price_type")
   end
 
-  def test_leaves_a_cart_that_was_never_preferred_alone
-    # Never preferred means this droplet never locked a line here, so core's own
-    # reprice is already right and writing would lock a price Fluid set itself.
+  def test_leaves_a_cart_with_no_locked_lines_alone
+    # Nothing carries our stamp, so core already repriced every line at the new
+    # country. Writing would only lock a price Fluid set itself.
+    params = callback_params
+    params["cart"]["items"].each { |item| item.delete("metadata") }
     carts = Object.new
-    carts.define_singleton_method(:update_items_prices) { |_token, _items| flunk "must not reprice a retail cart" }
-    carts.define_singleton_method(:append_metadata) { |_token, _metadata| flunk "must not stamp a retail cart" }
+    carts.define_singleton_method(:update_items_prices) { |_token, _items| flunk "nothing was locked" }
+    carts.define_singleton_method(:append_metadata) { |_token, _metadata| flunk "nothing was locked" }
 
-    service = Callbacks::CartCountryChangedService.new(callback_params(price_type: "retail"))
+    service = Callbacks::CartCountryChangedService.new(params)
 
     result = FluidClient.stub(:new, ->(_token) { stub_client(carts) }) { service.call }
 
     assert result[:success]
-    assert_equal "Cart does not have preferred_customer pricing", result[:message]
+  end
+
+  def test_repairs_a_detached_carts_locked_lines_at_the_retail_price
+    # A detached cart carries lines this droplet locked at RETAIL
+    # (CartCustomerDetachedService sets price_type nil and writes anyway), and they
+    # strand on a country change exactly like the preferred ones. Gating the repair
+    # on preferred pricing would leave this whole branch broken.
+    params = callback_params(price_type: nil)
+    params["cart"].delete("customer_id")
+    params["cart"]["items"] = [
+      { "id" => 674137, "variant_id" => 10, "price" => "99.0",
+        "product" => { "price" => "99.0" }, "metadata" => LOCKED, },
+    ]
+
+    written = []
+    carts = Object.new
+    carts.define_singleton_method(:update_items_prices) { |_token, items| written.concat(items); { "success" => true } }
+    carts.define_singleton_method(:append_metadata) { |_token, _metadata| { "success" => true } }
+    variants = VolumeTestHelpers::FakeVariants.new(
+      10 => [ { "country_code" => "US", "currency_code" => "USD", "price" => "99.0",
+                "subscription_price" => "79.0", },
+              { "country_code" => "PH", "currency_code" => "PHP", "price" => "2499.0",
+                "subscription_price" => "1999.0", }, ]
+    )
+    client = stub_client(carts)
+    client.define_singleton_method(:variants) { variants }
+
+    service = Callbacks::CartCountryChangedService.new(params)
+
+    result = FluidClient.stub(:new, ->(_token) { client }) { service.call }
+
+    assert result[:success]
+    assert_equal [ { "id" => 674137, "price" => 2499.0 } ], written,
+                 "the retail line has to move to PH's retail figure, not PH's subscription one"
+    assert_nil result.dig(:metadata, "price_type"), "a detached cart must not be re-stamped preferred"
   end
 
   def test_does_nothing_on_an_empty_cart
@@ -157,7 +197,8 @@ class Callbacks::CartCountryChangedServiceTest < ActiveSupport::TestCase
     company.create_integration_setting!(settings: { "adjust_volumes_for_subscription" => true })
     params = callback_params
     params["cart"]["items"] = [
-      { "id" => 674137, "variant_id" => 10, "price" => "99.0", "subscription_price" => "2499.0", "quantity" => 1 },
+      { "id" => 674137, "variant_id" => 10, "price" => "99.0", "subscription_price" => "2499.0",
+        "quantity" => 1, "metadata" => LOCKED, },
     ]
 
     volume_calls = []

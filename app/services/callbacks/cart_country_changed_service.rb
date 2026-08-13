@@ -10,7 +10,8 @@
 # the only one who can correct a locked line.
 #
 # By the time this fires, core has already repriced every line it is allowed to
-# touch, so the locked ones are all that is left behind.
+# touch, so the locked ones are all that is left behind — and they are all this
+# service touches.
 class Callbacks::CartCountryChangedService < Callbacks::BaseService
   def call
     raise CallbackError, "Cart is blank" if cart.blank?
@@ -18,27 +19,32 @@ class Callbacks::CartCountryChangedService < Callbacks::BaseService
     # Priced by the BP wholesale droplet (STU2-2377, STU2-2964).
     return result_success if yield_to_enrollment_wholesale? || price_type_wholesale?
 
-    return result_success if cart_items.empty?
+    # Only the lines this droplet locked. Everything else core has already repriced
+    # at the new country, and writing to it would lock a price Fluid set itself.
+    locked = locked_cart_items
+    return result_success if locked.empty?
 
-    # A cart that was never preferred has no price this droplet wrote, so it has no
-    # locked line to repair and core's own reprice is already correct.
-    unless preferred_pricing_cart?
-      return { success: true, message: "Cart does not have preferred_customer pricing" }
+    preferred = preferred_pricing_cart?
+    if preferred
+      update_cart_items_prices(cart_items_with_subscription_price(locked))
+      update_cart_items_volumes(locked, mode: :subscription)
+    else
+      update_cart_items_prices(cart_items_with_regular_price(locked))
+      update_cart_items_volumes(locked, mode: :regular)
     end
-
-    update_cart_items_prices(cart_items_with_subscription_price)
-    update_cart_items_volumes(cart_items, mode: :subscription)
 
     log_cart_pricing_event(
       event_type: "country_changed",
-      preferred_applied: true,
+      preferred_applied: preferred,
       additional_data: {
         callback: "cart_country_changed",
         country_code: country_code_from_context,
         previous_country_code: previous_country_code_from_context,
-        items_updated: cart_items.count,
+        items_updated: locked.count,
       }
     )
+
+    return success_with_message("Cart repriced for the new country") unless preferred
 
     preferred_pricing_response(message: "Cart repriced for the new country")
   rescue CallbackError => e
@@ -48,6 +54,9 @@ class Callbacks::CartCountryChangedService < Callbacks::BaseService
 private
 
   # Same gate as the item callbacks: already stamped, or qualifying now (STU2-2531).
+  # It picks WHICH price to restore, not whether to act — a detached cart still
+  # carries lines this droplet locked at retail (CartCustomerDetachedService), and
+  # those strand on a country change exactly like the preferred ones.
   def preferred_pricing_cart?
     cart.dig("metadata", "price_type") == PREFERRED_CUSTOMER_TYPE ||
       cart_qualifies_for_preferred_pricing?
