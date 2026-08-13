@@ -63,7 +63,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
     result = service.send(:cart_items_with_regular_price)
 
-    assert_equal "333.0", result.first["price"]
+    assert_equal 333.0, result.first["price"]
   end
 
   test "cart_items_with_subscription_price falls back to item.price when subscription_price is zero" do
@@ -78,7 +78,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
     result = service.send(:cart_items_with_subscription_price)
 
-    assert_equal "333.0", result.first["price"]
+    assert_equal 333.0, result.first["price"]
   end
 
   # --- price_type_wholesale? (STU2-2964) ---
@@ -460,16 +460,341 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     # so a catalog misconfig is diagnosable rather than silently masked.
     assert_equal({ "cv" => 100, "qv" => 100 }, carts.volume_calls.first[:volumes])
   end
+
+  # --- country-safe pricing (STU2-3108) ---
+  #
+  # The variant from the incident: 278058, US 99.00 / CA 113.85 / PH 2,499.00.
+
+  INCIDENT_VARIANT_ID = 278058
+  INCIDENT_ROWS = [
+    { "country_code" => "CA", "currency_code" => "CAD", "active" => true,
+      "price" => "113.85", "subscription_price" => "113.85", "cv" => 0, "qv" => 0, },
+    { "country_code" => "PH", "currency_code" => "PHP", "active" => true,
+      "price" => "2499.0", "subscription_price" => "2499.0", "cv" => 0, "qv" => 0, },
+    { "country_code" => "US", "currency_code" => "USD", "active" => true,
+      "price" => "99.0", "subscription_price" => "99.0", "cv" => 0, "qv" => 0, },
+  ].freeze
+
+  # What BundleGroupPricing.build_bundle_metadata stamps on a bundle group item.
+  BUNDLE_GROUP_METADATA = {
+    "is_bundle" => true,
+    "bundled_items" => [],
+    "bundle_group_cv" => 0,
+    "bundle_group_qv" => 0,
+  }.freeze
+
+  def build_pricing_service(items:, country_code:, rows: { INCIDENT_VARIANT_ID => INCIDENT_ROWS })
+    cart = {
+      "cart_token" => "ct_abc",
+      "country_code" => country_code,
+      "company" => { "id" => @company.fluid_company_id },
+      "items" => items,
+    }.compact
+    cart.delete("country_code") if country_code.nil?
+
+    service = Callbacks::BaseService.new({ cart: cart })
+    variants = FakeVariantsResource.new(rows)
+    client = Object.new
+    client.define_singleton_method(:variants) { variants }
+    service.define_singleton_method(:fluid_client) { client }
+    service.define_singleton_method(:fake_variants) { variants }
+    service
+  end
+
+  test "cart_items_with_subscription_price writes the PH price when the payload carries CA's" do
+    # The incident: Fluid sent 113.85 (CAD) for a Philippine cart.
+    service = build_pricing_service(
+      country_code: "PH",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "113.85" } ]
+    )
+
+    result = service.send(:cart_items_with_subscription_price)
+
+    assert_equal 2499.0, result.first["price"]
+    refute_equal 113.85, result.first["price"]
+  end
+
+  test "cart_items_with_subscription_price writes the US price when the payload carries PH's" do
+    # The inverse case from the same session: 2,499 landed on a USD cart.
+    service = build_pricing_service(
+      country_code: "US",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "2499.0" } ]
+    )
+
+    result = service.send(:cart_items_with_subscription_price)
+
+    assert_equal 99.0, result.first["price"]
+  end
+
+  test "cart_items_with_subscription_price leaves a correct payload price untouched" do
+    service = build_pricing_service(
+      country_code: "PH",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "2499.0" } ]
+    )
+
+    result = service.send(:cart_items_with_subscription_price)
+
+    assert_equal 2499.0, result.first["price"]
+  end
+
+  test "cart_items_with_regular_price resolves the cart country's retail price" do
+    service = build_pricing_service(
+      country_code: "CA",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID,
+                 "price" => "2499.0", "product" => { "price" => "2499.0" }, } ]
+    )
+
+    result = service.send(:cart_items_with_regular_price)
+
+    assert_equal 113.85, result.first["price"]
+  end
+
+  test "cart_items_with_subscription_price keeps bundle parents priced from cart item metadata" do
+    # A bundle parent is 0.0 on every country row; the real figure rides in the
+    # cart item's metadata. It must still be repriced, not dropped.
+    bundle_variant_id = 285690
+    rows = {
+      bundle_variant_id => [
+        { "country_code" => "CA", "currency_code" => "CAD", "active" => true,
+          "price" => "0.0", "subscription_price" => "0.0", },
+        { "country_code" => "US", "currency_code" => "USD", "active" => true,
+          "price" => "0.0", "subscription_price" => "0.0", },
+      ],
+    }
+    service = build_pricing_service(
+      country_code: "CA",
+      items: [ { "id" => 1, "variant_id" => bundle_variant_id, "subscription_price" => "0.0",
+                 "price" => "246.99", "metadata" => { "bundle_group_base_price" => "172.99" }, } ],
+      rows: rows
+    )
+
+    result = service.send(:cart_items_with_subscription_price)
+
+    assert_equal 1, result.size
+    assert_equal 172.99, result.first["price"]
+  end
+
+  test "a bundle group line keeps its bundle figure even when the master variant is priced" do
+    # The local bundle's master (33693) is priced in all three countries while its
+    # lines sit at 0.0, so reading the row would lock 99.00 onto a zero-priced line.
+    service = build_pricing_service(
+      country_code: "US",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "0.0",
+                 "price" => "246.99",
+                 "metadata" => BUNDLE_GROUP_METADATA.merge("bundle_group_base_price" => "172.99"), } ]
+    )
+
+    result = service.send(:cart_items_with_subscription_price)
+
+    assert_equal 172.99, result.first["price"]
+    refute_equal 99.0, result.first["price"], "must not read the master variant's country row"
+  end
+
+  test "a bundle group line with no cached base price still bypasses the country row" do
+    # A bundle added in a country with no enabled entry lands with no base price and
+    # is still bundle-priced, so "bundle_group_cv" has to be enough on its own.
+    metadata = BUNDLE_GROUP_METADATA.dup
+    service = build_pricing_service(
+      country_code: "US",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "150.0",
+                 "metadata" => metadata, } ]
+    )
+
+    result = service.send(:cart_items_with_subscription_price)
+
+    assert_equal 150.0, result.first["price"], "the payload price is Fluid's bundle figure"
+    refute_equal 99.0, result.first["price"]
+  end
+
+  test "any bundle line is left to Fluid, legacy ones included" do
+    # Telling a legacy bundle from a bundle-group one fails in the dangerous
+    # direction. Legacy bundles lose the country correction, but forwarding the
+    # payload leaves the line unlocked for Fluid to resolve.
+    service = build_pricing_service(
+      country_code: "PH",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "113.85",
+                 "metadata" => { "is_bundle" => true, "bundled_items" => [] }, } ]
+    )
+
+    result = service.send(:cart_items_with_subscription_price)
+
+    assert_equal 113.85, result.first["price"]
+  end
+
+  test "an unresolvable pricing country warns and forwards the payload, for now" do
+    # Staged: warn now, measure how often it fires, then refuse. Refusing outright
+    # would stop repricing a guest cart with no address yet.
+    service = build_pricing_service(
+      country_code: nil,
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "113.85" } ]
+    )
+    warnings = []
+    service.define_singleton_method(:warn_line) { |msg| warnings << msg }
+    Rails.logger.stub(:warn, ->(msg) { warnings << msg }) do
+      assert_equal 113.85, service.send(:cart_items_with_subscription_price).first["price"]
+    end
+
+    assert warnings.any? { |w| w.to_s.include?("Cannot resolve the pricing country") },
+           "the discrepancy has to be recorded even while we forward the payload"
+  end
+
+  test "a price is never resolved from the shipping country" do
+    # cart_country accepts ship_to for volumes (STU2-2526); resolving a PRICE that
+    # way is the bug this ticket is about, since the currency comes from the cart.
+    cart = {
+      "cart_token" => "ct_abc",
+      "company" => { "id" => @company.fluid_company_id },
+      "ship_to" => { "country_code" => "CA" },
+      "items" => [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID } ],
+    }
+    service = Callbacks::BaseService.new({ cart: cart })
+
+    assert_equal "CA", service.send(:cart_country), "volumes still see ship_to"
+    assert_nil service.send(:cart_pricing_country), "prices must not"
+    assert_nil service.send(:variant_country_row, INCIDENT_VARIANT_ID)
+  end
+
+  test "variant_country_row never falls back to another country's row" do
+    # No row for the cart's country means no price. Volumes keep their own
+    # resolution (STU2-2526) and still fall back.
+    service = build_pricing_service(
+      country_code: "MX",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID } ]
+    )
+
+    assert_nil service.send(:variant_country_row, INCIDENT_VARIANT_ID)
+    assert_equal "113.85", service.send(:variant_base_volumes, INCIDENT_VARIANT_ID)[:price],
+                 "volumes are STU2-2526's and unchanged by this ticket"
+  end
+
+  test "variant country rows are fetched once per variant across several cart items" do
+    service = build_pricing_service(
+      country_code: "PH",
+      items: [
+        { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "113.85" },
+        { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "113.85" },
+        { "id" => 3, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "113.85" },
+      ]
+    )
+
+    service.send(:cart_items_with_subscription_price)
+
+    assert_equal [ INCIDENT_VARIANT_ID ], service.send(:fake_variants).get_calls
+  end
+
+  test "an inactive row for the cart's country is not used, even when it carries a price" do
+    # `active` off means the company doesn't sell it there, and Fluid resolves
+    # through variant_countries.active — so there is no price for us to write.
+    rows = { INCIDENT_VARIANT_ID => [
+      { "country_code" => "CA", "currency_code" => "CAD", "active" => false,
+        "price" => "64.97", "subscription_price" => "44.97", },
+    ] }
+    service = build_pricing_service(
+      country_code: "CA",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "44.97" } ],
+      rows: rows
+    )
+
+    assert_nil service.send(:variant_country_row, INCIDENT_VARIANT_ID)
+  end
+
+  test "subscribe-and-save discount still applies (55.97 -> 38.97)" do
+    rows = { 278059 => [ { "country_code" => "US", "currency_code" => "USD", "active" => true,
+                           "price" => "55.97", "subscription_price" => "38.97", } ] }
+    service = build_pricing_service(
+      country_code: "US",
+      items: [ { "id" => 1, "variant_id" => 278059, "subscription_price" => "38.97",
+                 "price" => "55.97", "product" => { "price" => "55.97" }, } ],
+      rows: rows
+    )
+
+    assert_equal 38.97, service.send(:cart_items_with_subscription_price).first["price"]
+    assert_equal 55.97, service.send(:cart_items_with_regular_price).first["price"]
+  end
+
+  test "update_item_to_subscription_price treats a bundle's 0.0 subscription_price as zero, not truthy" do
+    # "0.0" is a truthy String, so a plain `||` would write zero and let the
+    # zero-price guard drop the line, silently cancelling the reprice.
+    bundle_variant_id = 285690
+    rows = { bundle_variant_id => [ { "country_code" => "CA", "currency_code" => "CAD", "active" => true,
+                                      "price" => "0.0", "subscription_price" => "0.0", } ] }
+    cart_item = { "id" => 1, "variant_id" => bundle_variant_id, "subscription_price" => "0.0",
+                  "price" => "246.99", "metadata" => { "bundle_group_base_price" => "172.99" }, }
+    service = build_pricing_service(country_code: "CA", items: [ cart_item ], rows: rows)
+    service.define_singleton_method(:cart_item) { cart_item }
+    written = []
+    carts = Object.new
+    carts.define_singleton_method(:update_items_prices) { |_token, items| written.concat(items) }
+    client = service.send(:fluid_client)
+    client.define_singleton_method(:carts) { carts }
+    service.define_singleton_method(:update_cart_items_volumes) { |*| nil }
+
+    service.send(:update_item_to_subscription_price)
+
+    assert_equal [ { "id" => 1, "price" => 172.99 } ], written
+  end
+
+  test "update_item_to_subscription_price writes only the item the callback names" do
+    # Lines left behind in a previous country are CartCountryChangedService's.
+    # Widening this path would mean guessing which other lines are stale, and
+    # locking a price Fluid never set when the guess is wrong.
+    cart_item = { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "2499.0" }
+    other = { "id" => 2, "variant_id" => INCIDENT_VARIANT_ID, "price" => "113.85",
+              "subscription_price" => "2499.0", }
+    service = build_pricing_service(country_code: "PH", items: [ cart_item, other ])
+    service.define_singleton_method(:cart_item) { cart_item }
+    written = []
+    carts = Object.new
+    carts.define_singleton_method(:update_items_prices) { |_token, items| written.concat(items) }
+    service.send(:fluid_client).define_singleton_method(:carts) { carts }
+    volume_items = []
+    service.define_singleton_method(:update_cart_items_volumes) { |items, **| volume_items.concat(items) }
+
+    service.send(:update_item_to_subscription_price)
+
+    assert_equal [ { "id" => 1, "price" => 2499.0 } ], written
+    assert_equal [ 1 ], volume_items.map { |item| item["id"] }
+  end
+
+  test "a country row with no active flag counts as active" do
+    # Reading an absent key as "not sold" would stop pricing everything at once.
+    rows = { INCIDENT_VARIANT_ID => [
+      { "country_code" => "PH", "currency_code" => "PHP", "price" => "2499.0",
+        "subscription_price" => "2499.0", },
+    ] }
+    service = build_pricing_service(
+      country_code: "PH",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "113.85" } ],
+      rows: rows
+    )
+
+    assert_equal 2499.0, service.send(:cart_items_with_subscription_price).first["price"]
+  end
+
+  test "a failed variant lookup falls through to the payload rather than blocking the reprice" do
+    service = build_pricing_service(
+      country_code: "PH",
+      items: [ { "id" => 1, "variant_id" => 999, "subscription_price" => "2499.0" } ],
+      rows: {}
+    )
+
+    result = service.send(:cart_items_with_subscription_price)
+
+    assert_equal 2499.0, result.first["price"]
+  end
 end
 
 class FakeVariantsResource
+  attr_reader :get_calls
+
   def initialize(volumes_by_variant_id)
     @volumes_by_variant_id = volumes_by_variant_id
+    @get_calls = []
   end
 
   def get(variant_id)
-    countries = @volumes_by_variant_id[variant_id] || []
-    { "variant" => { "id" => variant_id, "variant_countries" => countries } }
+    @get_calls << variant_id
+    { "variant" => { "id" => variant_id, "variant_countries" => @volumes_by_variant_id[variant_id] || [] } }
   end
 end
 
