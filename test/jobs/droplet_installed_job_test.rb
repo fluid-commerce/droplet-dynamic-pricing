@@ -247,5 +247,53 @@ describe DropletInstalledJob do
 
       assert_equal "unique-auth-test-token-123", captured_token
     end
+
+    # STU2-3108. Fluid reads country_codes as a delivery filter, inverted from how
+    # it reads: a dispatch carrying no country matches ONLY registrations whose
+    # country_codes is empty (Callback::Registration.scoped_to_country), and none
+    # of the Callback::Client.notify callers carry one — cart_country_changed
+    # included. Listing this droplet's countries here would stop that callback
+    # arriving, silently. Pinned because the omission is a decision, not an
+    # oversight, and nothing else in the code says so.
+    it "registers callbacks globally, never scoped to countries" do
+      ::Callback.create!(
+        name: "cart_country_changed",
+        description: "Cart country changed",
+        url: "https://example.com/callbacks/cart_country_changed",
+        timeout_in_seconds: 10,
+        active: true
+      )
+
+      company_data = {
+        "fluid_shop" => "global-scope-shop",
+        "name" => "Global Scope Shop",
+        "fluid_company_id" => 333,
+        "droplet_uuid" => "global-scope-uuid",
+        "authentication_token" => "global-scope-token",
+        "webhook_verification_token" => "global-scope-verify",
+        "droplet_installation_uuid" => "global-scope-installation",
+      }
+
+      captured_attributes = []
+      registrations = Object.new
+      registrations.define_singleton_method(:create) do |attributes|
+        captured_attributes << attributes
+        { "callback_registration" => { "uuid" => "uuid-#{captured_attributes.size}" } }
+      end
+      client = Object.new
+      client.define_singleton_method(:callback_registrations) { registrations }
+
+      FluidClient.stub :new, ->(_token) { client } do
+        DropletInstalledJob.perform_now({ "company" => company_data })
+      end
+
+      assert captured_attributes.any?, "expected at least one callback to be registered"
+      captured_attributes.each do |attributes|
+        refute attributes.key?(:country_codes),
+               "#{attributes[:definition_name]} must register globally: a country-scoped " \
+               "registration receives no notify-dispatched callback at all"
+        refute attributes.key?("country_codes")
+      end
+    end
   end
 end
