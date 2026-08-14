@@ -480,18 +480,39 @@ private
     kind == :subscription ? "subscription_price" : "price"
   end
 
-  # A row for some country OTHER than the cart's whose price matches `value`.
-  # Heuristic, not proof — it assumes distinct countries carry distinct non-zero
-  # prices, which holds on the live catalog only because each has its own currency.
-  # A false positive costs a skipped reprice and an alert, never a wrong charge.
+  # Every column a price can be resolved from. Which one Fluid actually used depends
+  # on the cart and the item — a rep on the cart moves it to the wholesale columns
+  # (CartItem#resolve_regular_price), an unsubscribable item collapses the
+  # subscription figure onto the regular one, a zero discount column falls back to
+  # the base. Reading only two of the four is how a legitimate price gets mistaken
+  # for a foreign one.
+  PRICE_COLUMNS = %w[price subscription_price wholesale wholesale_subscription_price].freeze
+
+  # A row for some country OTHER than the cart's whose price matches `value` — and
+  # only when the cart's OWN row cannot explain the value.
+  #
+  # That second half is not a refinement, it is what makes the test sound. Oliabo,
+  # 2026-08-14: a US cart with a rep, holding an unsubscribable item, was handed
+  # 100.00 — the US row's `wholesale`, exactly what Fluid resolves for that
+  # combination. AU happened to carry 100.00 too, so a check that looked only at
+  # other countries called it foreign, refused a correct write and raised an alert
+  # nobody could act on. If the number is in your own country's row, it did not come
+  # from somewhere else, whatever the other rows happen to hold.
+  #
+  # What remains is still a heuristic: two countries can share a price for reasons of
+  # their own. It fails toward a skipped reprice and an alert, never a wrong charge.
   def foreign_priced_row(rows, value)
     amount = value.to_f
     return nil unless amount.positive?
 
-    rows.find do |row|
-      row_field(row, "country_code") != cart_pricing_country &&
-        [ row_field(row, "price"), row_field(row, "subscription_price") ].any? { |p| same_money?(p, amount) }
-    end
+    own, foreign = rows.partition { |row| row_field(row, "country_code") == cart_pricing_country }
+    return nil if own.any? { |row| row_prices(row).any? { |p| same_money?(p, amount) } }
+
+    foreign.find { |row| row_prices(row).any? { |p| same_money?(p, amount) } }
+  end
+
+  def row_prices(row)
+    PRICE_COLUMNS.map { |column| row_field(row, column) }
   end
 
   def same_money?(one, two)
@@ -787,6 +808,10 @@ private
     Sentry.capture_exception(
       exception,
       extra: {
+        # The droplet is shared, and Sentry scrubs cart_token as PII, so without the
+        # company an alert says nothing about which tenant it came from. Tracing one
+        # took comparing catalogs across two companies before landing on a third.
+        company_id: reporting_company_id,
         cart_token: cart_token,
         cart_id: cart&.dig("id"),
         customer_id: cart_customer_id,
@@ -795,6 +820,13 @@ private
     )
   rescue StandardError => reporting_error
     Rails.logger.error "[Sentry] Failed to report exception: #{reporting_error.message}"
+  end
+
+  # Reads the payload rather than find_company: reporting must never be the thing
+  # that raises, and CallbackError from an unresolvable company is exactly what a
+  # report is likely to be describing.
+  def reporting_company_id
+    cart&.dig("company", "id") || cart&.dig(:company, :id)
   end
 
   def calculate_cart_total

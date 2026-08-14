@@ -609,6 +609,50 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     assert_empty reported, "but not paged about: the line cannot be bought here at all"
   end
 
+  test "a price the cart's own country can explain is never called foreign" do
+    # Oliabo, 2026-08-14, cart 757644. A US cart with a buyer_rep holding "Premium
+    # Opportunity Cards" (SW-00003, allow_subscription false) was handed 100.00. That
+    # is the US row's `wholesale`: unsubscribable collapses the subscription figure
+    # onto the regular one, and a rep on the cart moves the regular one to the
+    # wholesale column (CartItem#resolve_regular_price). Fluid's own answer for this
+    # cart, in other words. AU also carried 100.00, so checking only other countries
+    # called it foreign, refused a correct write and raised an alert nobody could act
+    # on. The cart's own row explains the number, so it cannot have come from AU.
+    variant = 280985
+    rows = { variant => [
+      { "country_code" => "US", "currency_code" => "USD", "active" => true,
+        "price" => "0.0", "subscription_price" => "0.0",
+        "wholesale" => "100.0", "wholesale_subscription_price" => "0.0", },
+      { "country_code" => "AU", "currency_code" => "USD", "active" => true,
+        "price" => "100.0", "subscription_price" => "100.0", },
+    ] }
+    service = build_pricing_service(
+      country_code: "US",
+      items: [ { "id" => 1067417, "variant_id" => variant, "subscription_price" => "100.0",
+                 "price" => "100.0", "allow_subscription" => false, } ],
+      rows: rows
+    )
+    reported = []
+    service.define_singleton_method(:report_exception) { |e, **ctx| reported << [ e, ctx ] }
+
+    result = service.send(:cart_items_with_subscription_price)
+
+    assert_equal 100.0, result.first["price"], "Fluid's own figure for this cart must stand"
+    assert_empty reported, "and nobody should be paged about it"
+  end
+
+  test "the incident is still caught once the cart's own row is checked first" do
+    # The guard above must not blunt the case this ticket exists for. PH carries 2,499
+    # in every column, so CA's 113.85 is unexplainable by the cart's own row and stays
+    # foreign.
+    service = build_pricing_service(
+      country_code: "PH",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "113.85" } ]
+    )
+
+    assert_equal 2499.0, service.send(:cart_items_with_subscription_price).first["price"]
+  end
+
   test "a variant sold here with no price configured is still reported" do
     # The other half of the split. An active row for the cart's country means Fluid
     # does sell the variant there, so a row sitting at 0.00 is a catalog problem
