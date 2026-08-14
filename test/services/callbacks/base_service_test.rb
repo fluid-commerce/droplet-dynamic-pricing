@@ -577,6 +577,60 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     assert_equal "PH", reported.first[1][:cart_country]
   end
 
+  test "a product not sold in the cart's country is dropped quietly, not reported" do
+    # Yoli's dominant shape: one product per country, 220 of its 304 variants. Pure US
+    # (278088) has all three rows — Fluid creates one per company country — but only US
+    # is active; PH sits inactive at 0.00. So in a Philippine cart the line carries the
+    # US figure and has no ACTIVE PH row, Fluid prices nothing, marks it unavailable and
+    # blocks checkout. The customer changes country or drops the product; there is
+    # nothing to action, and alerting would bury the real signal under the normal case.
+    #
+    # Observed in production on 2026-08-13: cart ct_WSYg6...NyR8 moved to PH, Yoli+
+    # correctly repriced to 2,499, and this line raised a CrossCountryPriceError that
+    # nobody could act on. Its own message said so — "whose subscription_price is nil".
+    pure_us = 278088
+    rows = { pure_us => [
+      { "country_code" => "US", "currency_code" => "USD", "active" => true,
+        "price" => "55.97", "subscription_price" => "38.97", },
+      { "country_code" => "PH", "currency_code" => "PHP", "active" => false,
+        "price" => "0.0", "subscription_price" => "0.0", },
+    ] }
+    service = build_pricing_service(
+      country_code: "PH",
+      items: [ { "id" => 1066779, "variant_id" => pure_us, "subscription_price" => "38.97" } ],
+      rows: rows
+    )
+    reported = []
+    service.define_singleton_method(:report_exception) { |e, **ctx| reported << [ e, ctx ] }
+
+    result = service.send(:cart_items_with_subscription_price)
+
+    assert_empty result, "still dropped — we must not write another country's figure"
+    assert_empty reported, "but not paged about: the line cannot be bought here at all"
+  end
+
+  test "a variant sold here with no price configured is still reported" do
+    # The other half of the split. An active row for the cart's country means Fluid
+    # does sell the variant there, so a row sitting at 0.00 is a catalog problem
+    # someone should see — unlike a product that simply isn't sold in the country.
+    rows = { INCIDENT_VARIANT_ID => [
+      { "country_code" => "PH", "currency_code" => "PHP", "active" => true,
+        "price" => "0.0", "subscription_price" => "0.0", },
+      { "country_code" => "CA", "currency_code" => "CAD", "active" => true,
+        "price" => "113.85", "subscription_price" => "113.85", },
+    ] }
+    service = build_pricing_service(
+      country_code: "PH",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "113.85" } ],
+      rows: rows
+    )
+    reported = []
+    service.define_singleton_method(:report_exception) { |e, **ctx| reported << [ e, ctx ] }
+
+    assert_empty service.send(:cart_items_with_subscription_price)
+    assert_equal 1, reported.size, "sold here, priced nowhere — worth an alert"
+  end
+
   test "cart_items_with_subscription_price keeps bundle parents priced from cart item metadata" do
     # A bundle parent is 0.0 on every country row; the real figure rides in the
     # cart item's metadata. It must still be repriced, not dropped.

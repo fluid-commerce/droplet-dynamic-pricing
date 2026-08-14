@@ -500,15 +500,37 @@ private
     one.to_f.round(2) == two.to_f.round(2)
   end
 
-  # Drops the write and raises an alert instead — the part that keeps holding if the
-  # upstream cause returns in a different shape.
+  # Drops the write either way. Alerts only when the cart's country has an ACTIVE row,
+  # which is the difference between a mispriced line and one that isn't sold here.
+  #
+  # Fluid creates a row for every company country, so a country the variant is not
+  # sold in still HAS a row — inactive, at 0.00. variant_country_row requires active,
+  # the same rule Fluid applies in CartItem#variant_country, so those come back nil.
+  # And nil is the whole point: with no active row Fluid prices nothing, marks the
+  # line unavailable and blocks checkout, leaving the customer to change country or
+  # drop the product. Nothing to action, so nothing to page anyone about — and Yoli
+  # sells one product per country across 220 of its 304 variants, so alerting here
+  # would bury the real signal under the expected case.
+  #
+  # An ACTIVE row sitting at 0.00 still alerts: the variant is sold in this country
+  # and has no price configured, which is a catalog problem someone should see.
   def refuse_cross_country_price(item, variant_id, payload_price, foreign, field)
     foreign_country = row_field(foreign, "country_code")
-    expected = row_field(variant_country_row(variant_id), field)
+    own_row = variant_country_row(variant_id)
+    expected = row_field(own_row, field)
     message = "[DynamicPricing] Refusing cross-country price for item #{item['id']} " \
               "(variant #{variant_id}) on cart #{cart_token}: payload price #{payload_price.to_f} " \
               "belongs to #{foreign_country} (#{row_field(foreign, 'currency_code')}), but the " \
               "cart's country is #{cart_pricing_country} whose #{field} is #{expected.inspect}"
+
+    if own_row.nil?
+      Rails.logger.info(
+        "#{message} — not sold in #{cart_pricing_country}, so the line is unbuyable there " \
+        "and Fluid blocks it at checkout. Expected, not reported."
+      )
+      return nil
+    end
+
     Rails.logger.warn(message)
     report_exception(
       CrossCountryPriceError.new(message),
