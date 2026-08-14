@@ -480,18 +480,31 @@ private
     kind == :subscription ? "subscription_price" : "price"
   end
 
-  # A row for some country OTHER than the cart's whose price matches `value`.
-  # Heuristic, not proof — it assumes distinct countries carry distinct non-zero
-  # prices, which holds on the live catalog only because each has its own currency.
-  # A false positive costs a skipped reprice and an alert, never a wrong charge.
+  # Every column a price can come from. Which one Fluid used depends on the cart and
+  # the item — a rep moves it to the wholesale columns, an unsubscribable item
+  # collapses subscription onto regular, a zero discount falls back to the base.
+  PRICE_COLUMNS = %w[price subscription_price wholesale wholesale_subscription_price].freeze
+
+  # A row for a country OTHER than the cart's matching `value` — and only when the
+  # cart's own row cannot explain it. If the number is in your own country's row it
+  # didn't come from elsewhere, whatever the other rows hold. Without that half, a US
+  # cart handed its own `wholesale` was called foreign because AU shared the figure
+  # (Oliabo cart 757644), dropping a correct write.
+  #
+  # Still a heuristic — two countries may share a price — and it fails toward a
+  # skipped reprice and an alert, never a wrong charge.
   def foreign_priced_row(rows, value)
     amount = value.to_f
     return nil unless amount.positive?
 
-    rows.find do |row|
-      row_field(row, "country_code") != cart_pricing_country &&
-        [ row_field(row, "price"), row_field(row, "subscription_price") ].any? { |p| same_money?(p, amount) }
-    end
+    own, foreign = rows.partition { |row| row_field(row, "country_code") == cart_pricing_country }
+    return nil if own.any? { |row| row_prices(row).any? { |p| same_money?(p, amount) } }
+
+    foreign.find { |row| row_prices(row).any? { |p| same_money?(p, amount) } }
+  end
+
+  def row_prices(row)
+    PRICE_COLUMNS.map { |column| row_field(row, column) }
   end
 
   def same_money?(one, two)
@@ -500,20 +513,13 @@ private
     one.to_f.round(2) == two.to_f.round(2)
   end
 
-  # Drops the write either way. Alerts only when the cart's country has an ACTIVE row,
-  # which is the difference between a mispriced line and one that isn't sold here.
+  # Drops the write either way; alerts only when the cart's country has an ACTIVE row.
   #
-  # Fluid creates a row for every company country, so a country the variant is not
-  # sold in still HAS a row — inactive, at 0.00. variant_country_row requires active,
-  # the same rule Fluid applies in CartItem#variant_country, so those come back nil.
-  # And nil is the whole point: with no active row Fluid prices nothing, marks the
-  # line unavailable and blocks checkout, leaving the customer to change country or
-  # drop the product. Nothing to action, so nothing to page anyone about — and Yoli
-  # sells one product per country across 220 of its 304 variants, so alerting here
-  # would bury the real signal under the expected case.
-  #
-  # An ACTIVE row sitting at 0.00 still alerts: the variant is sold in this country
-  # and has no price configured, which is a catalog problem someone should see.
+  # Fluid creates a row per company country, so one the variant isn't sold in still
+  # exists — inactive, at 0.00 — and variant_country_row skips it, as Fluid does. With
+  # no active row Fluid prices nothing and blocks the line at checkout: expected, and
+  # nothing to action. An active row at 0.00 still alerts, since the variant IS sold
+  # there and its price is missing.
   def refuse_cross_country_price(item, variant_id, payload_price, foreign, field)
     foreign_country = row_field(foreign, "country_code")
     own_row = variant_country_row(variant_id)
@@ -787,6 +793,9 @@ private
     Sentry.capture_exception(
       exception,
       extra: {
+        # The droplet is shared and Sentry scrubs cart_token as PII, so without this an
+        # alert says nothing about which tenant raised it.
+        company_id: reporting_company_id,
         cart_token: cart_token,
         cart_id: cart&.dig("id"),
         customer_id: cart_customer_id,
@@ -795,6 +804,12 @@ private
     )
   rescue StandardError => reporting_error
     Rails.logger.error "[Sentry] Failed to report exception: #{reporting_error.message}"
+  end
+
+  # From the payload, not find_company: reporting must never be the thing that raises,
+  # and an unresolvable company is what a report may well be describing.
+  def reporting_company_id
+    cart&.dig("company", "id") || cart&.dig(:company, :id)
   end
 
   def calculate_cart_total

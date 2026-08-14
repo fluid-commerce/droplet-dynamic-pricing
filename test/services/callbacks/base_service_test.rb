@@ -578,12 +578,10 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
   end
 
   test "a product not sold in the cart's country is dropped quietly, not reported" do
-    # Yoli's dominant shape: one product per country, 220 of its 304 variants. Pure US
-    # (278088) has all three rows — Fluid creates one per company country — but only US
-    # is active; PH sits inactive at 0.00. So in a Philippine cart the line carries the
-    # US figure and has no ACTIVE PH row, Fluid prices nothing, marks it unavailable and
-    # blocks checkout. The customer changes country or drops the product; there is
-    # nothing to action, and alerting would bury the real signal under the normal case.
+    # Pure US (278088) has all three rows — Fluid creates one per company country — but
+    # only US is active. So a PH cart has no active PH row, Fluid prices nothing and
+    # blocks the line at checkout. Nothing to action, and it's the common shape: one
+    # product per country covers 220 of Yoli's 304 variants.
     #
     # Observed in production on 2026-08-13: cart ct_WSYg6...NyR8 moved to PH, Yoli+
     # correctly repriced to 2,499, and this line raised a CrossCountryPriceError that
@@ -609,10 +607,48 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     assert_empty reported, "but not paged about: the line cannot be bought here at all"
   end
 
+  test "a price the cart's own country can explain is never called foreign" do
+    # Oliabo cart 757644. A US cart with a rep, holding an unsubscribable item, was
+    # handed 100.00 — the US row's `wholesale`, which is what Fluid resolves for that
+    # combination. AU carried 100.00 too, so checking only other countries called it
+    # foreign and dropped a correct write.
+    variant = 280985
+    rows = { variant => [
+      { "country_code" => "US", "currency_code" => "USD", "active" => true,
+        "price" => "0.0", "subscription_price" => "0.0",
+        "wholesale" => "100.0", "wholesale_subscription_price" => "0.0", },
+      { "country_code" => "AU", "currency_code" => "USD", "active" => true,
+        "price" => "100.0", "subscription_price" => "100.0", },
+    ] }
+    service = build_pricing_service(
+      country_code: "US",
+      items: [ { "id" => 1067417, "variant_id" => variant, "subscription_price" => "100.0",
+                 "price" => "100.0", "allow_subscription" => false, } ],
+      rows: rows
+    )
+    reported = []
+    service.define_singleton_method(:report_exception) { |e, **ctx| reported << [ e, ctx ] }
+
+    result = service.send(:cart_items_with_subscription_price)
+
+    assert_equal 100.0, result.first["price"], "Fluid's own figure for this cart must stand"
+    assert_empty reported, "and nobody should be paged about it"
+  end
+
+  test "the incident is still caught once the cart's own row is checked first" do
+    # The own-row check must not blunt the case this ticket exists for: PH carries 2,499
+    # in every column, so CA's 113.85 stays unexplainable.
+    service = build_pricing_service(
+      country_code: "PH",
+      items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID, "subscription_price" => "113.85" } ]
+    )
+
+    assert_equal 2499.0, service.send(:cart_items_with_subscription_price).first["price"]
+  end
+
   test "a variant sold here with no price configured is still reported" do
-    # The other half of the split. An active row for the cart's country means Fluid
-    # does sell the variant there, so a row sitting at 0.00 is a catalog problem
-    # someone should see — unlike a product that simply isn't sold in the country.
+    # The other half of the split: an active row means Fluid does sell it there, so a
+    # price of 0.00 is a catalog problem, not the expected case.
     rows = { INCIDENT_VARIANT_ID => [
       { "country_code" => "PH", "currency_code" => "PHP", "active" => true,
         "price" => "0.0", "subscription_price" => "0.0", },
