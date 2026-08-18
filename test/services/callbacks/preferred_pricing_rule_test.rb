@@ -190,4 +190,33 @@ private
 
     def blank? = false
   end
+
+  # --- logout leaves no bound customer ---------------------------------------
+
+  test "a logged-out cart with no subscription line goes back to retail" do
+    # The customer who left was a real subscriber, but they are gone: nothing is
+    # bound to this cart any more, so only a line in it could justify preferred.
+    [ false, true ].each do |exigo_enabled|
+      carts = VolumeTestHelpers::FakeCarts.new
+      svc = service(name: "cart_customer_detached", carts: carts, logged_in: false,
+                    sub_line: false, active_sub: true, exigo: exigo_enabled,
+                    metafield: "preferred_customer", stamp: "preferred_customer")
+      svc.call
+
+      prices = carts.items_prices_calls.flat_map { |c| c[:items].map { |i| i["price"].to_s } }
+      assert_equal [ REGULAR ], prices.uniq,
+        "logout must revert to retail (exigo_enabled=#{exigo_enabled})"
+      assert_nil carts.metadata_calls.last[:metadata]["price_type"]
+    end
+  end
+
+  test "a logged-out cart keeps preferred while a subscription line remains in it" do
+    carts = VolumeTestHelpers::FakeCarts.new
+    svc = service(name: "cart_customer_detached", carts: carts, logged_in: false,
+                  sub_line: true, stamp: "preferred_customer")
+    svc.call
+
+    prices = carts.items_prices_calls.flat_map { |c| c[:items].map { |i| i["price"].to_s } }
+    assert_equal [ SUBSCRIPTION ], prices.uniq
+  end
 end

@@ -24,7 +24,14 @@ class Callbacks::CartCustomerDetachedService < Callbacks::BaseService
 
     was_preferred = cart.dig("metadata", "price_type") == PREFERRED_CUSTOMER_TYPE
 
-    if cart_qualifies_for_preferred_pricing?
+    # The same rule as everywhere else, evaluated on a cart that no longer has a
+    # bound customer: with customer_id nil the customer half of
+    # cart_qualifies_for_preferred_pricing? has no subject, so a line in the cart is
+    # all that can justify preferred here. Spelled out rather than delegated,
+    # because the Exigo half of that predicate keys off the cart's EMAIL and is not
+    # gated on a bound customer — delegating would have let a logged-out cart keep
+    # subscription pricing on Rain and Yoli, which is not the rule.
+    if has_another_subscription_in_cart?
       update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
       if cart_items.any?
         update_cart_items_prices(cart_items_with_subscription_price)
