@@ -76,4 +76,39 @@ class Callbacks::CustomerLoggedInServiceTest < ActiveSupport::TestCase
     assert_equal 1, carts.metadata_calls.size, "expected the cart to be stamped preferred_customer"
     assert_equal 1, carts.items_prices_calls.size, "expected items to be repriced to subscription price"
   end
+  # --- CURRENT-3361 ---
+
+  test "does not revert to regular pricing when the preferred lookup could not be answered" do
+    # Every preferred-status lookup rescues to false, so a Fluid timeout used to
+    # read as "not preferred" and rewrite every line price back to retail.
+    company = companies(:acme)
+    cart = {
+      "cart_token" => "ct_login",
+      "customer_id" => 888,
+      "email" => "vip@example.com",
+      "metadata" => { "price_type" => "preferred_customer" },
+      "company" => { "id" => company.fluid_company_id },
+      "items" => [ { "id" => 1, "price" => "90.0", "product" => { "price" => "100.0" }, "quantity" => 1 } ],
+    }
+
+    carts = VolumeTestHelpers::FakeCarts.new
+    variants = VolumeTestHelpers::FakeVariants.new({})
+    client = build_volume_client(carts: carts, variants: variants)
+
+    service = Callbacks::CustomerLoggedInService.new({ cart: cart })
+    service.define_singleton_method(:fluid_client) { client }
+
+    result = nil
+    service.stub(:get_customer_type_from_metafields, nil) do
+      # The subscriptions lookup errors out: status is unknown, not negative.
+      service.stub(:has_active_subscriptions?, ->(_id) { service.send(:note_preferred_lookup_failure!); false }) do
+        result = service.call
+      end
+    end
+
+    assert result[:success]
+    assert_equal 0, carts.items_prices_calls.size,
+      "an unanswerable lookup must not strip the shopper's discount"
+    assert_equal 0, carts.metadata_calls.size
+  end
 end

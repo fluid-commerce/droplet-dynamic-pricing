@@ -945,6 +945,140 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
     assert_equal 2499.0, result.first["price"]
   end
+
+  # --- Settled-cart guard + lookup-failure tracking (CURRENT-3361) ---
+
+  def settled_service(state: nil, trigger_source: nil)
+    cart = {
+      "cart_token" => "ct_settled",
+      "state" => state,
+      "company" => { "id" => @company.fluid_company_id },
+      "items" => [],
+    }
+    params = { cart: cart }
+    params[:context] = { "trigger_source" => trigger_source } if trigger_source
+    Callbacks::BaseService.new(params)
+  end
+
+  test "cart_settled? is true when the cart has already been captured" do
+    assert settled_service(state: "payment_captured").send(:cart_settled?)
+  end
+
+  test "cart_settled? is true when the callback was triggered by order completion" do
+    # The order already exists; the reported cart state is irrelevant.
+    service = settled_service(state: "start", trigger_source: "order_completion")
+
+    assert service.send(:cart_settled?)
+  end
+
+  test "cart_settled? is false while the shopper is still building or paying for the cart" do
+    refute settled_service(state: "start").send(:cart_settled?)
+    refute settled_service(state: "payment_method").send(:cart_settled?)
+  end
+
+  test "cart_settled? is false when the payload carries no state or context" do
+    refute settled_service.send(:cart_settled?)
+  end
+
+  test "cart_settled? reads a symbol-keyed context and cart state" do
+    service = Callbacks::BaseService.new(
+      {
+        cart: { "company" => { "id" => @company.fluid_company_id }, state: "start" },
+        context: { trigger_source: "order_completion" },
+      }
+    )
+
+    assert service.send(:cart_settled?)
+  end
+
+  test "cart_settled? does not treat a mid-shopping logout as settled" do
+    refute settled_service(state: "start", trigger_source: "logout").send(:cart_settled?)
+  end
+
+  test "update_cart_items_prices refuses to write to a settled cart" do
+    service = settled_service(state: "payment_captured")
+    called = false
+    mock_carts = Object.new
+    mock_carts.define_singleton_method(:update_items_prices) { |_token, _data| called = true }
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { mock_carts }
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    service.send(:update_cart_items_prices, [ { "id" => 1, "price" => "100.0" } ])
+
+    refute called, "prices must not be rewritten after the cart is settled"
+  end
+
+  test "update_cart_metadata refuses to write to a settled cart" do
+    service = settled_service(state: "payment_captured")
+    called = false
+    mock_carts = Object.new
+    mock_carts.define_singleton_method(:append_metadata) { |_token, _metadata| called = true }
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { mock_carts }
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    service.send(:update_cart_metadata, { "price_type" => nil })
+
+    refute called, "metadata must not be rewritten after the cart is settled"
+  end
+
+  test "update_cart_items_volumes refuses to write to a settled cart" do
+    enable_volume_adjustment!
+    carts = FakeVolumeCartsResource.new
+    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 100, "qv" => 50 } ])
+    service = settled_service(state: "payment_captured")
+    client = Object.new
+    client.define_singleton_method(:carts) { carts }
+    client.define_singleton_method(:variants) { variants }
+    service.define_singleton_method(:fluid_client) { client }
+
+    service.send(:update_cart_items_volumes, [ { "id" => 1, "variant_id" => 10, "quantity" => 1 } ])
+
+    assert_equal 0, carts.volume_calls.size, "volumes must not be rewritten after the cart is settled"
+  end
+
+  test "preferred_lookup_failed? is set when the subscriptions lookup errors" do
+    service = Callbacks::BaseService.new(@callback_params)
+    subscriptions = Object.new
+    subscriptions.define_singleton_method(:get_by_customer) { |_id, **_opts| raise FluidClient::TimeoutError, "boom" }
+    client = Object.new
+    client.define_singleton_method(:subscriptions) { subscriptions }
+    service.define_singleton_method(:fluid_client) { client }
+
+    refute service.send(:has_active_subscriptions?, 42)
+    assert service.send(:preferred_lookup_failed?),
+      "an unanswerable lookup must be distinguishable from a negative answer"
+  end
+
+  test "preferred_lookup_failed? stays false when the customer simply has no subscriptions" do
+    service = Callbacks::BaseService.new(@callback_params)
+    subscriptions = Object.new
+    subscriptions.define_singleton_method(:get_by_customer) { |_id, **_opts| { "subscriptions" => [] } }
+    client = Object.new
+    client.define_singleton_method(:subscriptions) { subscriptions }
+    service.define_singleton_method(:fluid_client) { client }
+
+    refute service.send(:has_active_subscriptions?, 42)
+    refute service.send(:preferred_lookup_failed?)
+  end
+
+  test "preferred_lookup_failed? is set when the Exigo autoship lookup errors" do
+    service = Callbacks::BaseService.new(@callback_params)
+    service.define_singleton_method(:exigo_integration_enabled?) { true }
+    service.define_singleton_method(:exigo_client) { raise ExigoClient::Error, "boom" }
+
+    refute service.send(:has_exigo_autoship_by_email?, "vip@example.com")
+    assert service.send(:preferred_lookup_failed?)
+  end
+
+  test "preferred_lookup_failed? stays false when the Exigo integration is simply off" do
+    service = Callbacks::BaseService.new(@callback_params)
+    service.define_singleton_method(:exigo_integration_enabled?) { false }
+
+    refute service.send(:has_exigo_autoship_by_email?, "vip@example.com")
+    refute service.send(:preferred_lookup_failed?)
+  end
 end
 
 class FakeVariantsResource

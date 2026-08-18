@@ -16,6 +16,11 @@ class Callbacks::CartCountryChangedService < Callbacks::BaseService
   def call
     raise CallbackError, "Cart is blank" if cart.blank?
 
+    # The cart is already paid for (or the order already exists): nothing left to
+    # price, and writing now desyncs the order total from the captured amount
+    # (CURRENT-3361).
+    return result_success if cart_settled?
+
     # Priced by the BP wholesale droplet (STU2-2377, STU2-2964).
     return result_success if yield_to_enrollment_wholesale? || price_type_wholesale?
 
@@ -60,10 +65,6 @@ private
   def preferred_pricing_cart?
     cart.dig("metadata", "price_type") == PREFERRED_CUSTOMER_TYPE ||
       cart_qualifies_for_preferred_pricing?
-  end
-
-  def callback_context
-    callback_params[:context] || {}
   end
 
   def country_code_from_context

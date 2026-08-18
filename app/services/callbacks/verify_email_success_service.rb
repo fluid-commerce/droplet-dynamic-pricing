@@ -3,6 +3,11 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
     raise CallbackError, "Cart is blank" if cart.blank?
     raise CallbackError, "Missing email" if customer_email.blank?
 
+    # The cart is already paid for (or the order already exists): nothing left to
+    # price, and writing now desyncs the order total from the captured amount
+    # (CURRENT-3361).
+    return result_success if cart_settled?
+
     # Enrollment carts and yoli-promos WHOLESALE-unlock carts are priced by the
     # BP wholesale droplet (STU2-2377, STU2-2964).
     return result_success if yield_to_enrollment_wholesale? || price_type_wholesale?
@@ -52,7 +57,8 @@ private
 
     customer_data = fetch_customer_by_email(customer_email)
     unless customer_data[:success]
-      clean_cart_metadata
+      # The lookup failed; we do not know whether this customer is preferred, so
+      # leave the cart as-is rather than stripping its pricing (CURRENT-3361).
       return
     end
 
@@ -82,6 +88,10 @@ private
   end
 
   def clean_cart_metadata
+    # Choke point for every revert path in this service: never revert on the back
+    # of a lookup that errored out (CURRENT-3361).
+    return if preferred_lookup_failed?
+
     update_result = update_cart_metadata({ "price_type" => nil })
     return if update_result.is_a?(Hash) && update_result[:success] == false
 
@@ -129,6 +139,7 @@ private
 
     metafield&.dig("value", "customer_type") || metafield&.dig(:value, :customer_type)
   rescue StandardError
+    note_preferred_lookup_failure!
     nil
   end
 
@@ -140,6 +151,7 @@ private
 
     { success: true, data: customer }
   rescue StandardError
+    note_preferred_lookup_failure!
     { success: false, error: "customer_lookup_failed", message: "Unable to fetch customer data" }
   end
 

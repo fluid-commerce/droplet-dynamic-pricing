@@ -5,6 +5,11 @@ class Callbacks::CartItemUpdatedService < Callbacks::BaseService
     raise CallbackError, "Cart is blank" if cart.blank?
     raise CallbackError, "Cart item is blank" if cart_item.blank?
 
+    # The cart is already paid for (or the order already exists): nothing left to
+    # price, and writing now desyncs the order total from the captured amount
+    # (CURRENT-3361).
+    return result_success if cart_settled?
+
     # Enrollment carts and yoli-promos WHOLESALE-unlock carts are priced by the
     # BP wholesale droplet (STU2-2377, STU2-2964).
     return result_success if yield_to_enrollment_wholesale? || price_type_wholesale?

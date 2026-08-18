@@ -83,4 +83,50 @@ class Callbacks::CartCustomerAttachedServiceTest < ActiveSupport::TestCase
 
     assert_equal "fromcustomer@example.com", seen
   end
+  # --- CURRENT-3361 ---
+
+  test "does not touch a cart when the callback was triggered by order completion" do
+    # Incident callback #3: cart_customer_attached fired with trigger_source
+    # "order_completion" on a payment_captured cart and repriced every line to
+    # subscription prices 1s after the card was charged.
+    @company.create_integration_setting!(settings: { "adjust_volumes_for_subscription" => true })
+    client, carts = client_and_carts
+    cart = base_cart.merge("state" => "payment_captured")
+    svc = Callbacks::CartCustomerAttachedService.new(
+      { cart: cart, context: { "trigger_source" => "order_completion" } }
+    )
+    svc.define_singleton_method(:fluid_client) { client }
+
+    result = svc.stub(:is_preferred_customer?, true) do
+      svc.stub(:sync_pcc_metafield, nil) { svc.call }
+    end
+
+    assert result[:success]
+    assert_nil result[:metadata], "must not push a price_type back on the response channel either"
+    assert_equal 0, carts.items_prices_calls.size, "must not reprice a completed order"
+    assert_equal 0, carts.metadata_calls.size, "must not restamp a completed order"
+    assert_equal 0, carts.volume_calls.size, "must not rewrite volumes on a completed order"
+  end
+  test "still syncs the customer_type metafield on a settled cart" do
+    # The metafield is a CUSTOMER resource, not a cart one: the settled-cart guard
+    # does not protect it, and order_completion is ~39% of attaches, so gating it
+    # would delay the stamp on most guest orders (CURRENT-3361).
+    client, carts = client_and_carts
+    cart = base_cart.merge("state" => "payment_captured")
+    svc = Callbacks::CartCustomerAttachedService.new(
+      { cart: cart, context: { "trigger_source" => "order_completion" } }
+    )
+    svc.define_singleton_method(:fluid_client) { client }
+
+    synced = []
+    svc.define_singleton_method(:sync_pcc_metafield) { |id| synced << id }
+
+    result = svc.stub(:is_preferred_customer?, true) { svc.call }
+
+    assert result[:success]
+    assert_equal [ 888 ], synced, "the customer metafield must still be stamped"
+    assert_equal 0, carts.items_prices_calls.size, "but nothing cart-level may be written"
+    assert_equal 0, carts.metadata_calls.size
+    assert_nil result[:metadata]
+  end
 end

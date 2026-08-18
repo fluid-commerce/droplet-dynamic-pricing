@@ -373,6 +373,20 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     end
   end
 
+  # Without this, has_active_subscriptions? hit NoMethodError on the double and the
+  # service took its lookup-failed path instead of the "no subscriptions" path it
+  # was meant to exercise.
+  class StubSubscriptionsResource
+    def initialize(get_error:)
+      @get_error = get_error
+    end
+
+    def get_by_customer(_customer_id, **_options)
+      raise @get_error if @get_error
+      { "subscriptions" => [] }
+    end
+  end
+
   class StubVariantsResource
     def initialize(variant_countries)
       @variant_countries = variant_countries
@@ -397,6 +411,7 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
       )
       @carts_resource = StubCartsResource.new
       @variants_resource = StubVariantsResource.new(variant_countries)
+      @subscriptions_resource = StubSubscriptionsResource.new(get_error: get_error)
       @metadata_updates = @carts_resource.metadata_updates
       @items_prices_updates = @carts_resource.items_prices_updates
       @volume_updates = @carts_resource.volume_updates
@@ -420,6 +435,10 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
 
     def variants
       @variants_resource
+    end
+
+    def subscriptions
+      @subscriptions_resource
     end
   end
 end

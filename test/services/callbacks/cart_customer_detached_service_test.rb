@@ -69,4 +69,42 @@ class Callbacks::CartCustomerDetachedServiceTest < ActiveSupport::TestCase
     assert_equal 1, carts.items_prices_calls.size
     assert_equal 0, carts.volume_calls.size
   end
+
+  # --- CURRENT-3361 ---
+
+  test "does not touch a cart that has already been captured" do
+    # Incident callback #4: cart_customer_detached fired with trigger_source
+    # "logout" on a payment_captured cart, 4s after the card was charged, and
+    # rewrote every line price.
+    @company.create_integration_setting!(settings: { "adjust_volumes_for_subscription" => true })
+    client, carts = client_and_carts
+    items = [ { "id" => 1, "variant_id" => 10, "price" => "100.0", "quantity" => 1 } ]
+    cart = detached_cart(items: items).merge("state" => "payment_captured")
+    svc = Callbacks::CartCustomerDetachedService.new(
+      { cart: cart, context: { "trigger_source" => "logout", "previous_customer_id" => 888 } }
+    )
+    svc.define_singleton_method(:fluid_client) { client }
+
+    result = svc.call
+
+    assert result[:success]
+    assert_equal 0, carts.items_prices_calls.size, "must not reprice a captured cart"
+    assert_equal 0, carts.metadata_calls.size, "must not restamp a captured cart"
+    assert_equal 0, carts.volume_calls.size, "must not rewrite volumes on a captured cart"
+  end
+
+  test "does not revert prices on a cart it never marked preferred" do
+    # An unstamped cart was never put on preferred pricing by this droplet, so
+    # rewriting every line to product.price on a logout would clobber whatever
+    # else set those prices.
+    client, carts = client_and_carts
+    items = [ { "id" => 1, "variant_id" => 10, "price" => "100.0", "quantity" => 1 } ]
+    svc = Callbacks::CartCustomerDetachedService.new({ cart: detached_cart(items: items, price_type: nil) })
+    svc.define_singleton_method(:fluid_client) { client }
+
+    result = svc.call
+
+    assert result[:success]
+    assert_equal 0, carts.items_prices_calls.size, "must not reprice an unstamped cart"
+  end
 end

@@ -1,6 +1,20 @@
 class Callbacks::BaseService
   PREFERRED_CUSTOMER_TYPE = "preferred_customer"
 
+  # Cart states in which Fluid has already taken the shopper's money. The cart is
+  # closed to modification, so a price write either bounces with 410 or lands on
+  # an order that has already been charged, leaving the captured amount and the
+  # order total disagreeing (CURRENT-3361).
+  #
+  # Deliberately a denylist of settled states rather than an allowlist of mutable
+  # ones: a state we have not seen must fall through to "reprice" (Fluid's own 410
+  # is the backstop) instead of silently switching pricing off on a live cart.
+  SETTLED_CART_STATES = %w[ payment_authorized payment_captured ].freeze
+
+  # Callback triggers that only fire once the order exists. There is no cart left
+  # to price at that point, whatever state the payload reports.
+  POST_ORDER_TRIGGERS = %w[ order_completion ].freeze
+
   def initialize(callback_params)
     @callback_params = callback_params
   end
@@ -72,6 +86,58 @@ private
     (metadata["price_type"] || metadata[:price_type]) == "wholesale"
   end
 
+  # True when this callback must not write to the cart at all. Two independent
+  # signals, because the incident needed both: the order_completion attach still
+  # reported a mutable-looking cart on one payload, and the logout detach that
+  # followed it reported payment_captured (CURRENT-3361).
+  #
+  # Note this keys off cart state, NOT the trigger: a logout while the shopper is
+  # still building the cart is a legitimate reason to revert pricing, and must
+  # keep working.
+  def cart_settled?
+    SETTLED_CART_STATES.include?(cart_state) ||
+      POST_ORDER_TRIGGERS.include?(callback_trigger_source)
+  end
+
+  def callback_trigger_source
+    callback_context["trigger_source"] || callback_context[:trigger_source]
+  end
+
+  def cart_state
+    cart&.dig("state") || cart&.dig(:state)
+  end
+
+  # `context` is a top-level sibling of `cart` in the callback payload, not a cart
+  # field. Indifferent to string/symbol keys for the same reason find_company is.
+  def callback_context
+    @callback_context ||= callback_params[:context] || callback_params["context"] || {}
+  end
+
+  # Last line of defence for the settled-cart guard. The callback services return
+  # early on cart_settled?, but enforcing it at every write means a service that
+  # forgets to (or a path added later) still cannot charge-then-reprice.
+  def refuse_settled_write(what)
+    return false unless cart_settled?
+
+    Rails.logger.warn(
+      "[DynamicPricing] Refusing to write #{what} to settled cart #{cart_token} " \
+      "(state=#{cart_state.inspect}, trigger=#{callback_trigger_source.inspect})"
+    )
+    true
+  end
+
+  # Whether a preferred-status lookup could not be answered this request (Fluid or
+  # Exigo errored). "Unknown" must not be read as "not preferred": the rollback
+  # paths rewrite every line price, so a transient API failure would otherwise
+  # cost the shopper their discount (CURRENT-3361).
+  def preferred_lookup_failed?
+    @preferred_lookup_failed == true
+  end
+
+  def note_preferred_lookup_failure!
+    @preferred_lookup_failed = true
+  end
+
   def company_yields_to_enrollment_wholesale?
     company = find_company
     return false if company.blank?
@@ -121,6 +187,8 @@ private
   end
 
   def update_cart_metadata(metadata)
+    return if refuse_settled_write("metadata")
+
     fluid_client.carts.append_metadata(cart_token, metadata)
     Rails.logger.info "[DynamicPricing] Stamped cart #{cart_token} metadata: #{metadata.inspect}"
   rescue CallbackError => e
@@ -171,6 +239,7 @@ private
   # rather than zeroed out, so we never wipe real commission values on Fluid.
   def update_cart_items_volumes(items, mode: :subscription)
     return unless adjust_volumes_for_subscription?
+    return if refuse_settled_write("volumes")
 
     # Constant for the whole request — resolve once, not per item.
     source = subscription_volume_source
@@ -340,6 +409,7 @@ private
   end
 
   def update_cart_items_prices(items_data)
+    return if refuse_settled_write("prices")
     raise CallbackError, "Items data is blank" if items_data.nil?
 
     # Empty means every item was refused by country_safe_price, which already logged
@@ -571,6 +641,10 @@ private
     )
     metafield&.dig("value", "customer_type") || metafield&.dig(:value, :customer_type)
   rescue StandardError
+    # A customer with no customer_type metafield returns nil without raising, so
+    # reaching this rescue means the lookup itself failed, not that the answer is
+    # "retail".
+    note_preferred_lookup_failure!
     nil
   end
 
@@ -582,6 +656,7 @@ private
 
     { success: true, data: customer }
   rescue StandardError
+    note_preferred_lookup_failure!
     { success: false, error: "customer_lookup_failed", message: "Unable to fetch customer data" }
   end
 
@@ -663,6 +738,7 @@ private
     subscriptions.any?
   rescue StandardError => e
     Rails.logger.error "Error checking active subscriptions for customer #{customer_id}: #{e.message}"
+    note_preferred_lookup_failure!
     false
   end
 
@@ -673,6 +749,7 @@ private
     exigo_client.customer_has_active_autoship_by_email?(email)
   rescue StandardError => e
     Rails.logger.error "Error checking Exigo autoship for email #{email}: #{e.message}"
+    note_preferred_lookup_failure!
     false
   end
 
