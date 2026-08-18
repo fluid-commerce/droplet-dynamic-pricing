@@ -28,7 +28,7 @@ class Callbacks::CustomerLoggedInServiceTest < ActiveSupport::TestCase
     service = Callbacks::CustomerLoggedInService.new({ cart: cart })
     service.define_singleton_method(:fluid_client) { client }
 
-    service.stub(:is_preferred_customer?, true) do
+    service.stub(:cart_qualifies_for_preferred_pricing?, true) do
       service.stub(:sync_pcc_metafield, nil) do
         service.call
       end
@@ -62,7 +62,7 @@ class Callbacks::CustomerLoggedInServiceTest < ActiveSupport::TestCase
 
     result = nil
     # metafield is NOT preferred, but the customer has a live Fluid subscription;
-    # is_preferred_customer? itself is NOT stubbed, so its new active-subs branch runs.
+    # the rule itself is NOT stubbed, so its live active-subs branch runs.
     service.stub(:get_customer_type_from_metafields, nil) do
       service.stub(:has_active_subscriptions?, true) do
         service.stub(:sync_pcc_metafield, nil) do

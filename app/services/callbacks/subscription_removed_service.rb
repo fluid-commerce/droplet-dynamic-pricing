@@ -14,53 +14,36 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
     current_price_type = cart.dig("metadata", "price_type")
     was_preferred = current_price_type == PREFERRED_CUSTOMER_TYPE
 
-    if customer_email.blank?
-      if has_another_subscription_in_cart?
-        update_cart_metadata({ "price_type" => "preferred_customer" })
-        if cart_items.any?
-          update_cart_items_prices(cart_items_with_subscription_price)
-          update_cart_items_volumes(cart_items, mode: :subscription)
-        end
-        return result_success
-      end
-      update_cart_metadata({ "price_type" => nil })
-      if cart_items.any?
-        update_cart_items_prices(cart_items_with_regular_price)
-        update_cart_items_volumes(cart_items, mode: :regular)
-      end
+    # One rule, same as every other callback. This used to carry its own ladder —
+    # a separate branch for a blank email, then metafield, then subscriptions,
+    # then Exigo — which is how it could answer differently from attach about the
+    # same cart (CURRENT-3361).
+    is_now_preferred = cart_qualifies_for_preferred_pricing?
 
-      if was_preferred
-        log_cart_pricing_event(
-          event_type: "item_updated",
-          preferred_applied: false,
-          additional_data: { callback: "subscription_removed", reason: "no_subscriptions_no_email" }
-        )
-      end
-      return result_success
-    end
+    # Never revert on the strength of a lookup that errored out.
+    #
+    # Unlike the logout and verify-email paths, this one does NOT also require the
+    # cart to be stamped: the trigger is a subscription line being removed from
+    # THIS cart, so the prices on it were almost certainly ours to correct. Those
+    # other two fire for reasons unrelated to pricing, which is why they insist on
+    # the stamp before rewriting a line (CURRENT-3361).
+    return result_success if !is_now_preferred && preferred_lookup_failed?
 
-    if should_keep_subscription_prices(customer_email)
-      update_cart_metadata({ "price_type" => "preferred_customer" })
-      use_subscription_prices = true
-    else
-      update_cart_metadata({ "price_type" => nil })
-      use_subscription_prices = false
-    end
+    update_cart_metadata({ "price_type" => is_now_preferred ? PREFERRED_CUSTOMER_TYPE : nil })
 
     if cart_items.any?
-      items_data = use_subscription_prices ? cart_items_with_subscription_price : cart_items_with_regular_price
+      items_data = is_now_preferred ? cart_items_with_subscription_price : cart_items_with_regular_price
       update_cart_items_prices(items_data)
-      update_cart_items_volumes(cart_items, mode: use_subscription_prices ? :subscription : :regular)
+      update_cart_items_volumes(cart_items, mode: is_now_preferred ? :subscription : :regular)
     end
 
-    is_now_preferred = use_subscription_prices
     if was_preferred != is_now_preferred
       log_cart_pricing_event(
         event_type: "item_updated",
         preferred_applied: is_now_preferred,
         additional_data: {
           callback: "subscription_removed",
-          reason: is_now_preferred ? "should_keep_preferred" : "removed_preferred",
+          reason: is_now_preferred ? "still_qualifies" : "no_longer_qualifies",
         }
       )
     end
@@ -68,24 +51,5 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
     result_success
   rescue CallbackError => e
     handle_callback_error(e)
-  end
-
-private
-
-  def should_keep_subscription_prices(customer_email)
-    return false if customer_email.blank?
-
-    return true if has_another_subscription_in_cart?
-
-    return false unless customer_logged_in?
-
-    customer_id = get_customer_id_by_email(customer_email)
-
-    if customer_id.present?
-      return true if has_active_subscriptions?(customer_id)
-      return true if get_customer_type_from_metafields(customer_id) == PREFERRED_CUSTOMER_TYPE
-    end
-
-    has_exigo_autoship_by_email?(customer_email)
   end
 end

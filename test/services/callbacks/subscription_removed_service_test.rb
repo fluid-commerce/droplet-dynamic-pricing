@@ -96,6 +96,7 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
     mock_client = Object.new
     mock_client.define_singleton_method(:carts) { fake_carts }
+    mock_client.define_singleton_method(:subscriptions) { VolumeTestHelpers::FakeSubscriptions.new }
     mock_client.define_singleton_method(:customers) { fake_customers }
 
     service = Callbacks::SubscriptionRemovedService.new(callback_params)
@@ -132,6 +133,7 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
     mock_client = Object.new
     mock_client.define_singleton_method(:carts) { fake_carts }
+    mock_client.define_singleton_method(:subscriptions) { VolumeTestHelpers::FakeSubscriptions.new }
     mock_client.define_singleton_method(:customers) { fake_customers }
 
     service = Callbacks::SubscriptionRemovedService.new(callback_params)
@@ -160,12 +162,13 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     assert_equal 72.0, item1[:price].to_f
   end
 
-  test "does not remove subscription pricing when customer has preferred_customer metafield and is logged in" do
+  test "removes subscription pricing when only the stale customer_type metafield says preferred" do
     fake_carts = FakeCartsResource.new
     fake_customers = FakeCustomersResource.new([ { "id" => 123 } ])
 
     mock_client = Object.new
     mock_client.define_singleton_method(:carts) { fake_carts }
+    mock_client.define_singleton_method(:subscriptions) { VolumeTestHelpers::FakeSubscriptions.new }
     mock_client.define_singleton_method(:customers) { fake_customers }
 
     logged_in_cart = cart_data.merge("customer_id" => 123)
@@ -173,6 +176,9 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
     service.define_singleton_method(:fluid_client) { mock_client }
 
+    # The leak: that metafield is only ever written as preferred_customer and, for a
+    # company without Exigo, nothing ever demotes it. It no longer decides a price
+    # (CURRENT-3361).
     service.stub(:has_active_subscriptions?, false) do
       service.stub(:get_customer_type_from_metafields, "preferred_customer") do
         service.stub(:has_another_subscription_in_cart?, false) do
@@ -184,17 +190,13 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
     assert_equal 1, fake_carts.metadata_calls.size, "append_metadata should be called once"
     call = fake_carts.metadata_calls.first
-
-    if call
-      assert_equal "preferred_customer", call[:metadata].with_indifferent_access[:price_type]
-    else
-      flunk "append_metadata was not called"
-    end
+    flunk "append_metadata was not called" if call.nil?
+    assert_nil call[:metadata].with_indifferent_access[:price_type]
 
     items = fake_carts.items_prices_calls.first[:items].map(&:with_indifferent_access)
     item1 = items.find { |i| i[:id].to_s == "674137" }
 
-    assert_equal 72.0, item1[:price].to_f
+    assert_equal 80.0, item1[:price].to_f, "the line goes back to its regular price"
   end
 
   test "removes subscription pricing when email is blank and no subscription items in cart" do
@@ -202,6 +204,7 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
     mock_client = Object.new
     mock_client.define_singleton_method(:carts) { fake_carts }
+    mock_client.define_singleton_method(:subscriptions) { VolumeTestHelpers::FakeSubscriptions.new }
 
     cart_without_email = cart_data.merge("email" => nil)
     # Ensure no items have subscription: true
@@ -234,6 +237,7 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
     mock_client = Object.new
     mock_client.define_singleton_method(:carts) { fake_carts }
+    mock_client.define_singleton_method(:subscriptions) { VolumeTestHelpers::FakeSubscriptions.new }
 
     cart_without_email = cart_data.merge("email" => nil)
     # Add subscription: true to items

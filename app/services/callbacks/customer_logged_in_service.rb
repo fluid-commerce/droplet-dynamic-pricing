@@ -10,7 +10,7 @@ class Callbacks::CustomerLoggedInService < Callbacks::BaseService
     # so those carts still cost us no API calls.
     return result_success if yield_to_enrollment_wholesale? || price_type_wholesale?
 
-    is_preferred = is_preferred_customer?(customer_email)
+    is_preferred = cart_qualifies_for_preferred_pricing?
 
     current_price_type = cart.dig("metadata", "price_type")
 
@@ -45,11 +45,10 @@ class Callbacks::CustomerLoggedInService < Callbacks::BaseService
     end
 
     # `is_preferred = false` can mean "not preferred" or "we could not tell":
-    # every lookup behind is_preferred_customer? rescues to false. Only the former
-    # justifies stripping the discount off every line (CURRENT-3361).
-    if current_price_type == PREFERRED_CUSTOMER_TYPE &&
-       !has_another_subscription_in_cart? &&
-       !preferred_lookup_failed?
+    # every lookup behind the rule rescues to false. Only the former justifies
+    # stripping the discount off every line. The stamp is required too: revert
+    # only pricing this droplet applied (CURRENT-3361).
+    if current_price_type == PREFERRED_CUSTOMER_TYPE && !preferred_lookup_failed?
       update_cart_metadata({ "price_type" => nil })
       if cart_items.any?
         update_cart_items_prices(cart_items_with_regular_price)

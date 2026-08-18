@@ -24,7 +24,7 @@ class Callbacks::CartCustomerDetachedService < Callbacks::BaseService
 
     was_preferred = cart.dig("metadata", "price_type") == PREFERRED_CUSTOMER_TYPE
 
-    if has_another_subscription_in_cart?
+    if cart_qualifies_for_preferred_pricing?
       update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
       if cart_items.any?
         update_cart_items_prices(cart_items_with_subscription_price)

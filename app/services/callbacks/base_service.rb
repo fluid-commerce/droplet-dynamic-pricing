@@ -685,6 +685,23 @@ private
   #
   # Order matters for cost: the in-cart check is free; the subscription lookups
   # hit external APIs and only run when the cart carries no subscription line.
+  # THE rule. Every callback that decides a price calls this and only this.
+  #
+  # Preferred iff the cart carries a subscription line, or the customer holds an
+  # active subscription (Fluid) or autoship (Exigo).
+  #
+  # Derived from live state on every callback, never read back from cart metadata
+  # or the customer_type metafield. Both are caches this droplet writes and
+  # nothing reliably invalidates: the metafield is only ever written as
+  # preferred_customer (the sole demotion path needs Exigo, so for a company like
+  # Oliabo it is never cleared), and the stamp outlives the subscription that
+  # earned it. Reading either is how seven callbacks came to hold three different
+  # opinions about one cart, and why the price landed on whichever fired last
+  # (CURRENT-3361).
+  #
+  # The stamp still gates whether a ROLLBACK may write — "did we price this cart"
+  # is a fair question to ask it. What it must not answer is "is this cart
+  # preferred".
   def cart_qualifies_for_preferred_pricing?
     has_another_subscription_in_cart? || customer_has_active_subscription?
   end
@@ -770,24 +787,6 @@ private
     raise CallbackError, "Exigo integration not enabled" unless company.integration_setting&.exigo_enabled?
 
     ExigoClient.for_company(company)
-  end
-
-  def is_preferred_customer?(email)
-    return false if email.blank?
-
-    customer_id = cart_customer_id || get_customer_id_by_email(email)
-    if customer_id.present?
-      customer_type = get_customer_type_from_metafields(customer_id)
-      return true if customer_type == PREFERRED_CUSTOMER_TYPE
-
-      # An active Fluid subscription makes a customer preferred regardless of the
-      # (laggy) customer_type metafield — so login/attach agrees with the
-      # subscription-based rule item_added/item_updated use and the two callback
-      # paths can't disagree and oscillate the cart price (STU2-2531).
-      return true if has_active_subscriptions?(customer_id)
-    end
-
-    has_exigo_autoship_by_email?(email)
   end
 
   def update_pcc_metafield(fluid_customer_id, customer_type)

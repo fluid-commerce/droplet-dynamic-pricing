@@ -27,8 +27,10 @@ class Callbacks::CartCountryChangedServiceTest < ActiveSupport::TestCase
         "subdomain" => "test",
       },
       "items" => [
+        # A real subscription line is what qualifies this cart now; the stamp
+        # stopped being a decision input (CURRENT-3361).
         { "id" => 674137, "price" => "99.0", "subscription_price" => "2499.0",
-          "metadata" => LOCKED, },
+          "subscription" => true, "metadata" => LOCKED, },
         { "id" => 674138, "price" => "113.85", "subscription_price" => "1999.0",
           "metadata" => LOCKED, },
       ],

@@ -1,3 +1,16 @@
+# frozen_string_literal: true
+
+# Handles Fluid's `verify_email_success` callback.
+#
+# This service used to decide twice in one request: clean_cart_metadata_before_update
+# walked its own ladder (subscription line, then a customer lookup, then
+# subscriptions, then Exigo) and reverted the cart, after which
+# fetch_and_validate_customer_type consulted the customer_type metafield and
+# re-applied preferred. On a lapsed subscriber whose metafield still said
+# preferred_customer, that wrote 61.00 and then 55.00 to the same line in the same
+# request — an oscillation needing no second callback at all (CURRENT-3361).
+#
+# It now decides once, from the same rule as every other callback.
 class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
   def call
     raise CallbackError, "Cart is blank" if cart.blank?
@@ -12,31 +25,19 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
     # BP wholesale droplet (STU2-2377, STU2-2964).
     return result_success if yield_to_enrollment_wholesale? || price_type_wholesale?
 
-    clean_cart_metadata_before_update
+    was_preferred = cart.dig("metadata", "price_type") == PREFERRED_CUSTOMER_TYPE
+    is_preferred = cart_qualifies_for_preferred_pricing?
 
-    state_after_cleaning = cart.dig("metadata", "price_type")
+    # Never revert on the strength of a lookup that errored out, and never revert a
+    # cart this droplet did not price.
+    return result_success if !is_preferred && (preferred_lookup_failed? || !was_preferred)
 
-    customer_type_result = fetch_and_validate_customer_type(customer_email)
+    apply_pricing(is_preferred)
 
-    return customer_type_result unless customer_type_result[:success] && customer_type_result[:customer_type]
-
-    final_is_preferred = customer_type_result[:customer_type] == PREFERRED_CUSTOMER_TYPE
-
-    if final_is_preferred
-      update_result = update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
-      return update_result if update_result.is_a?(Hash) && update_result[:success] == false
-
-      if cart_items.any?
-        update_cart_items_prices(cart_items_with_subscription_price)
-        update_cart_items_volumes(cart_items, mode: :subscription)
-      end
-    end
-
-    state_changed = (state_after_cleaning == PREFERRED_CUSTOMER_TYPE) != final_is_preferred
-    if state_changed
+    if was_preferred != is_preferred
       log_cart_pricing_event(
         event_type: "item_updated",
-        preferred_applied: final_is_preferred,
+        preferred_applied: is_preferred,
         additional_data: { callback: "verify_email_success", email: customer_email }
       )
     end
@@ -48,122 +49,12 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
 
 private
 
-  def clean_cart_metadata_before_update
-    return if cart.dig("metadata", "price_type").nil?
-
-    if has_another_subscription_in_cart?
-      return
-    end
-
-    customer_data = fetch_customer_by_email(customer_email)
-    unless customer_data[:success]
-      # The lookup failed; we do not know whether this customer is preferred, so
-      # leave the cart as-is rather than stripping its pricing (CURRENT-3361).
-      return
-    end
-
-    if customer_data[:data].blank?
-      if customer_logged_in? && has_exigo_autoship_by_email?(customer_email)
-        return
-      end
-      clean_cart_metadata
-      return
-    end
-
-    customer_id = customer_data[:data]["id"] || customer_data[:data][:id]
-    if customer_id.blank?
-      clean_cart_metadata
-      return
-    end
-
-    if customer_logged_in? && has_subscriptions?(customer_id)
-      return
-    end
-
-    if customer_logged_in? && has_exigo_autoship_by_email?(customer_email)
-      return
-    end
-
-    clean_cart_metadata
-  end
-
-  def clean_cart_metadata
-    # Choke point for every revert path in this service: never revert on the back
-    # of a lookup that errored out (CURRENT-3361).
-    return if preferred_lookup_failed?
-
-    update_result = update_cart_metadata({ "price_type" => nil })
-    return if update_result.is_a?(Hash) && update_result[:success] == false
-
+  def apply_pricing(is_preferred)
+    update_cart_metadata({ "price_type" => is_preferred ? PREFERRED_CUSTOMER_TYPE : nil })
     return unless cart_items.any?
 
-    update_cart_items_prices(cart_items_with_regular_price)
-    update_cart_items_volumes(cart_items, mode: :regular)
-  end
-
-  def fetch_and_validate_customer_type(email)
-    customer_result = fetch_customer_by_email(email)
-
-    return customer_result unless customer_result[:success]
-
-    if customer_result[:data].blank?
-      if customer_logged_in? && has_exigo_autoship_by_email?(email)
-        return { success: true, customer_type: PREFERRED_CUSTOMER_TYPE }
-      end
-      return success_with_message("Customer not found for #{email}")
-    end
-
-    customer_data = customer_result[:data]
-    customer_id = customer_data["id"] || customer_data[:id]
-
-    return success_with_message("Customer ID missing for #{email}") if customer_id.blank?
-
-    customer_type = customer_logged_in? ? get_customer_type_from_metafields(customer_id) : nil
-
-    if customer_type.blank?
-      if customer_logged_in? && (has_active_subscriptions?(customer_id) || has_exigo_autoship_by_email?(email))
-        return { success: true, customer_type: PREFERRED_CUSTOMER_TYPE }
-      end
-      return success_with_message("Customer type not set for #{email}")
-    end
-
-    { success: true, customer_type: customer_type }
-  end
-
-  def get_customer_type_from_metafields(customer_id)
-    metafield = fluid_client.metafields.get_by_key(
-      resource_type: "customer",
-      resource_id: customer_id,
-      key: "customer_type"
-    )
-
-    metafield&.dig("value", "customer_type") || metafield&.dig(:value, :customer_type)
-  rescue StandardError
-    note_preferred_lookup_failure!
-    nil
-  end
-
-  def fetch_customer_by_email(email)
-    response = fluid_client.customers.get(email: email)
-    customers = response["customers"] || []
-
-    customer = customers.find { |c| c["email"]&.downcase == email.downcase }
-
-    { success: true, data: customer }
-  rescue StandardError
-    note_preferred_lookup_failure!
-    { success: false, error: "customer_lookup_failed", message: "Unable to fetch customer data" }
-  end
-
-  def update_cart_metadata(metadata)
-    Rails.logger.info "Updating cart metadata: #{metadata}"
-
-    fluid_client.carts.append_metadata(cart_token, metadata)
-  rescue CallbackError => e
-    handle_callback_error(e)
-  end
-
-  def success_with_message(msg)
-    { success: true, message: msg }
+    items = is_preferred ? cart_items_with_subscription_price : cart_items_with_regular_price
+    update_cart_items_prices(items)
+    update_cart_items_volumes(cart_items, mode: is_preferred ? :subscription : :regular)
   end
 end

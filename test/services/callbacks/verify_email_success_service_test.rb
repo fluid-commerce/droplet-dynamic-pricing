@@ -16,7 +16,7 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     assert_equal "Missing email", result[:message]
   end
 
-  def test_returns_success_with_message_when_customer_not_found
+  def test_reverts_a_stamped_cart_that_no_longer_qualifies
     company = companies(:acme)
     email = "unknown@example.com"
     cart_token = "ct_123"
@@ -37,7 +37,6 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     result = service.call
 
     assert_equal true, result[:success], "Falló con error: #{result[:error]}"
-    assert_equal "Customer not found for #{email}", result[:message]
     expected_updates = [
       [ cart_token, { "price_type" => nil } ],
     ]
@@ -45,7 +44,7 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     assert_equal 1, fake_client.items_prices_updates.size
   end
 
-  def test_does_not_clean_metadata_when_subscription_in_cart
+  def test_keeps_preferred_pricing_when_subscription_in_cart
     company = companies(:acme)
     email = "unknown@example.com"
     cart_token = "ct_123"
@@ -66,11 +65,15 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     result = service.call
 
     assert_equal true, result[:success]
-    assert_empty fake_client.metadata_updates
-    assert_empty fake_client.items_prices_updates
+    # A subscription line still qualifies the cart, so preferred pricing survives —
+    # and is now re-affirmed rather than left implicit, so the stamp and the line
+    # prices cannot drift apart (CURRENT-3361).
+    assert_equal [ [ cart_token, { "price_type" => "preferred_customer" } ] ],
+      fake_client.metadata_updates
+    assert_equal 1, fake_client.items_prices_updates.size
   end
 
-  def test_does_not_clean_metadata_when_logged_in_with_subscription_in_cart
+  def test_keeps_preferred_pricing_when_logged_in_with_subscription_in_cart
     company = companies(:acme)
     email = "unknown@example.com"
     cart_token = "ct_123"
@@ -92,11 +95,15 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     result = service.call
 
     assert_equal true, result[:success]
-    assert_empty fake_client.metadata_updates
-    assert_empty fake_client.items_prices_updates
+    # A subscription line still qualifies the cart, so preferred pricing survives —
+    # and is now re-affirmed rather than left implicit, so the stamp and the line
+    # prices cannot drift apart (CURRENT-3361).
+    assert_equal [ [ cart_token, { "price_type" => "preferred_customer" } ] ],
+      fake_client.metadata_updates
+    assert_equal 1, fake_client.items_prices_updates.size
   end
 
-  def test_returns_success_when_email_match_is_not_exact
+  def test_leaves_an_unstamped_cart_alone_when_it_does_not_qualify
     company = companies(:acme)
     target_email = "john@example.com"
     similar_email = "john.doe@example.com"
@@ -113,10 +120,12 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     result = service.call
 
     assert_equal true, result[:success]
-    assert_equal "Customer not found for #{target_email}", result[:message]
+    # An unstamped cart that does not qualify is left alone, not rewritten.
+    assert_empty fake_client.metadata_updates
+    assert_empty fake_client.items_prices_updates
   end
 
-  def test_returns_success_with_message_when_customer_id_is_missing
+  def test_does_not_write_when_the_customer_cannot_be_identified
     company = companies(:acme)
     email = "test@example.com"
     cart_payload = build_cart_payload(company: company, cart_token: "ct_123", email: email)
@@ -130,10 +139,10 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
 
     result = service.call
     assert_equal true, result[:success]
-    assert_equal "Customer ID missing for #{email}", result[:message]
+    assert_empty fake_client.metadata_updates
   end
 
-  def test_returns_success_with_message_when_customer_type_metafield_is_missing
+  def test_does_not_write_on_the_strength_of_a_missing_metafield
     company = companies(:acme)
     email = "test@example.com"
     cart_payload = build_cart_payload(company: company, cart_token: "ct_123", email: email)
@@ -150,7 +159,8 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
 
     result = service.call
     assert_equal true, result[:success]
-    assert_equal "Customer type not set for #{email}", result[:message]
+    # The customer_type metafield no longer decides anything either way.
+    assert_empty fake_client.metadata_updates
   end
 
   def test_updates_cart_metadata_when_customer_is_preferred_and_logged_in
@@ -176,7 +186,8 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
 
     fake_client = stubbed_fluid_client(
       customers_response: customer_response,
-      customer_type_metafield: metafield
+      customer_type_metafield: metafield,
+      active_subscriptions: [ { "id" => 1, "status" => "active" } ]
     )
 
     service = Callbacks::VerifyEmailSuccessService.new(params)
@@ -185,12 +196,12 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     result = service.call
 
     assert_equal true, result[:success]
-    expected_updates = [
-      [ cart_token, { "price_type" => nil } ],
-      [ cart_token, { "price_type" => TEST_PREFERRED_TYPE } ],
-    ]
-    assert_equal expected_updates, fake_client.metadata_updates
-    assert_equal 2, fake_client.items_prices_updates.size
+    # One decision, one write. This used to clean to regular and then re-apply
+    # preferred in the same request, because the two halves consulted different
+    # sources (CURRENT-3361).
+    assert_equal [ [ cart_token, { "price_type" => TEST_PREFERRED_TYPE } ] ],
+      fake_client.metadata_updates
+    assert_equal 1, fake_client.items_prices_updates.size
   end
 
   def test_applies_subscription_volumes_when_preferred_and_company_opts_in
@@ -213,6 +224,7 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
     fake_client = stubbed_fluid_client(
       customers_response: [ { "id" => 888, "email" => email } ],
       customer_type_metafield: metafield,
+      active_subscriptions: [ { "id" => 1, "status" => "active" } ],
       variant_countries: [ { "country_code" => "US", "cv" => 100, "qv" => 50, "price" => "100.0",
 "subscription_price" => "90.0", } ]
     )
@@ -222,11 +234,9 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
 
     service.call
 
-    # Volumes track prices exactly: metadata is first cleaned to regular, then
-    # re-applied as preferred — so two writes, the last reflecting subscription.
-    assert_equal 2, fake_client.volume_updates.size
-    assert_equal({ "cv" => 100, "qv" => 50 }, fake_client.volume_updates.first[:volumes])
-    assert_equal({ "cv" => 90, "qv" => 45 }, fake_client.volume_updates.last[:volumes])
+    # Volumes track prices exactly: one decision, one write, at subscription level.
+    assert_equal 1, fake_client.volume_updates.size
+    assert_equal({ "cv" => 90, "qv" => 45 }, fake_client.volume_updates.first[:volumes])
   end
 
   def test_does_not_update_metadata_when_customer_is_regular
@@ -309,12 +319,14 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
   end
 
 
-  def stubbed_fluid_client(customers_response: [], customer_type_metafield: nil, get_error: nil, variant_countries: [])
+  def stubbed_fluid_client(customers_response: [], customer_type_metafield: nil, get_error: nil,
+                          variant_countries: [], active_subscriptions: [])
     StubFluidClient.new(
       customers_response: customers_response,
       customer_type_metafield: customer_type_metafield,
       get_error: get_error,
-      variant_countries: variant_countries
+      variant_countries: variant_countries,
+      active_subscriptions: active_subscriptions
     )
   end
 
@@ -377,13 +389,14 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
   # service took its lookup-failed path instead of the "no subscriptions" path it
   # was meant to exercise.
   class StubSubscriptionsResource
-    def initialize(get_error:)
+    def initialize(get_error:, subscriptions: [])
       @get_error = get_error
+      @subscriptions = subscriptions
     end
 
     def get_by_customer(_customer_id, **_options)
       raise @get_error if @get_error
-      { "subscriptions" => [] }
+      { "subscriptions" => @subscriptions }
     end
   end
 
@@ -400,7 +413,8 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
   class StubFluidClient
     attr_reader :metadata_updates, :items_prices_updates, :volume_updates
 
-    def initialize(customers_response:, customer_type_metafield:, get_error:, variant_countries: [])
+    def initialize(customers_response:, customer_type_metafield:, get_error:, variant_countries: [],
+                   active_subscriptions: [])
       @customers_resource = StubCustomersResource.new(
         customers_response: customers_response,
         get_error: get_error
@@ -411,7 +425,9 @@ class Callbacks::VerifyEmailSuccessServiceTest < ActiveSupport::TestCase
       )
       @carts_resource = StubCartsResource.new
       @variants_resource = StubVariantsResource.new(variant_countries)
-      @subscriptions_resource = StubSubscriptionsResource.new(get_error: get_error)
+      @subscriptions_resource = StubSubscriptionsResource.new(
+        get_error: get_error, subscriptions: active_subscriptions
+      )
       @metadata_updates = @carts_resource.metadata_updates
       @items_prices_updates = @carts_resource.items_prices_updates
       @volume_updates = @carts_resource.volume_updates

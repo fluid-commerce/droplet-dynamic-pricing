@@ -19,7 +19,7 @@ class Callbacks::CartItemAddedService < Callbacks::BaseService
     # active subscription. Re-deriving here means a preferred customer still gets
     # the discount when the stamp is missing on this payload (e.g. the cart was
     # emptied then re-added) without depending on attach/login re-firing (STU2-2531).
-    unless current_price_type == PREFERRED_CUSTOMER_TYPE || cart_qualifies_for_preferred_pricing?
+    unless cart_qualifies_for_preferred_pricing?
       return { success: true, message: "Cart does not have preferred_customer pricing" }
     end
 

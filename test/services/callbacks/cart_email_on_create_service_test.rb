@@ -49,27 +49,36 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
     assert_equal "Email is blank", result[:message]
   end
 
-  test "returns metadata when customer_type is preferred_customer and logged in" do
+  test "returns metadata when the customer holds an active subscription" do
     email = logged_in_cart_data["email"]
-    customer_response = [ { "id" => 888, "email" => email } ]
+    fake_client = stubbed_fluid_client(customers_response: [ { "id" => 888, "email" => email } ])
 
-    metafield = {
-      "key" => "customer_type",
-      "value" => { "customer_type" => TEST_PREFERRED_TYPE },
-    }
+    service = Callbacks::CartEmailOnCreateService.new({ cart: logged_in_cart_data })
+    service.define_singleton_method(:fluid_client) { fake_client }
 
+    result = service.stub(:has_active_subscriptions?, true) { service.call }
+
+    assert_equal true, result[:success]
+    assert_equal({ "price_type" => TEST_PREFERRED_TYPE }, result[:metadata])
+  end
+
+  test "does not return preferred metadata on the strength of the customer_type metafield alone" do
+    # The leak: that metafield is only ever written as preferred_customer and, for
+    # a company without Exigo, nothing ever demotes it (CURRENT-3361).
+    email = logged_in_cart_data["email"]
     fake_client = stubbed_fluid_client(
-      customers_response: customer_response,
-      customer_type_metafield: metafield
+      customers_response: [ { "id" => 888, "email" => email } ],
+      customer_type_metafield: { "key" => "customer_type",
+                                 "value" => { "customer_type" => TEST_PREFERRED_TYPE }, }
     )
 
     service = Callbacks::CartEmailOnCreateService.new({ cart: logged_in_cart_data })
     service.define_singleton_method(:fluid_client) { fake_client }
 
-    result = service.call
+    result = service.stub(:has_active_subscriptions?, false) { service.call }
 
     assert_equal true, result[:success]
-    assert_equal({ "price_type" => TEST_PREFERRED_TYPE }, result[:metadata])
+    assert_nil result[:metadata]
   end
 
   test "does not apply preferred pricing when customer is not logged in" do
@@ -180,7 +189,7 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
   test "handles StandardError gracefully" do
     service = Callbacks::CartEmailOnCreateService.new({ cart: logged_in_cart_data })
 
-    service.stub(:is_preferred_customer?, ->(_email) { raise StandardError.new("Network error") }) do
+    service.stub(:cart_qualifies_for_preferred_pricing?, -> { raise StandardError.new("Network error") }) do
       assert_raises(StandardError) do
         service.call
       end

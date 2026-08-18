@@ -20,7 +20,7 @@ class Callbacks::CartItemUpdatedService < Callbacks::BaseService
     # stamped OR the cart qualifies now (subscription line, or a customer with an
     # active subscription), so a preferred customer keeps the discount even if
     # the stamp is missing on this payload (STU2-2531).
-    unless current_price_type == PREFERRED_CUSTOMER_TYPE || cart_qualifies_for_preferred_pricing?
+    unless cart_qualifies_for_preferred_pricing?
       return { success: true, message: "Cart does not have preferred_customer pricing" }
     end
 

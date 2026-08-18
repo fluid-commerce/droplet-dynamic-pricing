@@ -58,13 +58,11 @@ class Callbacks::CartCountryChangedService < Callbacks::BaseService
 
 private
 
-  # Same gate as the item callbacks: already stamped, or qualifying now (STU2-2531).
-  # It picks WHICH price to restore, not whether to act — a detached cart still
-  # carries lines this droplet locked at retail (CartCustomerDetachedService), and
-  # those strand on a country change exactly like the preferred ones.
+  # Which price to restore on the lines this droplet locked. Derived from the one
+  # rule, not from the cart stamp: a cart stamped preferred whose subscription is
+  # gone must come back at retail, same as everywhere else (CURRENT-3361).
   def preferred_pricing_cart?
-    cart.dig("metadata", "price_type") == PREFERRED_CUSTOMER_TYPE ||
-      cart_qualifies_for_preferred_pricing?
+    cart_qualifies_for_preferred_pricing?
   end
 
   def country_code_from_context

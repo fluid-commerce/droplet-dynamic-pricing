@@ -35,10 +35,19 @@ module VolumeTestHelpers
     end
   end
 
-  def build_volume_client(carts:, variants:)
+  # Answers "this customer has no subscriptions" rather than blowing up. Without it
+  # has_active_subscriptions? raises NoMethodError, the service swallows it, and the
+  # test silently exercises the lookup-failed path instead of the one it names.
+  class FakeSubscriptions
+    def initialize(subscriptions = []) = @subscriptions = subscriptions
+    def get_by_customer(_customer_id, **) = { "subscriptions" => @subscriptions }
+  end
+
+  def build_volume_client(carts:, variants:, subscriptions: FakeSubscriptions.new)
     client = Object.new
     client.define_singleton_method(:carts) { carts }
     client.define_singleton_method(:variants) { variants }
+    client.define_singleton_method(:subscriptions) { subscriptions }
     client
   end
 end

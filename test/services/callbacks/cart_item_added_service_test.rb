@@ -24,6 +24,9 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
           "id" => 674137,
           "price" => "80.0",
           "subscription_price" => "72.0",
+          # A real subscription line, not the cart stamp, is what qualifies this
+          # cart now — the stamp stopped being a decision input (CURRENT-3361).
+          "subscription" => true,
         },
         {
           "id" => 674138,

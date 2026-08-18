@@ -37,7 +37,7 @@ class Callbacks::CartCustomerAttachedServiceTest < ActiveSupport::TestCase
     svc = Callbacks::CartCustomerAttachedService.new({ cart: base_cart })
     svc.define_singleton_method(:fluid_client) { client }
 
-    result = svc.stub(:is_preferred_customer?, true) do
+    result = svc.stub(:cart_qualifies_for_preferred_pricing?, true) do
       svc.stub(:sync_pcc_metafield, nil) { svc.call }
     end
 
@@ -53,7 +53,7 @@ class Callbacks::CartCustomerAttachedServiceTest < ActiveSupport::TestCase
     svc = Callbacks::CartCustomerAttachedService.new({ cart: base_cart(price_type: nil) })
     svc.define_singleton_method(:fluid_client) { client }
 
-    svc.stub(:is_preferred_customer?, false) { svc.call }
+    svc.stub(:cart_qualifies_for_preferred_pricing?, false) { svc.call }
 
     assert_equal 0, carts.items_prices_calls.size
     assert_equal 0, carts.volume_calls.size
@@ -65,23 +65,19 @@ class Callbacks::CartCustomerAttachedServiceTest < ActiveSupport::TestCase
     svc = Callbacks::CartCustomerAttachedService.new({ cart: base_cart(price_type: "preferred_customer") })
     svc.define_singleton_method(:fluid_client) { client }
 
-    svc.stub(:is_preferred_customer?, false) { svc.call }
+    svc.stub(:cart_qualifies_for_preferred_pricing?, false) { svc.call }
 
     assert_nil carts.metadata_calls.first[:metadata]["price_type"]
     assert_equal({ "cv" => 100, "qv" => 50 }, carts.volume_calls.first[:volumes])
   end
 
   test "falls back to the customer payload email when the cart email is blank" do
-    client, _carts = client_and_carts
+    # Still load-bearing: the Exigo half of the pricing rule keys off this email.
     svc = Callbacks::CartCustomerAttachedService.new(
       { cart: base_cart(email: nil), customer: { "email" => "fromcustomer@example.com" } }
     )
-    svc.define_singleton_method(:fluid_client) { client }
 
-    seen = nil
-    svc.stub(:is_preferred_customer?, ->(email) { seen = email; false }) { svc.call }
-
-    assert_equal "fromcustomer@example.com", seen
+    assert_equal "fromcustomer@example.com", svc.send(:customer_email)
   end
   # --- CURRENT-3361 ---
 
@@ -97,7 +93,7 @@ class Callbacks::CartCustomerAttachedServiceTest < ActiveSupport::TestCase
     )
     svc.define_singleton_method(:fluid_client) { client }
 
-    result = svc.stub(:is_preferred_customer?, true) do
+    result = svc.stub(:cart_qualifies_for_preferred_pricing?, true) do
       svc.stub(:sync_pcc_metafield, nil) { svc.call }
     end
 
@@ -121,7 +117,7 @@ class Callbacks::CartCustomerAttachedServiceTest < ActiveSupport::TestCase
     synced = []
     svc.define_singleton_method(:sync_pcc_metafield) { |id| synced << id }
 
-    result = svc.stub(:is_preferred_customer?, true) { svc.call }
+    result = svc.stub(:cart_qualifies_for_preferred_pricing?, true) { svc.call }
 
     assert result[:success]
     assert_equal [ 888 ], synced, "the customer metafield must still be stamped"
