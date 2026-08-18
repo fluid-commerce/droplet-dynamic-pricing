@@ -18,7 +18,7 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
     # a separate branch for a blank email, then metafield, then subscriptions,
     # then Exigo — which is how it could answer differently from attach about the
     # same cart (CURRENT-3361).
-    is_now_preferred = cart_qualifies_for_preferred_pricing?
+    is_now_preferred = cart_qualifies_for_preferred_pricing?(require_bound_customer: true)
 
     # Never revert on the strength of a lookup that errored out.
     #

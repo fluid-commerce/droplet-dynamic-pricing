@@ -26,7 +26,7 @@ class Callbacks::VerifyEmailSuccessService < Callbacks::BaseService
     return result_success if yield_to_enrollment_wholesale? || price_type_wholesale?
 
     was_preferred = cart.dig("metadata", "price_type") == PREFERRED_CUSTOMER_TYPE
-    is_preferred = cart_qualifies_for_preferred_pricing?
+    is_preferred = cart_qualifies_for_preferred_pricing?(require_bound_customer: true)
 
     # Never revert on the strength of a lookup that errored out, and never revert a
     # cart this droplet did not price.

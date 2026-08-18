@@ -176,9 +176,9 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
     service.define_singleton_method(:fluid_client) { mock_client }
 
-    # The leak: that metafield is only ever written as preferred_customer and, for a
-    # company without Exigo, nothing ever demotes it. It no longer decides a price
-    # (CURRENT-3361).
+    # The metafield mirrors subscription status (the subscription_* webhooks
+    # maintain it both ways), so preferred_customer with no live subscription is a
+    # mirror that drifted. It no longer decides a price (CURRENT-3361).
     service.stub(:has_active_subscriptions?, false) do
       service.stub(:get_customer_type_from_metafields, "preferred_customer") do
         service.stub(:has_another_subscription_in_cart?, false) do

@@ -24,13 +24,15 @@ class Callbacks::CartCustomerDetachedService < Callbacks::BaseService
 
     was_preferred = cart.dig("metadata", "price_type") == PREFERRED_CUSTOMER_TYPE
 
-    # The same rule as everywhere else, evaluated on a cart that no longer has a
-    # bound customer: with customer_id nil the customer half of
-    # cart_qualifies_for_preferred_pricing? has no subject, so a line in the cart is
-    # all that can justify preferred here. Spelled out rather than delegated,
-    # because the Exigo half of that predicate keys off the cart's EMAIL and is not
-    # gated on a bound customer — delegating would have let a logged-out cart keep
-    # subscription pricing on Rain and Yoli, which is not the rule.
+    # The customer half of the rule is not consulted here at all, and not merely
+    # gated: this callback fires BECAUSE the customer was unbound, so there is no
+    # one for "does the customer hold a subscription" to be about. A cart that just
+    # went guest keeps preferred pricing only while it still carries a subscription
+    # line of its own.
+    #
+    # Asking the shared predicate instead — even in its bound-customer form — would
+    # make that depend on the payload reporting customer_id nil, and would answer
+    # yes for a logged-out cart the moment it did not.
     if has_another_subscription_in_cart?
       update_cart_metadata({ "price_type" => PREFERRED_CUSTOMER_TYPE })
       if cart_items.any?

@@ -7,7 +7,7 @@ class Callbacks::CartEmailOnCreateService < Callbacks::BaseService
 
     current_price_type = cart.dig("metadata", "price_type")
 
-    preferred = cart_qualifies_for_preferred_pricing?
+    preferred = cart_qualifies_for_preferred_pricing?(require_bound_customer: true)
 
     if preferred
       sync_pcc_metafield

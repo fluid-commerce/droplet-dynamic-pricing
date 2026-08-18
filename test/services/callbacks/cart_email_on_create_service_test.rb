@@ -63,8 +63,9 @@ class Callbacks::CartEmailOnCreateServiceTest < ActiveSupport::TestCase
   end
 
   test "does not return preferred metadata on the strength of the customer_type metafield alone" do
-    # The leak: that metafield is only ever written as preferred_customer and, for
-    # a company without Exigo, nothing ever demotes it (CURRENT-3361).
+    # The metafield mirrors subscription status (the subscription_* webhooks
+    # maintain it both ways), so preferred_customer with no live subscription is a
+    # mirror that drifted. The live check wins (CURRENT-3361).
     email = logged_in_cart_data["email"]
     fake_client = stubbed_fluid_client(
       customers_response: [ { "id" => 888, "email" => email } ],

@@ -691,19 +691,40 @@ private
   # active subscription (Fluid) or autoship (Exigo).
   #
   # Derived from live state on every callback, never read back from cart metadata
-  # or the customer_type metafield. Both are caches this droplet writes and
-  # nothing reliably invalidates: the metafield is only ever written as
-  # preferred_customer (the sole demotion path needs Exigo, so for a company like
-  # Oliabo it is never cleared), and the stamp outlives the subscription that
-  # earned it. Reading either is how seven callbacks came to hold three different
-  # opinions about one cart, and why the price landed on whichever fired last
-  # (CURRENT-3361).
+  # or the customer_type metafield. Both are mirrors of this state, not sources of
+  # it.
+  #
+  # The metafield is maintained in both directions — subscription_started /
+  # _resumed / _reactivated set it to preferred_customer, subscription_cancelled /
+  # _paused set it to retail — so it is not an abandoned cache. That is precisely
+  # why it must not decide: it is *defined by* subscription status, so a customer
+  # carrying preferred_customer with no live subscription is a mirror that drifted,
+  # not a business state of its own. Between the mirror and the source, the source
+  # wins. It drifts when a webhook is lost or fails (set_customer_type performs
+  # three writes and any of them can fail), or when a subscription ends without
+  # passing through cancel or pause. The cart stamp drifts the same way, outliving
+  # the subscription that earned it.
+  #
+  # Reading either is how seven callbacks came to hold three different opinions
+  # about one cart, and why the price landed on whichever fired last. Worse than
+  # being stale, the metafield short-circuited AHEAD of the live subscription
+  # check, so the droplet never looked (CURRENT-3361).
   #
   # The stamp still gates whether a ROLLBACK may write — "did we price this cart"
   # is a fair question to ask it. What it must not answer is "is this cart
   # preferred".
-  def cart_qualifies_for_preferred_pricing?
-    has_another_subscription_in_cart? || customer_has_active_subscription?
+  # `require_bound_customer:` exists for one pre-existing wart, not for a second
+  # rule. has_exigo_autoship_by_email? keys off the cart's EMAIL and is not gated
+  # on anyone being bound to the cart, so on a guest cart it answers for whoever
+  # typed a subscriber's address. Three callbacks gated it on customer_logged_in?
+  # before the rule was unified; they pass true so their behaviour is unchanged.
+  # The item and country callbacks reached the ungated form already, and keeping it
+  # avoids quietly changing what Rain and Yoli charge guests.
+  def cart_qualifies_for_preferred_pricing?(require_bound_customer: false)
+    return true if has_another_subscription_in_cart?
+    return false if require_bound_customer && !customer_logged_in?
+
+    customer_has_active_subscription?
   end
 
   # A live Fluid subscription, or an active Exigo autoship when the company runs
