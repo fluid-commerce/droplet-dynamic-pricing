@@ -648,25 +648,6 @@ private
     nil
   end
 
-  def fetch_customer_by_email(email)
-    response = fluid_client.customers.get(email: email)
-    customers = response["customers"] || []
-
-    customer = customers.find { |c| c["email"]&.downcase == email.downcase }
-
-    { success: true, data: customer }
-  rescue StandardError
-    note_preferred_lookup_failure!
-    { success: false, error: "customer_lookup_failed", message: "Unable to fetch customer data" }
-  end
-
-  def has_subscriptions?(customer_id)
-    has_active = has_active_subscriptions?(customer_id)
-    has_another = has_another_subscription_in_cart?
-
-    has_active || has_another
-  end
-
   def has_another_subscription_in_cart?
     active_subscription_count = cart_items.count { |item| item["subscription"] == true }
 
