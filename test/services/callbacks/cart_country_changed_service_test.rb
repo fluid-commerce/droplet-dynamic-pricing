@@ -224,4 +224,40 @@ class Callbacks::CartCountryChangedServiceTest < ActiveSupport::TestCase
     assert_equal 1, volume_calls.size, "the corrected line needs its volumes refreshed too"
     assert_equal 674137, volume_calls.first[:item_id]
   end
+  # --- CURRENT-3361 ---
+
+  def test_does_not_repair_locked_lines_on_a_cart_that_is_already_captured
+    # A country change on a paid cart is not something this droplet can act on:
+    # the amount was already charged, so rewriting the lines only desyncs the
+    # order from the capture.
+    writes = []
+    carts = Object.new
+    carts.define_singleton_method(:update_items_prices) { |_token, items| writes << items }
+    carts.define_singleton_method(:append_metadata) { |_token, metadata| writes << metadata }
+    params = callback_params
+    params["cart"]["state"] = "payment_captured"
+
+    service = Callbacks::CartCountryChangedService.new(params)
+    result = FluidClient.stub(:new, ->(_token) { stub_client(carts) }) { service.call }
+
+    assert result[:success]
+    assert_empty writes, "must not repair locked lines on a captured cart"
+    assert_nil result[:metadata], "must not push a price_type back on the response channel"
+  end
+
+  def test_does_not_log_a_repair_event_for_a_cart_that_is_already_captured
+    # The dashboard is the only record this repair ran, so logging one for a
+    # reprice that was refused would be a lie.
+    carts = Object.new
+    carts.define_singleton_method(:update_items_prices) { |_token, _items| { "success" => true } }
+    carts.define_singleton_method(:append_metadata) { |_token, _metadata| { "success" => true } }
+    params = callback_params
+    params["cart"]["state"] = "payment_captured"
+
+    service = Callbacks::CartCountryChangedService.new(params)
+
+    assert_no_difference -> { CartPricingEvent.count } do
+      FluidClient.stub(:new, ->(_token) { stub_client(carts) }) { service.call }
+    end
+  end
 end

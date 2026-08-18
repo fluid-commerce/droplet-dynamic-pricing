@@ -13,6 +13,11 @@ class Callbacks::CartCustomerDetachedService < Callbacks::BaseService
   def call
     raise CallbackError, "Cart is blank" if cart.blank?
 
+    # The cart is already paid for (or the order already exists): nothing left to
+    # price, and writing now desyncs the order total from the captured amount
+    # (CURRENT-3361).
+    return result_success if cart_settled?
+
     # Enrollment carts and yoli-promos WHOLESALE-unlock carts are priced by the
     # BP wholesale droplet (STU2-2377, STU2-2964).
     return result_success if yield_to_enrollment_wholesale? || price_type_wholesale?
@@ -27,6 +32,13 @@ class Callbacks::CartCustomerDetachedService < Callbacks::BaseService
       end
       return result_success
     end
+
+    # Only roll back pricing this droplet actually applied. An unstamped cart was
+    # never put on preferred pricing by us, so rewriting every line to
+    # product.price on a mere logout would clobber whatever else set those prices
+    # (another droplet, a promo) — and was one half of the oscillating pair in
+    # CURRENT-3361.
+    return result_success unless was_preferred
 
     update_cart_metadata({ "price_type" => nil })
     if cart_items.any?

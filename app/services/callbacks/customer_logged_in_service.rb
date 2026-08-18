@@ -5,6 +5,11 @@ class Callbacks::CustomerLoggedInService < Callbacks::BaseService
 
     raise CallbackError, "Customer is not logged in" unless customer_logged_in?
 
+    # The cart is already paid for (or the order already exists): nothing left to
+    # price, and writing now desyncs the order total from the captured amount
+    # (CURRENT-3361).
+    return result_success if cart_settled?
+
     # Enrollment carts and yoli-promos WHOLESALE-unlock carts are priced by the
     # BP wholesale droplet (STU2-2377, STU2-2964).
     return result_success if yield_to_enrollment_wholesale? || price_type_wholesale?
@@ -33,7 +38,12 @@ class Callbacks::CustomerLoggedInService < Callbacks::BaseService
       return { success: true, metadata: { "price_type" => PREFERRED_CUSTOMER_TYPE } }
     end
 
-    if current_price_type == PREFERRED_CUSTOMER_TYPE && !has_another_subscription_in_cart?
+    # `is_preferred = false` can mean "not preferred" or "we could not tell":
+    # every lookup behind is_preferred_customer? rescues to false. Only the former
+    # justifies stripping the discount off every line (CURRENT-3361).
+    if current_price_type == PREFERRED_CUSTOMER_TYPE &&
+       !has_another_subscription_in_cart? &&
+       !preferred_lookup_failed?
       update_cart_metadata({ "price_type" => nil })
       if cart_items.any?
         update_cart_items_prices(cart_items_with_regular_price)
