@@ -130,10 +130,10 @@
       <div class="pr-6">
         <h3 class="font-semibold text-gray-700">Yield to wholesale on enrollment carts</h3>
         <p class="text-sm text-gray-500 mt-1">
-          When on, dynamic pricing is skipped on BP enrollment carts so the
-          yoli-promos droplet's wholesale pricing takes precedence. Only enable
-          this for companies that also run yoli-promos — otherwise enrollment
-          carts keep their preferred-customer pricing.
+          When on, dynamic pricing is skipped on BP enrollment carts, so the
+          droplet that owns wholesale pricing takes precedence. Only enable this
+          for companies that run a separate wholesale-pricing droplet —
+          otherwise enrollment carts keep their preferred-customer pricing.
         </p>
       </div>
       <div class="flex items-center">
@@ -152,7 +152,7 @@
           When on, dynamic pricing also lowers each cart item's QV/CV
           proportionally to the subscription discount, so volumes reflect the
           subscription price. Leave off for companies whose volumes are managed
-          elsewhere (e.g. Yoli via yoli-promos).
+          by another droplet.
         </p>
       </div>
       <div class="flex items-center">
