@@ -241,7 +241,7 @@ describe DropletInstalledJob do
       mock_callback_registrations.expect :create, { "callback_registration" => { "uuid" => "test-uuid" } }
 
       captured_token = nil
-      FluidClient.stub :new, ->(token) { captured_token = token; mock_client } do
+      FluidClient.stub :new, ->(token, **) { captured_token = token; mock_client } do
         DropletInstalledJob.perform_now(payload)
       end
 
@@ -283,7 +283,7 @@ describe DropletInstalledJob do
       client = Object.new
       client.define_singleton_method(:callback_registrations) { registrations }
 
-      FluidClient.stub :new, ->(_token) { client } do
+      FluidClient.stub :new, ->(_token, **) { client } do
         DropletInstalledJob.perform_now({ "company" => company_data })
       end
 
