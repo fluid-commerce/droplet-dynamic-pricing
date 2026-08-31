@@ -81,7 +81,7 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     client = build_volume_client(carts: carts, variants: variants)
 
     service = Callbacks::SubscriptionRemovedService.new({ cart: cart })
-    FluidClient.stub(:new, ->(_auth_token) { client }) do
+    FluidClient.stub(:new, ->(_auth_token, **) { client }) do
       service.call
     end
 
