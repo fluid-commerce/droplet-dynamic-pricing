@@ -180,7 +180,7 @@ describe DropletUninstalledJob do
       mock_callback_registrations.expect :delete, true, [ "cbr_test456" ]
 
       captured_token = nil
-      FluidClient.stub :new, ->(token) { captured_token = token; mock_client } do
+      FluidClient.stub :new, ->(token, **) { captured_token = token; mock_client } do
         DropletUninstalledJob.perform_now(payload)
       end
 

@@ -68,7 +68,7 @@ class Callbacks::CartCountryChangedServiceTest < ActiveSupport::TestCase
 
     service = Callbacks::CartCountryChangedService.new(callback_params)
 
-    FluidClient.stub(:new, ->(_token) { stub_client(carts) }) do
+    FluidClient.stub(:new, ->(_token, **) { stub_client(carts) }) do
       result = service.call
       assert result[:success], result.inspect
     end
@@ -86,7 +86,7 @@ class Callbacks::CartCountryChangedServiceTest < ActiveSupport::TestCase
     carts.define_singleton_method(:update_items_prices) { |_token, _items| { "success" => true } }
     carts.define_singleton_method(:append_metadata) { |_token, _metadata| { "success" => true } }
 
-    result = FluidClient.stub(:new, ->(_token) { stub_client(carts) }) { service.call }
+    result = FluidClient.stub(:new, ->(_token, **) { stub_client(carts) }) { service.call }
 
     assert_equal "preferred_customer", result.dig(:metadata, "price_type")
   end
@@ -102,7 +102,7 @@ class Callbacks::CartCountryChangedServiceTest < ActiveSupport::TestCase
 
     service = Callbacks::CartCountryChangedService.new(params)
 
-    result = FluidClient.stub(:new, ->(_token) { stub_client(carts) }) { service.call }
+    result = FluidClient.stub(:new, ->(_token, **) { stub_client(carts) }) { service.call }
 
     assert result[:success]
   end
@@ -134,7 +134,7 @@ class Callbacks::CartCountryChangedServiceTest < ActiveSupport::TestCase
 
     service = Callbacks::CartCountryChangedService.new(params)
 
-    result = FluidClient.stub(:new, ->(_token) { client }) { service.call }
+    result = FluidClient.stub(:new, ->(_token, **) { client }) { service.call }
 
     assert result[:success]
     assert_equal [ { "id" => 674137, "price" => 2499.0 } ], written,
@@ -150,7 +150,7 @@ class Callbacks::CartCountryChangedServiceTest < ActiveSupport::TestCase
 
     service = Callbacks::CartCountryChangedService.new(params)
 
-    result = FluidClient.stub(:new, ->(_token) { stub_client(carts) }) { service.call }
+    result = FluidClient.stub(:new, ->(_token, **) { stub_client(carts) }) { service.call }
 
     assert result[:success]
   end
@@ -165,7 +165,7 @@ class Callbacks::CartCountryChangedServiceTest < ActiveSupport::TestCase
 
     service = Callbacks::CartCountryChangedService.new(params)
 
-    result = FluidClient.stub(:new, ->(_token) { stub_client(carts) }) { service.call }
+    result = FluidClient.stub(:new, ->(_token, **) { stub_client(carts) }) { service.call }
 
     assert result[:success]
   end
@@ -181,7 +181,7 @@ class Callbacks::CartCountryChangedServiceTest < ActiveSupport::TestCase
     service = Callbacks::CartCountryChangedService.new(callback_params)
 
     assert_difference -> { CartPricingEvent.count }, 1 do
-      FluidClient.stub(:new, ->(_token) { stub_client(carts) }) { service.call }
+      FluidClient.stub(:new, ->(_token, **) { stub_client(carts) }) { service.call }
     end
 
     event = CartPricingEvent.order(:created_at).last
@@ -219,7 +219,7 @@ class Callbacks::CartCountryChangedServiceTest < ActiveSupport::TestCase
 
     service = Callbacks::CartCountryChangedService.new(params)
 
-    FluidClient.stub(:new, ->(_token) { client }) { service.call }
+    FluidClient.stub(:new, ->(_token, **) { client }) { service.call }
 
     assert_equal 1, volume_calls.size, "the corrected line needs its volumes refreshed too"
     assert_equal 674137, volume_calls.first[:item_id]
@@ -238,7 +238,7 @@ class Callbacks::CartCountryChangedServiceTest < ActiveSupport::TestCase
     params["cart"]["state"] = "payment_captured"
 
     service = Callbacks::CartCountryChangedService.new(params)
-    result = FluidClient.stub(:new, ->(_token) { stub_client(carts) }) { service.call }
+    result = FluidClient.stub(:new, ->(_token, **) { stub_client(carts) }) { service.call }
 
     assert result[:success]
     assert_empty writes, "must not repair locked lines on a captured cart"
@@ -257,7 +257,7 @@ class Callbacks::CartCountryChangedServiceTest < ActiveSupport::TestCase
     service = Callbacks::CartCountryChangedService.new(params)
 
     assert_no_difference -> { CartPricingEvent.count } do
-      FluidClient.stub(:new, ->(_token) { stub_client(carts) }) { service.call }
+      FluidClient.stub(:new, ->(_token, **) { stub_client(carts) }) { service.call }
     end
   end
 end

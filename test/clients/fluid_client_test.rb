@@ -244,4 +244,32 @@ describe FluidClient do
       _(resource.send(:build_query_string, params)).must_equal expected_query
     end
   end
+  describe "HTTP profile" do
+    before do
+      Tasks::Settings.create_defaults
+    end
+
+    it "uses the generous budget by default" do
+      connection = FluidClient.new("token").send(:connection)
+
+      assert_equal Connections::Fluid::TIMEOUT, connection.options.timeout
+    end
+
+    it "uses the callback budget when asked for it" do
+      connection = FluidClient.new("token", profile: :callback).send(:connection)
+
+      assert_equal Connections::Fluid::CALLBACK_TIMEOUT, connection.options.timeout
+    end
+
+    # Unchanged by the profile split, and pinned here because it is the property
+    # a shared connection would put at risk: the token belongs to one company.
+    it "still carries its own token on its own connection" do
+      one = FluidClient.new("token1", profile: :callback).send(:connection)
+      two = FluidClient.new("token2", profile: :callback).send(:connection)
+
+      _(one.headers["Authorization"]).must_equal "Bearer token1"
+      _(two.headers["Authorization"]).must_equal "Bearer token2"
+      refute_same one, two
+    end
+  end
 end

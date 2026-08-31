@@ -63,7 +63,7 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
 
     service = Callbacks::SubscriptionAddedService.new(callback_params)
 
-    FluidClient.stub(:new, ->(_auth_token) { mock_client }) do
+    FluidClient.stub(:new, ->(_auth_token, **) { mock_client }) do
       result = service.call
       assert result[:success], "Expected success but got: #{result.inspect}"
     end
@@ -86,7 +86,7 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
     client = build_volume_client(carts: carts, variants: variants)
 
     service = Callbacks::SubscriptionAddedService.new(params)
-    FluidClient.stub(:new, ->(_auth_token) { client }) do
+    FluidClient.stub(:new, ->(_auth_token, **) { client }) do
       service.call
     end
 
@@ -109,7 +109,7 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
     client = build_volume_client(carts: carts, variants: variants)
 
     service = Callbacks::SubscriptionAddedService.new(params)
-    FluidClient.stub(:new, ->(_auth_token) { client }) do
+    FluidClient.stub(:new, ->(_auth_token, **) { client }) do
       service.call
     end
 

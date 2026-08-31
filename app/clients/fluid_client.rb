@@ -17,8 +17,13 @@ class FluidClient
   APIError              = Class.new(Error)
   TimeoutError          = Class.new(Error)
 
-  def initialize(auth_token = nil)
+  # `profile` picks the HTTP budget, not the endpoint — see Connections::Fluid.
+  # Anything answering one of Fluid's synchronous callbacks must pass :callback
+  # so a slow Fluid call fails inside the callback's budget instead of outliving
+  # it. Everything else (jobs, webhooks, admin UI) wants the default.
+  def initialize(auth_token = nil, profile: :job)
     @auth_token = auth_token
+    @profile = profile
   end
 
   def get(path, options = {})
@@ -44,7 +49,7 @@ class FluidClient
 private
 
   def connection
-    @connection ||= Connections::Fluid.create_connection.tap do |conn|
+    @connection ||= Connections::Fluid.create_connection(profile: @profile).tap do |conn|
       conn.headers["Authorization"] = "Bearer #{@auth_token}"
     end
   end

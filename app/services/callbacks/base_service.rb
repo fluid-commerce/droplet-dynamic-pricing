@@ -162,11 +162,14 @@ private
     @fluid_client ||= initialize_fluid_client
   end
 
+  # :callback, not the default — the shopper's request is blocked on this one.
+  # See Connections::Fluid for why a 30s per-call timeout inside a 20s callback
+  # budget can only ever expire after Fluid has stopped listening.
   def initialize_fluid_client
     company = find_company
     raise CallbackError, "Company is blank" if company.blank?
 
-    FluidClient.new(company.authentication_token)
+    FluidClient.new(company.authentication_token, profile: :callback)
   end
 
   def find_company
