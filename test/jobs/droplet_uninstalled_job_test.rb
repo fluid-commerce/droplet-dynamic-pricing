@@ -161,6 +161,37 @@ describe DropletUninstalledJob do
       _(company.reload.uninstalled_at).must_be_nil
     end
 
+    it "deletes the legacy subscription.updated webhook alongside the routed ones" do
+      company = companies(:acme)
+      company.update(uninstalled_at: nil, installed_callback_ids: [])
+
+      payload = {
+        "company" => {
+          "company_droplet_uuid" => company.company_droplet_uuid,
+          "fluid_company_id" => company.fluid_company_id,
+        },
+      }
+
+      deleted_ids = []
+      webhooks = Object.new
+      webhooks.define_singleton_method(:get) do
+        { "webhooks" => [
+          { "id" => "wh-updated", "resource" => "subscription", "event" => "updated" },
+          { "id" => "wh-started", "resource" => "subscription", "event" => "started" },
+          { "id" => "wh-foreign", "resource" => "order", "event" => "updated" },
+        ] }
+      end
+      webhooks.define_singleton_method(:delete) { |webhook_id| deleted_ids << webhook_id }
+      client = Object.new
+      client.define_singleton_method(:webhooks) { webhooks }
+
+      FluidClient.stub :new, ->(_token) { client } do
+        DropletUninstalledJob.perform_now(payload)
+      end
+
+      _(deleted_ids.sort).must_equal %w[wh-started wh-updated]
+    end
+
     it "uses company authentication token for FluidClient" do
       company = companies(:acme)
       company.update(uninstalled_at: nil, installed_callback_ids: %w[cbr_test123 cbr_test456])

@@ -41,9 +41,11 @@ private
     response = client.webhooks.get
     webhooks = response["webhooks"] || []
 
+    # "updated" is cleanup only: installs used to register it at a /webhook
+    # path this droplet never routed, so any survivor 404s on every dispatch.
     webhooks.select do |webhook|
       webhook["resource"] == "subscription" &&
-        %w[started paused cancelled resumed reactivated].include?(webhook["event"])
+        %w[started paused cancelled resumed reactivated updated].include?(webhook["event"])
     end
   end
 
