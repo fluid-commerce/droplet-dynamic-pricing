@@ -4,12 +4,12 @@ one:
   name: apply_subscription_order_discount
   description: Apply discounts to subscription orders
   url: https://example.com/callbacks/cart_item_added
-  timeout_in_seconds: 30
+  timeout_in_seconds: 15
   active: true
 
 two:
   name: validate_customer_data
   description: Validate customer information before processing
   url: https://example.com/callbacks/customer_logged_in
-  timeout_in_seconds: 60
+  timeout_in_seconds: 10
   active: false

@@ -1,22 +1,41 @@
 # frozen_string_literal: true
 
 class Callback < ApplicationRecord
-  # Public: Whether this app has a POST route for the given callback URL.
+  normalizes :url, with: ->(url) { url.strip }
+
+  # Public: Whether this droplet answers callbacks at the given URL.
   #
-  # Asks the real router rather than matching a list, so adding a Callbacks::
+  # True only when all three hold: the URL is absolute http(s), its host is
+  # this droplet's own (served_host, when configured), and the real router
+  # recognizes the path as a POST to a Callbacks:: controller. Asking the
+  # router rather than matching a hand-kept list means adding a Callbacks::
   # route makes it enable-able with no change here.
   #
   # url - The String URL a Fluid registration would be pointed at.
   #
   # Returns a Boolean.
   def self.serves?(url)
-    path = URI.parse(url).path
-    return false if path.blank?
+    uri = URI.parse(url.to_s)
+    return false unless uri.is_a?(URI::HTTP) && uri.host.present?
+    return false unless served_host.nil? || uri.host == served_host
 
-    Rails.application.routes.recognize_path(path, method: :post)
-    true
+    recognized = Rails.application.routes.recognize_path(uri.path, method: :post)
+    recognized[:controller].to_s.start_with?("callbacks/")
   rescue URI::InvalidURIError, ActionController::RoutingError
     false
+  end
+
+  # Public: The host Fluid must dispatch to for a callback to reach this
+  # droplet, read from Setting.host_server.base_url — the same source the
+  # install job uses to build webhook URLs.
+  #
+  # Returns a String host, or nil when the setting is absent or unparseable.
+  def self.served_host
+    return nil unless Setting.respond_to?(:host_server)
+
+    URI.parse(Setting.host_server&.values&.dig("base_url").to_s).host
+  rescue URI::InvalidURIError
+    nil
   end
 
   validates :name, presence: true, uniqueness: true
@@ -55,13 +74,15 @@ private
   # The route table is the authority rather than a hand-kept list of names,
   # because the name Fluid uses and the path this app serves are allowed to
   # differ: cart_customer_logged_in is answered at /callbacks/customer_logged_in.
-  # So the URL is what gets checked, not the name.
+  # So the URL is what gets checked, not the name. The check also refuses a
+  # host other than this droplet's own, because a registration for a stale or
+  # foreign host 404s in production no matter how valid its path looks here.
   #
   # Returns nothing.
   def validate_url_is_served
     return if url.blank?
     return if self.class.serves?(url)
 
-    errors.add(:url, "is not a path this droplet serves, so Fluid's callback would 404")
+    errors.add(:url, "is not a callback URL this droplet serves, so Fluid's dispatch would fail")
   end
 end
