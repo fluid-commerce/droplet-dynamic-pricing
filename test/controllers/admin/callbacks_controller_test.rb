@@ -52,7 +52,7 @@ describe Admin::CallbacksController do
       callback = callbacks(:one)
       patch admin_callback_url(callback), params: {
         callback: {
-          url: "https://example.com/updated-callback",
+          url: "https://example.com/callbacks/cart_item_updated",
           timeout_in_seconds: 15,
           active: true,
         },

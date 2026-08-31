@@ -71,7 +71,9 @@ private
       { event: "cancelled", url: subscription_webhook_url(base_url, "subscription_cancelled") },
       { event: "resumed", url: subscription_webhook_url(base_url, "subscription_resumed") },
       { event: "reactivated", url: subscription_webhook_url(base_url, "subscription_reactivated") },
-      { event: "updated", url: subscription_webhook_url(base_url, "cart_item_updated") },
+      # No subscription.updated here: this droplet routes no /webhook path for
+      # it, so registering it handed Fluid a URL that 404s on every dispatch.
+      # DropletUninstalledJob still deletes any registration left from before.
     ]
   end
 
@@ -115,6 +117,19 @@ private
 
     active_callbacks.each do |callback|
       begin
+        # The model validates URLs on save, but rows activated before that
+        # validation existed (or whose route was later deleted) are still in
+        # the table — registering one hands Fluid a URL that 404s on every
+        # dispatch, which is how TM3's verify_email_success registration
+        # (Fluid reg 1410) came to exist. Refuse them here too.
+        unless ::Callback.serves?(callback.url)
+          Rails.logger.error(
+            "[DropletInstalledJob] Refusing to register callback #{callback.name}: " \
+            "#{callback.url.inspect} is not a callback URL this droplet serves"
+          )
+          next
+        end
+
         # No country_codes, deliberately. Fluid reads that field as a delivery
         # filter, and it is inverted from how it sounds: a dispatch that carries
         # no country — every Callback::Client.notify caller, cart_country_changed
@@ -151,7 +166,12 @@ private
     end
 
     if installed_callback_ids.any?
-      company.update(installed_callback_ids: installed_callback_ids)
+      # Union, not replacement: Fluid re-delivers droplet.installed on retries
+      # and reinstalls, and replacing the list orphaned the previous batch of
+      # registration UUIDs beyond DropletUninstalledJob's reach.
+      company.update(
+        installed_callback_ids: (company.installed_callback_ids || []) | installed_callback_ids,
+      )
     end
   end
 end

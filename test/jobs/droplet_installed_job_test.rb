@@ -132,7 +132,7 @@ describe DropletInstalledJob do
       callback = ::Callback.create!(
         name: "test_callback",
         description: "Test callback",
-        url: "https://example.com/callback",
+        url: "https://test.example.com/callbacks/customer_logged_in",
         timeout_in_seconds: 10,
         active: true
       )
@@ -163,7 +163,7 @@ describe DropletInstalledJob do
       callback = ::Callback.create!(
         name: "test_callback",
         description: "Test callback",
-        url: "https://example.com/callback",
+        url: "https://test.example.com/callbacks/customer_logged_in",
         timeout_in_seconds: 10,
         active: true
       )
@@ -217,7 +217,7 @@ describe DropletInstalledJob do
       callback = ::Callback.create!(
         name: "test_callback",
         description: "Test callback",
-        url: "https://example.com/callback",
+        url: "https://test.example.com/callbacks/customer_logged_in",
         timeout_in_seconds: 10,
         active: true
       )
@@ -237,8 +237,12 @@ describe DropletInstalledJob do
       mock_client = Minitest::Mock.new
       mock_callback_registrations = Minitest::Mock.new
 
+      registration_response = { "callback_registration" => { "uuid" => "test-uuid" } }
       mock_client.expect :callback_registrations, mock_callback_registrations
-      mock_callback_registrations.expect :create, { "callback_registration" => { "uuid" => "test-uuid" } }
+      mock_callback_registrations.expect :create, registration_response do |attributes|
+        attributes[:definition_name] == "test_callback" &&
+          attributes[:url] == "https://test.example.com/callbacks/customer_logged_in"
+      end
 
       captured_token = nil
       FluidClient.stub :new, ->(token, **) { captured_token = token; mock_client } do
@@ -246,6 +250,120 @@ describe DropletInstalledJob do
       end
 
       assert_equal "unique-auth-test-token-123", captured_token
+      mock_client.verify
+      mock_callback_registrations.verify
+    end
+
+    it "refuses to register an active callback whose URL this droplet does not serve" do
+      stale_callback = ::Callback.create!(
+        name: "stale_callback",
+        description: "Handler deleted after activation",
+        url: "https://test.example.com/callbacks/customer_logged_in",
+        timeout_in_seconds: 10,
+        active: true
+      )
+      stale_callback.update_column(:url, "https://test.example.com/callbacks/verify_email_success")
+
+      company_data = {
+        "fluid_shop" => "stale-callback-shop",
+        "name" => "Stale Callback Shop",
+        "fluid_company_id" => 444,
+        "droplet_uuid" => "stale-callback-uuid",
+        "authentication_token" => "stale-callback-token",
+        "webhook_verification_token" => "stale-callback-verify",
+        "droplet_installation_uuid" => "stale-callback-installation",
+      }
+
+      captured_attributes = []
+      registrations = Object.new
+      registrations.define_singleton_method(:create) do |attributes|
+        captured_attributes << attributes
+        { "callback_registration" => { "uuid" => "uuid-#{captured_attributes.size}" } }
+      end
+      client = Object.new
+      client.define_singleton_method(:callback_registrations) { registrations }
+
+      FluidClient.stub :new, ->(_token) { client } do
+        DropletInstalledJob.perform_now({ "company" => company_data })
+      end
+
+      registered_names = captured_attributes.map { |attributes| attributes[:definition_name] }
+      refute_includes registered_names, "stale_callback"
+      _(Company.find_by(fluid_shop: "stale-callback-shop").installed_callback_ids).must_be_empty
+    end
+
+    it "merges newly installed callback ids with those already recorded" do
+      ::Callback.create!(
+        name: "test_callback",
+        description: "Test callback",
+        url: "https://test.example.com/callbacks/customer_logged_in",
+        timeout_in_seconds: 10,
+        active: true
+      )
+
+      Company.create!(
+        fluid_shop: "merge-ids-shop",
+        name: "Merge Ids Shop",
+        fluid_company_id: 555,
+        company_droplet_uuid: "merge-ids-uuid",
+        authentication_token: "merge-ids-token",
+        webhook_verification_token: "merge-ids-verify",
+        active: true,
+        installed_callback_ids: %w[cbr_previous]
+      )
+
+      company_data = {
+        "fluid_shop" => "merge-ids-shop",
+        "name" => "Merge Ids Shop",
+        "fluid_company_id" => 555,
+        "droplet_uuid" => "merge-ids-uuid",
+        "authentication_token" => "merge-ids-token",
+        "webhook_verification_token" => "merge-ids-verify",
+        "droplet_installation_uuid" => "merge-ids-installation",
+      }
+
+      registrations = Object.new
+      registrations.define_singleton_method(:create) do |_attributes|
+        { "callback_registration" => { "uuid" => "cbr_fresh" } }
+      end
+      client = Object.new
+      client.define_singleton_method(:callback_registrations) { registrations }
+
+      FluidClient.stub :new, ->(_token) { client } do
+        DropletInstalledJob.perform_now({ "company" => company_data })
+      end
+
+      installed_ids = Company.find_by(fluid_shop: "merge-ids-shop").installed_callback_ids
+      _(installed_ids).must_equal %w[cbr_previous cbr_fresh]
+    end
+
+    it "registers only routed subscription webhooks, never subscription.updated" do
+      ::Callback.update_all(active: false)
+
+      company_data = {
+        "fluid_shop" => "webhook-events-shop",
+        "name" => "Webhook Events Shop",
+        "fluid_company_id" => 666,
+        "droplet_uuid" => "webhook-events-uuid",
+        "authentication_token" => "webhook-events-token",
+        "webhook_verification_token" => "webhook-events-verify",
+        "droplet_installation_uuid" => "webhook-events-installation",
+      }
+
+      captured_events = []
+      webhooks = Object.new
+      webhooks.define_singleton_method(:create) do |attributes|
+        captured_events << attributes[:event]
+        { "webhook" => { "id" => "wh-#{captured_events.size}" } }
+      end
+      client = Object.new
+      client.define_singleton_method(:webhooks) { webhooks }
+
+      FluidClient.stub :new, ->(_token) { client } do
+        DropletInstalledJob.perform_now({ "company" => company_data })
+      end
+
+      _(captured_events.sort).must_equal %w[cancelled paused reactivated resumed started]
     end
 
     # STU2-3108. Fluid reads country_codes as a delivery filter, inverted from how
@@ -259,7 +377,7 @@ describe DropletInstalledJob do
       ::Callback.create!(
         name: "cart_country_changed",
         description: "Cart country changed",
-        url: "https://example.com/callbacks/cart_country_changed",
+        url: "https://test.example.com/callbacks/cart_country_changed",
         timeout_in_seconds: 10,
         active: true
       )
