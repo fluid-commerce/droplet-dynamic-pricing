@@ -70,7 +70,7 @@ class CallbackSyncServiceTest < ActiveSupport::TestCase
     existing_callback = ::Callback.create!(
       name: "test_callback",
       description: "Old description",
-      url: "https://example.com/callback",
+      url: "https://example.com/callbacks/customer_logged_in",
       timeout_in_seconds: 10,
       active: true
     )
@@ -160,7 +160,7 @@ mock_callback_definitions({ "meta" => { "timestamp" => "2025-07-29T20:52:09Z" } 
     existing_callback = ::Callback.create!(
       name: "test_callback",
       description: "Old description",
-      url: "https://example.com/callback",
+      url: "https://example.com/callbacks/customer_logged_in",
       timeout_in_seconds: 10,
       active: true
     )
@@ -181,7 +181,7 @@ mock_callback_definitions({ "meta" => { "timestamp" => "2025-07-29T20:52:09Z" } 
     assert result[:success]
     existing_callback.reload
     assert_equal "Updated description", existing_callback.description
-    assert_equal "https://example.com/callback", existing_callback.url
+    assert_equal "https://example.com/callbacks/customer_logged_in", existing_callback.url
     assert_equal 10, existing_callback.timeout_in_seconds
     assert_not existing_callback.active
   end

@@ -5,7 +5,7 @@ class CallbackTest < ActiveSupport::TestCase
     @valid_callback = {
       name: "test_callback",
       description: "Test callback description",
-      url: "https://example.com/webhook",
+      url: "https://example.com/callbacks/customer_logged_in",
       timeout_in_seconds: 10,
       active: true,
     }
@@ -14,6 +14,27 @@ class CallbackTest < ActiveSupport::TestCase
   test "should be valid with valid attributes" do
     callback = ::Callback.new(@valid_callback)
     assert callback.valid?
+  end
+
+  test "cannot be activated with a URL this droplet does not serve" do
+    callback = ::Callback.new(@valid_callback.merge(url: "https://example.com/callbacks/verify_email_success"))
+
+    assert_not callback.valid?
+    assert_includes callback.errors[:url], "is not a path this droplet serves, so Fluid's callback would 404"
+  end
+
+  test "an inactive callback may keep a URL this droplet does not serve" do
+    callback = ::Callback.new(
+      @valid_callback.merge(active: false, url: "https://example.com/callbacks/verify_email_success"),
+    )
+
+    assert callback.valid?
+  end
+
+  test "serves? accepts a real callback route and rejects an unrouted one" do
+    assert ::Callback.serves?("https://pricing.example.com/callbacks/cart_item_added")
+    assert_not ::Callback.serves?("https://pricing.example.com/callbacks/verify_email_success")
+    assert_not ::Callback.serves?("not a url at all")
   end
 
   test "should require name" do

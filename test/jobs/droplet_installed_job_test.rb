@@ -132,7 +132,7 @@ describe DropletInstalledJob do
       callback = ::Callback.create!(
         name: "test_callback",
         description: "Test callback",
-        url: "https://example.com/callback",
+        url: "https://example.com/callbacks/customer_logged_in",
         timeout_in_seconds: 10,
         active: true
       )
@@ -163,7 +163,7 @@ describe DropletInstalledJob do
       callback = ::Callback.create!(
         name: "test_callback",
         description: "Test callback",
-        url: "https://example.com/callback",
+        url: "https://example.com/callbacks/customer_logged_in",
         timeout_in_seconds: 10,
         active: true
       )
@@ -217,7 +217,7 @@ describe DropletInstalledJob do
       callback = ::Callback.create!(
         name: "test_callback",
         description: "Test callback",
-        url: "https://example.com/callback",
+        url: "https://example.com/callbacks/customer_logged_in",
         timeout_in_seconds: 10,
         active: true
       )
