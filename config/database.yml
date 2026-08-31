@@ -25,6 +25,17 @@ production:
     url: <%= ENV['DATABASE_URL'] %>
   cache:
     <<: *default
+    # Bounded on purpose: Rails.cache is read on the synchronous callback path
+    # (Callbacks::BaseService's preferred-status lookups), so waiting on this
+    # pool costs the shopper directly. Both helpers there swallow a cache failure
+    # and fall through to the live lookup, which keeps pricing CORRECT — but
+    # without these the wait itself could make the callback slower than the Fluid
+    # call the cache exists to avoid.
+    #
+    # No statement_timeout: Solid Cache's own trimming runs larger DELETEs
+    # against this database, and capping those would break expiry.
+    connect_timeout: 2
+    checkout_timeout: 2
     migrations_paths: db/cable_migrate
     url: <%= ENV['CACHE_DATABASE_URL'] %>
   queue:
