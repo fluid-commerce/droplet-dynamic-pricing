@@ -138,6 +138,53 @@ private
     @preferred_lookup_failed = true
   end
 
+  # How long one answer about a customer's standing subscriptions is reused.
+  #
+  # Core fires one cart_item callback per line, so an N-line add asks the same
+  # two questions N times within a few seconds — each a round trip to Fluid or,
+  # worse, a fresh SQL connection to Exigo, all inside the budget the shopper is
+  # waiting on. A customer's subscriptions cannot change between the callbacks of
+  # a single add, so the window only has to be wide enough to cover one burst.
+  #
+  # Deliberately short. The cart-side half of the rule
+  # (has_another_subscription_in_cart?) is read from the payload and never
+  # cached, so the case where the shopper's own action changes the answer — they
+  # just added a subscription line — is still answered live.
+  PREFERRED_LOOKUP_TTL = ENV.fetch("PREFERRED_LOOKUP_TTL_SECONDS", 30).to_i
+
+  # Scoped to the company, and to the identity being asked about rather than to
+  # the cart, so the two carts of one shopper share the answer too. Digested
+  # because the identifier is an email on the Exigo path and cache keys live in a
+  # table we own. nil disables caching for this lookup rather than risking a key
+  # that could collide across companies.
+  def preferred_lookup_key(kind, identifier)
+    company_id = reporting_company_id
+    return nil if company_id.blank? || identifier.blank?
+
+    digest = Digest::SHA256.hexdigest(identifier.to_s.strip.downcase)
+    "dynamic_pricing:preferred:#{kind}:#{company_id}:#{digest}"
+  end
+
+  # nil means "nothing cached" — a cached `false` is a real answer and must be
+  # returned as one. Cache trouble can never be the thing that breaks pricing, so
+  # both helpers swallow and fall through to the live lookup.
+  def read_preferred_lookup(key)
+    return nil if key.nil?
+
+    Rails.cache.read(key)
+  rescue StandardError => e
+    Rails.logger.warn "[DynamicPricing] preferred-lookup cache read failed: #{e.message}"
+    nil
+  end
+
+  def write_preferred_lookup(key, answer)
+    return if key.nil? || PREFERRED_LOOKUP_TTL <= 0
+
+    Rails.cache.write(key, answer, expires_in: PREFERRED_LOOKUP_TTL.seconds)
+  rescue StandardError => e
+    Rails.logger.warn "[DynamicPricing] preferred-lookup cache write failed: #{e.message}"
+  end
+
   def company_yields_to_enrollment_wholesale?
     company = find_company
     return false if company.blank?
@@ -636,7 +683,23 @@ private
     nil
   end
 
+  # Memoized per request (nil included): the login path reads this twice for the
+  # same customer — once through is_preferred_customer?, then again in
+  # sync_pcc_metafield when the first read said "not preferred" but a live
+  # subscription said otherwise. That second read is a guaranteed duplicate on
+  # exactly the path that reaches it.
+  #
+  # Caching a failure is safe here: note_preferred_lookup_failure! is sticky for
+  # the request, so the "unknown, do not strip the discount" rule still holds for
+  # every later reader.
   def get_customer_type_from_metafields(customer_id)
+    @customer_type_from_metafields ||= {}
+    return @customer_type_from_metafields[customer_id] if @customer_type_from_metafields.key?(customer_id)
+
+    @customer_type_from_metafields[customer_id] = fetch_customer_type_from_metafields(customer_id)
+  end
+
+  def fetch_customer_type_from_metafields(customer_id)
     metafield = fluid_client.metafields.get_by_key(
       resource_type: "customer",
       resource_id: customer_id,
@@ -717,9 +780,15 @@ private
   end
 
   def has_active_subscriptions?(customer_id)
+    key = preferred_lookup_key(:fluid_subscriptions, customer_id)
+    cached = read_preferred_lookup(key)
+    return cached unless cached.nil?
+
     response = fluid_client.subscriptions.get_by_customer(customer_id, status: "active")
     subscriptions = response["subscriptions"] || []
-    subscriptions.any?
+    # .tap, so only an answer we actually got is cached — the rescue below never
+    # reaches the write.
+    subscriptions.any?.tap { |answer| write_preferred_lookup(key, answer) }
   rescue StandardError => e
     Rails.logger.error "Error checking active subscriptions for customer #{customer_id}: #{e.message}"
     note_preferred_lookup_failure!
@@ -730,7 +799,13 @@ private
     return false unless exigo_integration_enabled?
     return false if email.blank?
 
-    exigo_client.customer_has_active_autoship_by_email?(email)
+    key = preferred_lookup_key(:exigo_autoship, email)
+    cached = read_preferred_lookup(key)
+    return cached unless cached.nil?
+
+    exigo_client
+      .customer_has_active_autoship_by_email?(email)
+      .tap { |answer| write_preferred_lookup(key, answer) }
   rescue StandardError => e
     Rails.logger.error "Error checking Exigo autoship for email #{email}: #{e.message}"
     note_preferred_lookup_failure!
@@ -748,12 +823,24 @@ private
     @exigo_client ||= initialize_exigo_client
   end
 
+  # Exigo's own defaults (5s connect + 15s query) add up to the whole 20s budget
+  # Fluid gives a callback, on a fresh SQL connection each time. The lookup on
+  # this path is a single indexed COUNT, so it gets a fraction of that; failing
+  # fast here costs a shopper the preferred check (which fails to "unknown", not
+  # to "retail") instead of costing them the callback.
+  CALLBACK_EXIGO_LOGIN_TIMEOUT = ENV.fetch("CALLBACK_EXIGO_LOGIN_TIMEOUT", 2).to_i
+  CALLBACK_EXIGO_QUERY_TIMEOUT = ENV.fetch("CALLBACK_EXIGO_QUERY_TIMEOUT", 3).to_i
+
   def initialize_exigo_client
     company = find_company
     raise CallbackError, "Company is blank" if company.blank?
     raise CallbackError, "Exigo integration not enabled" unless company.integration_setting&.exigo_enabled?
 
-    ExigoClient.for_company(company)
+    ExigoClient.for_company(
+      company,
+      login_timeout: CALLBACK_EXIGO_LOGIN_TIMEOUT,
+      query_timeout: CALLBACK_EXIGO_QUERY_TIMEOUT
+    )
   end
 
   def is_preferred_customer?(email)
@@ -777,6 +864,14 @@ private
   def update_pcc_metafield(fluid_customer_id, customer_type)
     return if fluid_customer_id.blank? || customer_type.blank?
 
+    # Built before the first call, not between the two: ensure_definition can
+    # itself raise ResourceNotFoundError (find_definition_by_key 404s and
+    # metafields.rb re-raises anything that is not an "already exists"), and the
+    # rescue below then reached `create` with json_value still nil — where
+    # `value cannot be blank` made the fallback impossible and blamed the wrong
+    # thing in the log.
+    json_value = { "customer_type" => customer_type.to_s }
+
     fluid_client.metafields.ensure_definition(
       namespace: "custom",
       key: "customer_type",
@@ -784,8 +879,6 @@ private
       description: "Customer type for pricing (preferred_customer, retail, null)",
       owner_resource: "Customer"
     )
-
-    json_value = { "customer_type" => customer_type.to_s }
 
     fluid_client.metafields.update(
       resource_type: "customer",

@@ -9,11 +9,21 @@ class ExigoClient
   ConnectionError = Class.new(Error)
   ApiError = Class.new(Error)
 
-  def initialize(company)
+  # Timeouts default to what background work needs: the sync service runs broad
+  # queries over the whole customer base and a slow answer still beats no answer.
+  # A synchronous callback is the opposite case — Fluid abandons it at 20s, so
+  # these defaults are its entire budget spent on one lookup. Callers on that
+  # path pass their own; see Callbacks::BaseService#initialize_exigo_client.
+  DEFAULT_LOGIN_TIMEOUT = 5
+  DEFAULT_QUERY_TIMEOUT = 15
+
+  def initialize(company, login_timeout: DEFAULT_LOGIN_TIMEOUT, query_timeout: DEFAULT_QUERY_TIMEOUT)
     raise ArgumentError, "company must be a Company instance" unless company.is_a?(Company)
     @company = company
     @integration = company.integration_setting
     @credentials = resolve_exigo_credentials
+    @login_timeout = login_timeout
+    @query_timeout = query_timeout
   end
 
 
@@ -39,8 +49,8 @@ class ExigoClient
     end
   end
 
-  def self.for_company(company)
-    new(company)
+  def self.for_company(company, **timeouts)
+    new(company, **timeouts)
   end
 
   def customer_types
@@ -119,7 +129,7 @@ class ExigoClient
 
 private
 
-  attr_reader :company, :integration, :credentials
+  attr_reader :company, :integration, :credentials, :login_timeout, :query_timeout
 
   def execute_query(query, params = [])
     connection = establish_connection
@@ -160,8 +170,8 @@ private
       password: credentials[:db_password],
       database: credentials[:db_name],
       azure: true,
-      login_timeout: 5,
-      timeout: 15,
+      login_timeout: @login_timeout,
+      timeout: @query_timeout,
     )
   rescue StandardError => e
     raise ConnectionError, "Failed to connect to Exigo SQL Server database: #{e.message}"

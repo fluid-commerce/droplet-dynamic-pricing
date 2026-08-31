@@ -310,4 +310,32 @@ class ExigoClientTest < ActiveSupport::TestCase
 
     assert_equal expected_credentials, client.instance_variable_get(:@credentials)
   end
+  test "defaults to the timeouts background work needs" do
+    client = ExigoClient.for_company(@company)
+
+    assert_equal ExigoClient::DEFAULT_LOGIN_TIMEOUT, client.send(:login_timeout)
+    assert_equal ExigoClient::DEFAULT_QUERY_TIMEOUT, client.send(:query_timeout)
+  end
+
+  test "takes tighter timeouts when the caller is on a blocking path" do
+    client = ExigoClient.for_company(@company, login_timeout: 2, query_timeout: 3)
+
+    assert_equal 2, client.send(:login_timeout)
+    assert_equal 3, client.send(:query_timeout)
+  end
+
+  # The whole point: Exigo's own defaults add up to the entire budget Fluid gives
+  # a synchronous callback, so the callback path must ask for less.
+  test "the callback path asks for less than the callback budget allows" do
+    budget = ::Callback.validators_on(:timeout_in_seconds)
+                     .filter_map { |validator| validator.options[:less_than_or_equal_to] }
+                     .first
+    refute_nil budget
+
+    total = Callbacks::BaseService::CALLBACK_EXIGO_LOGIN_TIMEOUT +
+            Callbacks::BaseService::CALLBACK_EXIGO_QUERY_TIMEOUT
+
+    assert_operator total, :<, budget
+    assert_operator total, :<, ExigoClient::DEFAULT_LOGIN_TIMEOUT + ExigoClient::DEFAULT_QUERY_TIMEOUT
+  end
 end
