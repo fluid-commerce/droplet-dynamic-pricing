@@ -208,6 +208,32 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     assert_equal({ "cv" => 45, "qv" => 36 }, call[:volumes])
   end
 
+  test "update_cart_items_volumes writes later items when an earlier one fails" do
+    enable_volume_adjustment!
+    items = [
+      { "id" => 1, "variant_id" => 10, "price" => "100.0", "subscription_price" => "90.0", "quantity" => 1 },
+      { "id" => 2, "variant_id" => 10, "price" => "100.0", "subscription_price" => "90.0", "quantity" => 1 },
+    ]
+    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40, "price" => "100.0",
+"subscription_price" => "90.0", } ])
+    carts = FakeVolumeCartsResource.new
+    carts.define_singleton_method(:update_item_volumes) do |token, item_id, volumes|
+      raise "transient failure" if item_id == 1
+
+      volume_calls << { token: token, item_id: item_id, volumes: volumes }
+      { "success" => true }
+    end
+    reported = []
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+    service.define_singleton_method(:report_exception) { |e, **| reported << e.message }
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    assert_equal [ 2 ], carts.volume_calls.map { |call| call[:item_id] },
+                 "a batched callback must not strand later items' volumes behind an early failure"
+    assert_equal 1, reported.size
+  end
+
   test "update_cart_items_volumes does nothing when the toggle is off" do
     items = [ {
       "id" => 1, "variant_id" => 10, "price" => "100.0",

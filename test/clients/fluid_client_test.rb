@@ -21,6 +21,10 @@ describe FluidClient do
     it "includes Fluid::Customers" do
       assert_includes FluidClient.included_modules, Fluid::Customers
     end
+
+    it "includes Fluid::Members" do
+      assert_includes FluidClient.included_modules, Fluid::Members
+    end
   end
 
   describe "initialization and connection" do
