@@ -41,6 +41,7 @@ private
         yield_to_enrollment_wholesale
         adjust_volumes_for_subscription
         subscription_volume_source
+        exigo_preferred_signal
       ],
       credentials: %i[
         exigo_db_host

@@ -166,9 +166,111 @@ module Rain
       end
     end
 
+    # The default has to be byte-identical to today: an IntegrationSetting with
+    # no exigo_preferred_signal key must still read autoships and must not
+    # touch the customer-type query at all.
+    def test_defaults_to_reading_active_autoships
+      company = companies(:acme)
+      create_integration_setting(company: company)
+      calls = []
+      exigo_client_stub = build_exigo_client(active_autoship_ids: %w[101 102], calls: calls)
+      fluid_client_stub = build_fluid_client(customers: [])
+
+      service = PreferredCustomerSyncService.new(company: company)
+
+      service.stub(:exigo_client, exigo_client_stub) do
+        service.stub(:fluid_client, fluid_client_stub) do
+          service.call
+        end
+      end
+
+      assert_equal [ :customers_with_active_autoships ], calls
+      assert_equal %w[101 102], ExigoAutoshipSnapshot.latest_for_company(company).external_ids
+    end
+
+    def test_customer_type_signal_reads_ids_by_customer_type
+      company = companies(:acme)
+      create_integration_setting(
+        company: company,
+        settings: { "exigo_preferred_signal" => "customer_type" }
+      )
+      calls = []
+      exigo_client_stub = build_exigo_client(
+        active_autoship_ids: %w[999],
+        ids_by_type: { "2" => [ 201, 202 ] },
+        calls: calls
+      )
+      fluid_client_stub = build_fluid_client(customers: [])
+
+      service = PreferredCustomerSyncService.new(company: company)
+
+      service.stub(:exigo_client, exigo_client_stub) do
+        service.stub(:fluid_client, fluid_client_stub) do
+          service.call
+        end
+      end
+
+      assert_equal [ [ :customers_by_type_id, "2" ] ], calls
+      assert_equal %w[201 202], ExigoAutoshipSnapshot.latest_for_company(company).external_ids
+    end
+
+    def test_customer_type_signal_uses_the_configured_type_id
+      company = companies(:acme)
+      create_integration_setting(
+        company: company,
+        settings: {
+          "exigo_preferred_signal" => "customer_type",
+          "preferred_customer_type_id" => "7",
+        }
+      )
+      calls = []
+      exigo_client_stub = build_exigo_client(
+        active_autoship_ids: [],
+        ids_by_type: { "7" => [ 301 ] },
+        calls: calls
+      )
+      fluid_client_stub = build_fluid_client(customers: [])
+
+      service = PreferredCustomerSyncService.new(company: company)
+
+      service.stub(:exigo_client, exigo_client_stub) do
+        service.stub(:fluid_client, fluid_client_stub) do
+          service.call
+        end
+      end
+
+      assert_equal [ [ :customers_by_type_id, "7" ] ], calls
+      assert_equal %w[301], ExigoAutoshipSnapshot.latest_for_company(company).external_ids
+    end
+
+    # The customer-type read has to fail the same way the autoship read does:
+    # abandon the sync rather than write an empty snapshot, which would demote
+    # every preferred customer on the next delta.
+    def test_returns_false_when_the_customer_type_fetch_fails
+      company = companies(:acme)
+      create_integration_setting(
+        company: company,
+        settings: { "exigo_preferred_signal" => "customer_type" }
+      )
+      exigo_client_stub = Class.new do
+        def customers_by_type_id(_type_id)
+          raise ExigoClient::Error, "Database connection failed"
+        end
+      end.new
+      fluid_client_stub = build_fluid_client(customers: [])
+
+      service = PreferredCustomerSyncService.new(company: company)
+
+      service.stub(:exigo_client, exigo_client_stub) do
+        service.stub(:fluid_client, fluid_client_stub) do
+          assert_equal(false, service.call)
+        end
+      end
+    end
+
   private
 
-    def create_integration_setting(company:)
+    def create_integration_setting(company:, settings: {})
       IntegrationSetting.create!(
         company: company,
         enabled: true,
@@ -181,13 +283,20 @@ module Rain
           api_username: "api_user",
           api_password: "api_pass",
         },
-        settings: {}
+        settings: settings
       )
     end
 
-    def build_exigo_client(active_autoship_ids:, customer_types: {})
+    def build_exigo_client(active_autoship_ids:, customer_types: {}, ids_by_type: {}, calls: [])
       Class.new do
-        define_method(:customers_with_active_autoships) { active_autoship_ids }
+        define_method(:customers_with_active_autoships) do
+          calls << :customers_with_active_autoships
+          active_autoship_ids
+        end
+        define_method(:customers_by_type_id) do |type_id|
+          calls << [ :customers_by_type_id, type_id ]
+          ids_by_type[type_id.to_s] || []
+        end
         define_method(:get_customer_type) { |id| customer_types[id.to_s] }
         define_method(:update_customer_type) { |_id, _type| true }
       end.new

@@ -53,6 +53,27 @@ class IntegrationSetting < ApplicationRecord
     settings.dig("subscription_volume_source") || DEFAULT_SUBSCRIPTION_VOLUME_SOURCE
   end
 
+  # Exigo preferred signals (see #exigo_preferred_signal).
+  DEFAULT_EXIGO_PREFERRED_SIGNAL = "autoships"
+  CUSTOMER_TYPE_EXIGO_PREFERRED_SIGNAL = "customer_type"
+
+  # How preferred status is read out of Exigo. "autoships" (default) is today's
+  # behavior for every company: an open AutoOrder with a future NextRunDate.
+  # "customer_type" instead compares Customers.CustomerTypeID against
+  # #preferred_customer_type_id, for tenants that classify that way rather than
+  # by standing order. Defaults to "autoships" so existing installs are
+  # untouched.
+  def exigo_preferred_signal
+    settings.dig("exigo_preferred_signal") || DEFAULT_EXIGO_PREFERRED_SIGNAL
+  end
+
+  # Asked rather than comparing the string at each call site, so an unrecognized
+  # value (a typo in the JSONB, a signal added later) falls back to today's
+  # behavior instead of silently reading Exigo a different way.
+  def exigo_preferred_by_customer_type?
+    exigo_preferred_signal == CUSTOMER_TYPE_EXIGO_PREFERRED_SIGNAL
+  end
+
   def preferred_customer_type_id
     settings.dig("preferred_customer_type_id") || "2"
   end

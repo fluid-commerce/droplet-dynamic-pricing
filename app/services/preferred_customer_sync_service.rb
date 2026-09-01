@@ -41,7 +41,7 @@ private
 
   def synchronize
     Rails.logger.info("[PreferredSync] Starting sync")
-    today_ids = fetch_exigo_autoships
+    today_ids = fetch_exigo_preferred_ids
     return false if today_ids.nil?
     yesterday_ids = fetch_yesterday_snapshot
     if warmup_needed?(today_ids, yesterday_ids)
@@ -97,13 +97,24 @@ private
     true
   end
 
-  def fetch_exigo_autoships
-    autoship_ids = exigo_client.customers_with_active_autoships
-    return nil if autoship_ids.nil?
+  # Which Exigo read fills today's set. The snapshot and delta machinery below
+  # is unchanged either way — only what fills the set differs. See
+  # IntegrationSetting#exigo_preferred_signal.
+  #
+  # nil, not [], on failure: an empty set here would read as "nobody is
+  # preferred any more" and demote every customer on the next delta.
+  def fetch_exigo_preferred_ids
+    preferred_ids =
+      if @integration.exigo_preferred_by_customer_type?
+        exigo_client.customers_by_type_id(@integration.preferred_customer_type_id)
+      else
+        exigo_client.customers_with_active_autoships
+      end
+    return nil if preferred_ids.nil?
 
-    autoship_ids.map(&:to_s)
+    preferred_ids.map(&:to_s)
   rescue ExigoClient::Error => e
-    Rails.logger.error("[PreferredSync] Failed to fetch Exigo autoships: #{e.message}")
+    Rails.logger.error("[PreferredSync] Failed to fetch Exigo preferred customers: #{e.message}")
     nil
   end
 

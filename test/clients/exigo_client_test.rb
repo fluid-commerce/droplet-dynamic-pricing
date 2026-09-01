@@ -25,6 +25,24 @@ class ExigoClientTest < ActiveSupport::TestCase
     def close; end
   end
 
+  # Records the SQL it is handed so the DECLARE the client builds is assertable
+  # — the point of the customer-type path is which type the parameter binds as.
+  class RecordingConnection
+    attr_reader :queries
+
+    def initialize(rows)
+      @rows = rows
+      @queries = []
+    end
+
+    def execute(query)
+      @queries << query
+      FakeResult.new(@rows)
+    end
+
+    def close; end
+  end
+
   def setup
     @company = companies(:acme)
     @integration_setting = IntegrationSetting.create!(
@@ -57,6 +75,58 @@ class ExigoClientTest < ActiveSupport::TestCase
     client.stub(:establish_connection, FakeConnection.new(rows)) do
       assert_equal [ 10, 11 ], client.customers_with_active_autoships
     end
+  end
+
+  test "customers_by_type_id returns the ids of that type" do
+    rows = [ { "CustomerID" => 10 }, { "CustomerID" => 11 } ]
+    client = ExigoClient.for_company(@company)
+    client.stub(:establish_connection, FakeConnection.new(rows)) do
+      assert_equal [ 10, 11 ], client.customers_by_type_id(2)
+    end
+  end
+
+  # preferred_customer_type_id is a String everywhere it comes from (the JSONB
+  # default is "2", and the admin form writes a text field), so the id reaching
+  # this query is a String in practice. Binding it as NVARCHAR leans on SQL
+  # Server's implicit conversion of an int column; bind INT instead.
+  test "customers_by_type_id binds a string type id as INT" do
+    connection = RecordingConnection.new([])
+    client = ExigoClient.for_company(@company)
+    client.stub(:establish_connection, connection) do
+      client.customers_by_type_id("2")
+    end
+
+    assert_includes connection.queries.first, "DECLARE @param0 INT = 2"
+  end
+
+  test "customer_type_by_email returns the type id for that email" do
+    rows = [ { "CustomerTypeID" => 2 } ]
+    client = ExigoClient.for_company(@company)
+    client.stub(:establish_connection, FakeConnection.new(rows)) do
+      assert_equal 2, client.customer_type_by_email("shopper@example.com")
+    end
+  end
+
+  test "customer_type_by_email returns nil when no customer has that email" do
+    client = ExigoClient.for_company(@company)
+    client.stub(:establish_connection, FakeConnection.new([])) do
+      assert_nil client.customer_type_by_email("nobody@example.com")
+    end
+  end
+
+  # The callback path holds only an email, and every execute_query opens and
+  # closes its own TinyTds connection. Resolving the id first and then the type
+  # would double the connects inside a callback's budget, so this has to stay a
+  # single query — the same shape customer_has_active_autoship_by_email? uses.
+  test "customer_type_by_email reads the type in one query" do
+    connection = RecordingConnection.new([ { "CustomerTypeID" => 2 } ])
+    client = ExigoClient.for_company(@company)
+    client.stub(:establish_connection, connection) do
+      client.customer_type_by_email("shopper@example.com")
+    end
+
+    assert_equal 1, connection.queries.size
+    assert_includes connection.queries.first, "N'shopper@example.com'"
   end
 
   test "for_company creates client with company-based credentials" do

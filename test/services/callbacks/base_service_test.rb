@@ -1089,12 +1089,75 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     refute service.send(:preferred_lookup_failed?)
   end
 
+  test "the exigo preferred lookup reads autoships by default" do
+    exigo_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params)
+    client = FakeExigoLookupClient.new(autoship: true, customer_type: 9)
+    service.define_singleton_method(:exigo_client) { client }
+
+    assert service.send(:exigo_preferred_by_email?, "vip@example.com")
+    assert_equal [ [ :customer_has_active_autoship_by_email?, "vip@example.com" ] ], client.calls
+  end
+
+  test "the exigo preferred lookup reads the customer type when the signal says so" do
+    exigo_integration_setting_for(@company, settings: { "exigo_preferred_signal" => "customer_type" })
+    service = Callbacks::BaseService.new(@callback_params)
+    client = FakeExigoLookupClient.new(autoship: false, customer_type: 2)
+    service.define_singleton_method(:exigo_client) { client }
+
+    assert service.send(:exigo_preferred_by_email?, "vip@example.com")
+    assert_equal [ [ :customer_type_by_email, "vip@example.com" ] ], client.calls
+  end
+
+  # Exigo hands back CustomerTypeID as an Integer; preferred_customer_type_id is
+  # a String everywhere it comes from (JSONB default "2", admin text field).
+  # Comparing them raw is 2 == "2", which is false — every customer would read
+  # as not preferred.
+  test "the exigo customer type lookup matches an integer type against the string setting" do
+    exigo_integration_setting_for(
+      @company,
+      settings: { "exigo_preferred_signal" => "customer_type", "preferred_customer_type_id" => "2" }
+    )
+    service = Callbacks::BaseService.new(@callback_params)
+    service.define_singleton_method(:exigo_client) { FakeExigoLookupClient.new(autoship: false, customer_type: 2) }
+
+    assert service.send(:exigo_preferred_by_email?, "vip@example.com")
+  end
+
+  test "the exigo customer type lookup is false for a different type" do
+    exigo_integration_setting_for(
+      @company,
+      settings: { "exigo_preferred_signal" => "customer_type", "preferred_customer_type_id" => "2" }
+    )
+    service = Callbacks::BaseService.new(@callback_params)
+    service.define_singleton_method(:exigo_client) { FakeExigoLookupClient.new(autoship: true, customer_type: 1) }
+
+    refute service.send(:exigo_preferred_by_email?, "vip@example.com")
+  end
+
+  test "the exigo customer type lookup is false when no customer has that email" do
+    exigo_integration_setting_for(@company, settings: { "exigo_preferred_signal" => "customer_type" })
+    service = Callbacks::BaseService.new(@callback_params)
+    service.define_singleton_method(:exigo_client) { FakeExigoLookupClient.new(autoship: false, customer_type: nil) }
+
+    refute service.send(:exigo_preferred_by_email?, "vip@example.com")
+  end
+
+  # The two signals answer different questions, so a company that flips the
+  # setting must not read back the other signal's cached answer.
+  test "the two exigo signals cache under different keys" do
+    service = Callbacks::BaseService.new(@callback_params)
+
+    refute_equal service.send(:preferred_lookup_key, :exigo_autoship, "vip@example.com"),
+                 service.send(:preferred_lookup_key, :exigo_customer_type, "vip@example.com")
+  end
+
   test "preferred_lookup_failed? is set when the Exigo autoship lookup errors" do
     service = Callbacks::BaseService.new(@callback_params)
     service.define_singleton_method(:exigo_integration_enabled?) { true }
     service.define_singleton_method(:exigo_client) { raise ExigoClient::Error, "boom" }
 
-    refute service.send(:has_exigo_autoship_by_email?, "vip@example.com")
+    refute service.send(:exigo_preferred_by_email?, "vip@example.com")
     assert service.send(:preferred_lookup_failed?)
   end
 
@@ -1102,8 +1165,49 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     service = Callbacks::BaseService.new(@callback_params)
     service.define_singleton_method(:exigo_integration_enabled?) { false }
 
-    refute service.send(:has_exigo_autoship_by_email?, "vip@example.com")
+    refute service.send(:exigo_preferred_by_email?, "vip@example.com")
     refute service.send(:preferred_lookup_failed?)
+  end
+
+private
+
+  def exigo_integration_setting_for(company, settings: {})
+    IntegrationSetting.create!(
+      company: company,
+      enabled: true,
+      credentials: {
+        exigo_db_host: "db.example.com",
+        exigo_db_username: "user",
+        exigo_db_password: "pass",
+        exigo_db_name: "exigo_db",
+        api_base_url: "https://api.example.com",
+        api_username: "api_user",
+        api_password: "api_pass",
+      },
+      settings: settings
+    )
+  end
+end
+
+# Answers both Exigo preferred signals and records which one was asked, so a
+# test can tell the branch apart from the answer.
+class FakeExigoLookupClient
+  attr_reader :calls
+
+  def initialize(autoship:, customer_type:)
+    @autoship = autoship
+    @customer_type = customer_type
+    @calls = []
+  end
+
+  def customer_has_active_autoship_by_email?(email)
+    @calls << [ :customer_has_active_autoship_by_email?, email ]
+    @autoship
+  end
+
+  def customer_type_by_email(email)
+    @calls << [ :customer_type_by_email, email ]
+    @customer_type
   end
 end
 

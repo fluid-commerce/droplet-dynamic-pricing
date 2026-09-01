@@ -51,12 +51,16 @@ class ExigoClient
     execute_query(query)
   end
 
+  # to_i because the type id reaches here as a String: the IntegrationSetting
+  # default is "2" and the admin form writes a text field. Binding it as
+  # NVARCHAR would lean on SQL Server implicitly converting to compare against
+  # an int column.
   def customers_by_type_id(customer_type_id)
     query = <<-SQL.squish
       SELECT CustomerID FROM dbo.Customers WHERE CustomerTypeID = ?
     SQL
 
-    execute_query(query, [ customer_type_id ]).map { |row| row["CustomerID"] }
+    execute_query(query, [ customer_type_id.to_i ]).map { |row| row["CustomerID"] }
   end
 
   def customers_with_active_autoships
@@ -102,6 +106,21 @@ class ExigoClient
 
     result = execute_query(query, [ email.to_s ])
     result.first&.dig("CustomerID")
+  end
+
+  # The by-email counterpart of get_customer_type, for the callback path, which
+  # holds an email and not an id. One query rather than find_customer_id_by_email
+  # followed by get_customer_type: execute_query opens and closes its own
+  # TinyTds connection, so that pair would spend two connects inside a
+  # callback's budget. Email and CustomerTypeID live on the same row, so no join
+  # is needed — the same shape as customer_has_active_autoship_by_email?.
+  def customer_type_by_email(email)
+    query = <<-SQL.squish
+      SELECT CustomerTypeID FROM dbo.Customers WHERE Email = ?
+    SQL
+
+    result = execute_query(query, [ email.to_s ])
+    result.first&.dig("CustomerTypeID")
   end
 
   def get_customer_type(customer_id)
