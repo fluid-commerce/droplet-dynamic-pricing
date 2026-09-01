@@ -144,7 +144,51 @@ protected
   end
 
   def set_customer_preferred(customer_id)
+    # Before set_customer_type, not inside it: that method returns early when
+    # the customer_type metafield already says preferred, and seeding member
+    # types through the droplet is exactly the case where the metafield is
+    # already right and the member type is not.
+    promote_member_type_to_preferred(customer_id)
     set_customer_type(customer_id, PREFERRED_CUSTOMER_TYPE)
+  end
+
+  # Writes Fluid's own member type on the customer's first subscription, for
+  # installations that opt in. Idempotent on its own read rather than on the
+  # metafield, since the two can legitimately disagree while a company is
+  # seeding member types.
+  #
+  # Swallows its failures: the metafield write behind it is the path that still
+  # has to happen, and a member that cannot be resolved must not take the
+  # webhook down.
+  def promote_member_type_to_preferred(customer_id)
+    return unless promote_member_type_on_first_subscription?
+    return if customer_id.blank?
+
+    response = fluid_members.find_by(legacy_customer_id: customer_id)
+    member = response["member"] || response[:member]
+    return if member.blank?
+
+    slug = member["member_type_slug"] || member[:member_type_slug]
+    if slug == Fluid::Members::PREFERRED_SLUG
+      Rails.logger.info "Member for customer #{customer_id} is already preferred, skipping promotion"
+      return
+    end
+
+    member_id = member["id"] || member[:id]
+    return if member_id.blank?
+
+    fluid_members.update_member_type(member_id, Fluid::Members::PREFERRED_SLUG)
+    Rails.logger.info "Promoted member #{member_id} (customer #{customer_id}) to preferred"
+  rescue StandardError => e
+    Rails.logger.error "Failed to promote member type for customer #{customer_id}: #{e.message}"
+  end
+
+  def fluid_members
+    fluid_client.members
+  end
+
+  def promote_member_type_on_first_subscription?
+    @company&.integration_setting&.promote_member_type_on_first_subscription? || false
   end
 
   def set_customer_retail(customer_id)
@@ -207,6 +251,12 @@ protected
   end
 
   def should_remain_preferred?(customer_id, exclude_subscription_id = nil)
+    # The promotion toggle makes preferred permanent: a company that promotes on
+    # first subscription never demotes, so cancel and pause stop asking. Answered
+    # before the live signals so no Fluid or Exigo call is spent on a question
+    # whose answer cannot change.
+    return true if promote_member_type_on_first_subscription?
+
     return true if has_other_active_subscriptions?(customer_id, exclude_subscription_id)
 
     external_id = customer_external_id(customer_id)

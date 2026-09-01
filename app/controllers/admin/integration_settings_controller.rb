@@ -43,6 +43,7 @@ private
         subscription_volume_source
         exigo_preferred_signal
         preferred_source
+        promote_member_type_on_first_subscription
       ],
       credentials: %i[
         exigo_db_host

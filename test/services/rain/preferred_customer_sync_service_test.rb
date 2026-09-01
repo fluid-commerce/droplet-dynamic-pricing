@@ -166,6 +166,62 @@ module Rain
       end
     end
 
+    # Preferred is permanent for a company that promotes on first subscription,
+    # so the nightly delta must not demote anyone.
+    def test_delta_sync_skips_demotion_when_preferred_is_permanent
+      company = companies(:acme)
+      create_integration_setting(
+        company: company,
+        settings: { "promote_member_type_on_first_subscription" => "1" }
+      )
+      ExigoAutoshipSnapshot.create!(company: company, external_ids: %w[101 102], synced_at: 1.day.ago)
+
+      exigo_client_stub = build_exigo_client(active_autoship_ids: %w[101])
+      customer_102 = {
+        "id" => 102,
+        "external_id" => "102",
+        "metadata" => { "customer_type" => "preferred_customer" },
+      }
+      fluid_client_stub = build_fluid_client(customers: [ customer_102 ], subscriptions: [])
+
+      demoted = []
+      service = PreferredCustomerSyncService.new(company: company)
+      service.define_singleton_method(:set_customer_retail) { |id, ext| demoted << [ id, ext ] }
+
+      service.stub(:exigo_client, exigo_client_stub) do
+        service.stub(:fluid_client, fluid_client_stub) do
+          assert_equal(true, service.call)
+        end
+      end
+
+      assert_empty demoted, "a company with permanent preferred must not demote"
+    end
+
+    # The snapshot write is what makes the NEXT run's delta correct. Skipping
+    # demotion must not take it with it, or every still-active autoship reads as
+    # new forever.
+    def test_delta_sync_still_saves_the_snapshot_when_demotion_is_skipped
+      company = companies(:acme)
+      create_integration_setting(
+        company: company,
+        settings: { "promote_member_type_on_first_subscription" => "1" }
+      )
+      ExigoAutoshipSnapshot.create!(company: company, external_ids: %w[101 102], synced_at: 1.day.ago)
+
+      exigo_client_stub = build_exigo_client(active_autoship_ids: %w[101])
+      fluid_client_stub = build_fluid_client(customers: [])
+
+      service = PreferredCustomerSyncService.new(company: company)
+
+      service.stub(:exigo_client, exigo_client_stub) do
+        service.stub(:fluid_client, fluid_client_stub) do
+          service.call
+        end
+      end
+
+      assert_equal %w[101], ExigoAutoshipSnapshot.latest_for_company(company).external_ids
+    end
+
     # The default has to be byte-identical to today: an IntegrationSetting with
     # no exigo_preferred_signal key must still read autoships and must not
     # touch the customer-type query at all.

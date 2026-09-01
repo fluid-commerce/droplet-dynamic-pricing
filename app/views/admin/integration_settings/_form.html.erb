@@ -72,6 +72,26 @@
     </p>
   </div>
 
+  <!-- Promotion -->
+  <div class="bg-white rounded-lg p-6 border border-gray-200">
+    <div class="flex items-center justify-between">
+      <div class="pr-6">
+        <h3 class="font-semibold text-gray-700">Promote to preferred on first subscription</h3>
+        <p class="text-sm text-gray-500 mt-1">
+          When on, a customer's first subscription sets their Fluid member type
+          to "preferred" and it is never taken back — cancelling, pausing or
+          losing the autoship all leave it in place, and the nightly sync stops
+          demoting for this company. Independent of the source above, so member
+          types can be seeded before the read source is cut over.
+        </p>
+      </div>
+      <div class="flex items-center">
+        <%= hidden_field_tag "integration_setting[settings][promote_member_type_on_first_subscription]", "0" %>
+        <%= check_box_tag "integration_setting[settings][promote_member_type_on_first_subscription]", "1", @integration_setting.promote_member_type_on_first_subscription?, class: "toggle-checkbox h-6 w-12 rounded-full" %>
+      </div>
+    </div>
+  </div>
+
   <!-- Exigo Database Credentials -->
   <div class="bg-white rounded-lg p-6 border border-gray-200">
     <h3 class="font-semibold text-gray-700 mb-4">Exigo Database Credentials</h3>

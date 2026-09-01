@@ -53,6 +53,16 @@ class IntegrationSetting < ApplicationRecord
     settings.dig("subscription_volume_source") || DEFAULT_SUBSCRIPTION_VOLUME_SOURCE
   end
 
+  # When enabled, a customer's first subscription promotes their Fluid member
+  # type to "preferred" and never takes it back — cancelling, pausing or losing
+  # the autoship all leave it in place. Independent of #preferred_source, so a
+  # company can seed member types through the droplet before it cuts its read
+  # source over to them. Off by default: making preferred permanent is a
+  # decision each installation has to opt into.
+  def promote_member_type_on_first_subscription?
+    ActiveModel::Type::Boolean.new.cast(settings.dig("promote_member_type_on_first_subscription")) || false
+  end
+
   # Preferred-status read sources (see #preferred_source).
   DEFAULT_PREFERRED_SOURCE = "exigo"
   FLUID_MEMBER_TYPE_PREFERRED_SOURCE = "fluid_member_type"

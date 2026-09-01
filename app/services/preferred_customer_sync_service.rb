@@ -89,12 +89,20 @@ private
 
     processed_new = process_new_autoships(new_autoships)
 
-    processed_lost = process_lost_autoships(lost_autoships)
+    # Preferred is permanent for a company that promotes on first subscription,
+    # so a lost autoship demotes nobody. The snapshot below is still written:
+    # it is what makes the NEXT run's delta correct, and skipping it would make
+    # every still-active autoship read as new forever.
+    processed_lost = preferred_is_permanent? ? 0 : process_lost_autoships(lost_autoships)
 
     save_snapshot(today_ids)
 
     Rails.logger.info("[PreferredSync] Delta sync complete. New: #{processed_new}, Demoted: #{processed_lost}")
     true
+  end
+
+  def preferred_is_permanent?
+    @integration&.promote_member_type_on_first_subscription? || false
   end
 
   # Which Exigo read fills today's set. The snapshot and delta machinery below

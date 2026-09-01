@@ -1106,10 +1106,12 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
     members = FakeMembersResource.new(member: { "member_type_slug" => "preferred" })
     service.define_singleton_method(:fluid_members) { members }
-    service.define_singleton_method(:get_customer_type_from_metafields) { |_id| flunk("must not read the metafield") }
-    service.define_singleton_method(:exigo_preferred_by_email?) { |_email| flunk("must not query Exigo") }
+    skipped = []
+    service.define_singleton_method(:get_customer_type_from_metafields) { |_id| skipped << :metafield; nil }
+    service.define_singleton_method(:exigo_preferred_by_email?) { |_email| skipped << :exigo; false }
 
     assert service.send(:is_preferred_customer?, "vip@example.com")
+    assert_empty skipped, "the member type is the only signal this source reads"
   end
 
   # The Fluid customer id is members.legacy_customer_id, which `find` matches on
