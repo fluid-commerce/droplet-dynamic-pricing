@@ -72,6 +72,27 @@ class Callbacks::CartItemAddedControllerTest < ActionDispatch::IntegrationTest
                  "the top-level cart_items array must survive strong params"
   end
 
+  test "drops malformed cart_items members instead of failing the request" do
+    seen_params = nil
+    capture = lambda do |params|
+      seen_params = params
+      { success: true }
+    end
+
+    Callbacks::CartItemAddedService.stub(:call, capture) do
+      post "/callbacks/cart_item_added", params: {
+        cart: cart_data,
+        cart_item: cart_item,
+        cart_items: [ cart_item, nil, "junk" ],
+      }, as: :json
+
+      assert_response :success
+    end
+
+    assert_equal [ 674138 ], seen_params[:cart_items].map { |item| item["id"] },
+                 "null and scalar members must be dropped, not raise a 500"
+  end
+
   test "handles service errors gracefully" do
     Callbacks::CartItemAddedService.stub(:call, ->(_params) { raise StandardError.new("Test error") }) do
       post "/callbacks/cart_item_added", params: {

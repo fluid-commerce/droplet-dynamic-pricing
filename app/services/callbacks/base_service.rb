@@ -319,6 +319,9 @@ private
     # Constant for the whole request — resolve once, not per item.
     source = subscription_volume_source
 
+    # Rescued per item, not around the loop: with a batched callback a
+    # transient failure on an early item must not strand every later item's
+    # volumes. Each failure is reported on its own.
     Array(items).each do |item|
       item_id = item["id"]
       variant_id = item_variant_id(item)
@@ -330,6 +333,8 @@ private
       volumes = cart_item_volumes(base, mode, item["quantity"], source)
 
       fluid_client.carts.update_item_volumes(cart_token, item_id, volumes)
+    rescue StandardError => e
+      report_exception(e, message: "Failed to update volumes for item #{item_id} on cart #{cart_token}: #{e.message}")
     end
   rescue StandardError => e
     report_exception(e, message: "Failed to update cart item volumes for cart #{cart_token}: #{e.message}")
