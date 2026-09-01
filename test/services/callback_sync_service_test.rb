@@ -91,7 +91,10 @@ class CallbackSyncServiceTest < ActiveSupport::TestCase
     assert result[:success]
     existing_callback.reload
     assert_equal "Updated description", existing_callback.description
-    assert_not existing_callback.active
+    # Was assert_not: the sync used to reassign active: false on every row it
+    # touched, so importing Fluid's catalogue switched off every callback an
+    # install had turned on. Only NEW rows arrive inactive now.
+    assert existing_callback.active
   end
 
   test "handles empty definitions" do
@@ -183,7 +186,9 @@ mock_callback_definitions({ "meta" => { "timestamp" => "2025-07-29T20:52:09Z" } 
     assert_equal "Updated description", existing_callback.description
     assert_equal "https://example.com/callbacks/customer_logged_in", existing_callback.url
     assert_equal 10, existing_callback.timeout_in_seconds
-    assert_not existing_callback.active
+    # The active flag is one of the attributes this example's name promises to
+    # preserve; it used to be the one exception.
+    assert existing_callback.active
   end
 
   test "uses fluid api key for authentication" do
@@ -199,5 +204,15 @@ private
     mock_definitions = Minitest::Mock.new
     mock_definitions.expect :get, response
     mock_definitions
+  end
+
+  test "imports a callback Fluid offers but this droplet has no row for as inactive" do
+    definitions = { "definitions" => [ { "name" => "update_cart_tax", "description" => "Tax" } ] }
+    @mock_client.expect(:callback_definitions, Object.new.tap { |r| r.define_singleton_method(:get) { definitions } })
+
+    @service.sync
+
+    refute ::Callback.find_by(name: "update_cart_tax").active,
+      "a definition this droplet has no handler for must not arrive switched on"
   end
 end

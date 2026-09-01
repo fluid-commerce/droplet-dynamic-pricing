@@ -1089,6 +1089,75 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     refute service.send(:preferred_lookup_failed?)
   end
 
+  # Diagnosing a preferred-pricing question meant inferring from absences —
+  # whether a metafield write showed up, whether a stamp line did. One line per
+  # decision naming the source and the reason makes it a grep.
+  test "every preferred decision logs the source and the reason that settled it" do
+    exigo_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
+    service.define_singleton_method(:get_customer_type_from_metafields) { |_id| Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE }
+
+    line = capture_preferred_decision(service) { service.send(:is_preferred_customer?, "vip@example.com") }
+
+    assert_includes line, "marker=preferred-decision"
+    assert_includes line, "source=exigo"
+    assert_includes line, "reason=metafield"
+    assert_includes line, "preferred=true"
+  end
+
+  test "the decision log names the member type when that is what answered" do
+    member_type_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
+    service.define_singleton_method(:fluid_members) {
+ FakeMembersResource.new(member: { "member_type_slug" => "preferred" }) }
+
+    line = capture_preferred_decision(service) { service.send(:is_preferred_customer?, "vip@example.com") }
+
+    assert_includes line, "source=fluid_member_type"
+    assert_includes line, "reason=member_type"
+    assert_includes line, "preferred=true"
+  end
+
+  # The case that cost the most time to diagnose by hand: preferred pricing
+  # applied while the member type says otherwise.
+  test "the decision log names the subscription override when it is what answered" do
+    member_type_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
+    service.define_singleton_method(:fluid_members) {
+ FakeMembersResource.new(member: { "member_type_slug" => "customer" }) }
+    service.define_singleton_method(:has_active_subscriptions?) { |_id| true }
+
+    line = capture_preferred_decision(service) { service.send(:is_preferred_customer?, "vip@example.com") }
+
+    assert_includes line, "reason=active_subscription"
+    assert_includes line, "preferred=true"
+  end
+
+  test "the decision log records a negative answer too" do
+    member_type_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
+    service.define_singleton_method(:fluid_members) {
+ FakeMembersResource.new(member: { "member_type_slug" => "customer" }) }
+    service.define_singleton_method(:has_active_subscriptions?) { |_id| false }
+
+    line = capture_preferred_decision(service) { service.send(:is_preferred_customer?, "vip@example.com") }
+
+    assert_includes line, "preferred=false"
+  end
+
+  # An answer reached after a failed lookup is not the same as a verified one,
+  # and the line has to say so or it invites the wrong conclusion.
+  test "the decision log flags an answer reached after a failed lookup" do
+    member_type_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
+    service.define_singleton_method(:fluid_members) { FakeMembersResource.new(raises: FluidClient::APIError) }
+    service.define_singleton_method(:has_active_subscriptions?) { |_id| false }
+
+    line = capture_preferred_decision(service) { service.send(:is_preferred_customer?, "vip@example.com") }
+
+    assert_includes line, "lookup_failed=true"
+  end
+
   test "is_preferred_customer? still reads the metafield when the source is the default" do
     exigo_integration_setting_for(@company)
     service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
@@ -1309,6 +1378,24 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
   end
 
 private
+
+  def capture_preferred_decision(_service)
+    lines = []
+    logger = Object.new
+    logger.define_singleton_method(:info) { |msg| lines << msg.to_s }
+    logger.define_singleton_method(:method_missing) { |*_a| nil }
+    logger.define_singleton_method(:respond_to_missing?) { |*_a| true }
+
+    original = Rails.logger
+    Rails.logger = logger
+    begin
+      yield
+    ensure
+      Rails.logger = original
+    end
+
+    lines.find { |l| l.include?("marker=preferred-decision") } || ""
+  end
 
   def member_type_integration_setting_for(company)
     exigo_integration_setting_for(company, settings: { "preferred_source" => "fluid_member_type" })
