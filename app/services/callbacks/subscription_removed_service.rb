@@ -86,6 +86,6 @@ private
       return true if get_customer_type_from_metafields(customer_id) == PREFERRED_CUSTOMER_TYPE
     end
 
-    has_exigo_autoship_by_email?(customer_email)
+    exigo_preferred_by_email?(customer_email)
   end
 end

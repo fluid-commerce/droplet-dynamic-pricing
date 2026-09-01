@@ -780,7 +780,7 @@ private
   # carts too (it self-guards on blank email / integration off).
   def customer_has_active_subscription?
     (customer_logged_in? && has_active_subscriptions?(cart_customer_id)) ||
-      has_exigo_autoship_by_email?(customer_email)
+      exigo_preferred_by_email?(customer_email)
   end
 
   # The single cart item carried by item_added / item_updated callbacks.
@@ -848,24 +848,52 @@ private
     false
   end
 
-  def has_exigo_autoship_by_email?(email)
+  # Which Exigo question is asked is per installation — an active autoship
+  # (the default, and today's behavior everywhere) or the customer's
+  # CustomerTypeID. See IntegrationSetting#exigo_preferred_signal.
+  #
+  # Keyed by signal, not by a shared :exigo_autoship: the two answer different
+  # questions, so a company that flips the setting must not read back the other
+  # signal's cached answer.
+  def exigo_preferred_by_email?(email)
     return false unless exigo_integration_enabled?
     return false if email.blank?
 
-    key = preferred_lookup_key(:exigo_autoship, email)
+    by_customer_type = exigo_integration_setting&.exigo_preferred_by_customer_type?
+    key = preferred_lookup_key(by_customer_type ? :exigo_customer_type : :exigo_autoship, email)
     cached = read_preferred_lookup(key)
     return cached unless cached.nil?
 
-    answer = exigo_client.customer_has_active_autoship_by_email?(email)
+    answer =
+      if by_customer_type
+        exigo_customer_type_matches?(email)
+      else
+        exigo_client.customer_has_active_autoship_by_email?(email)
+      end
 
-    # The Exigo path returns a strict boolean off a COUNT, so unlike the Fluid
-    # lookup above there is no "200 with no answer" shape to guard against.
+    # Both Exigo reads return a strict boolean, so unlike the Fluid lookup above
+    # there is no "200 with no answer" shape to guard against.
     write_preferred_lookup(key, answer)
     answer
   rescue StandardError => e
-    Rails.logger.error "Error checking Exigo autoship for email #{email}: #{e.message}"
+    Rails.logger.error "Error checking Exigo preferred status for email #{email}: #{e.message}"
     note_preferred_lookup_failure!
     false
+  end
+
+  # to_s on both sides: Exigo hands back CustomerTypeID as an Integer, while
+  # preferred_customer_type_id is a String everywhere it comes from (the JSONB
+  # default is "2", and the admin form writes a text field). Comparing them raw
+  # is 2 == "2" — false for every customer.
+  def exigo_customer_type_matches?(email)
+    customer_type = exigo_client.customer_type_by_email(email)
+    return false if customer_type.nil?
+
+    customer_type.to_s == exigo_integration_setting.preferred_customer_type_id.to_s
+  end
+
+  def exigo_integration_setting
+    find_company&.integration_setting
   end
 
   def exigo_integration_enabled?
@@ -912,7 +940,7 @@ private
       return true if has_active_subscriptions?(customer_id)
     end
 
-    has_exigo_autoship_by_email?(email)
+    exigo_preferred_by_email?(email)
   end
 
   def update_pcc_metafield(fluid_customer_id, customer_type)

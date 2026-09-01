@@ -35,6 +35,47 @@ describe IntegrationSetting do
     end
   end
 
+  describe "#exigo_preferred_signal" do
+    it "defaults to \"autoships\" when the setting is absent" do
+      setting = companies(:acme).build_integration_setting(settings: {})
+
+      _(setting.exigo_preferred_signal).must_equal "autoships"
+    end
+
+    it "returns the configured signal when set" do
+      setting = companies(:acme).build_integration_setting(
+        settings: { "exigo_preferred_signal" => "customer_type" }
+      )
+
+      _(setting.exigo_preferred_signal).must_equal "customer_type"
+    end
+  end
+
+  describe "#exigo_preferred_by_customer_type?" do
+    it "is false when the setting is absent" do
+      setting = companies(:acme).build_integration_setting(settings: {})
+
+      refute setting.exigo_preferred_by_customer_type?
+    end
+
+    it "is true only for the customer_type signal" do
+      setting = companies(:acme).build_integration_setting(
+        settings: { "exigo_preferred_signal" => "customer_type" }
+      )
+
+      assert setting.exigo_preferred_by_customer_type?
+    end
+
+    # A typo in the JSONB must not silently flip a company off today's behavior.
+    it "is false for an unrecognized signal" do
+      setting = companies(:acme).build_integration_setting(
+        settings: { "exigo_preferred_signal" => "customertype" }
+      )
+
+      refute setting.exigo_preferred_by_customer_type?
+    end
+  end
+
   describe "#subscription_volume_source" do
     it "defaults to \"price_ratio\" when the setting is absent" do
       setting = companies(:acme).build_integration_setting(settings: {})
