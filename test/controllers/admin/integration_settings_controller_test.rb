@@ -111,6 +111,27 @@ describe Admin::IntegrationSettingsController do
       _(integration_setting.exigo_preferred_signal).must_equal "customer_type"
     end
 
+    it "persists the preferred_source setting" do
+      company = companies(:acme)
+      integration_setting = IntegrationSetting.create!(
+        company: company,
+        enabled: false,
+        credentials: {},
+        settings: {}
+      )
+
+      patch admin_integration_setting_path(dri: company.droplet_installation_uuid), params: {
+        integration_setting: {
+          enabled: true,
+          settings: { preferred_source: "fluid_member_type" },
+        },
+      }
+
+      must_respond_with :redirect
+      integration_setting.reload
+      _(integration_setting.preferred_source).must_equal "fluid_member_type"
+    end
+
     it "returns 404 when company is not found" do
       get admin_integration_setting_path(dri: "non-existent-uuid")
 

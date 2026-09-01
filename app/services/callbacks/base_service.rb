@@ -929,18 +929,72 @@ private
     return false if email.blank?
 
     customer_id = cart_customer_id || get_customer_id_by_email(email)
+
+    # The active-subscription override below is kept on BOTH sources on purpose.
+    # It exists so the two callback paths cannot disagree and oscillate the cart
+    # price (STU2-2531), and on the member-type path it is not redundant with
+    # the member type: it is a behavioral signal rather than an assigned one, so
+    # it catches a connector that has not caught up with a new autoship yet.
+    if preferred_from_fluid_member_type?
+      return true if fluid_member_preferred?(customer_id: customer_id, email: email)
+      return true if customer_id.present? && has_active_subscriptions?(customer_id)
+
+      # No Exigo fallback: the whole point of this source is that the
+      # installation does not read Exigo.
+      return false
+    end
+
     if customer_id.present?
       customer_type = get_customer_type_from_metafields(customer_id)
       return true if customer_type == PREFERRED_CUSTOMER_TYPE
 
-      # An active Fluid subscription makes a customer preferred regardless of the
-      # (laggy) customer_type metafield — so login/attach agrees with the
-      # subscription-based rule item_added/item_updated use and the two callback
-      # paths can't disagree and oscillate the cart price (STU2-2531).
       return true if has_active_subscriptions?(customer_id)
     end
 
     exigo_preferred_by_email?(email)
+  end
+
+  def preferred_from_fluid_member_type?
+    find_company&.integration_setting&.preferred_from_fluid_member_type? || false
+  end
+
+  # Resolves the Fluid member behind this cart and answers whether Fluid itself
+  # calls them preferred. The customer id is members.legacy_customer_id, which
+  # `find` matches on directly, so there is no mapping to keep; the email is the
+  # fallback for a cart with no customer attached yet.
+  #
+  # Memoizes an answer but never a failure, for the same reason
+  # get_customer_type_from_metafields does not: a failed read that memoized its
+  # nil would hand the rest of the callback a "not preferred" it never verified.
+  def fluid_member_preferred?(customer_id:, email:)
+    identifier = customer_id.present? ? { legacy_customer_id: customer_id } : { email: email }
+    return false if identifier.values.first.blank?
+
+    @fluid_member_preferred ||= {}
+    return @fluid_member_preferred[identifier] if @fluid_member_preferred.key?(identifier)
+
+    answer = read_member_type_slug(identifier) == Fluid::Members::PREFERRED_SLUG
+    @fluid_member_preferred[identifier] = answer
+    answer
+  rescue FluidClient::ResourceNotFoundError
+    # No member matched. That is a real negative, the same way a customer with
+    # no customer_type metafield is — not a lookup that failed.
+    @fluid_member_preferred[identifier] = false
+    false
+  rescue StandardError => e
+    Rails.logger.error "Failed to read Fluid member type for #{identifier.inspect}: #{e.message}"
+    note_preferred_lookup_failure!
+    false
+  end
+
+  def read_member_type_slug(identifier)
+    response = fluid_members.find_by(**identifier)
+    member = response["member"] || response[:member]
+    member&.dig("member_type_slug") || member&.dig(:member_type_slug)
+  end
+
+  def fluid_members
+    fluid_client.members
   end
 
   def update_pcc_metafield(fluid_customer_id, customer_type)

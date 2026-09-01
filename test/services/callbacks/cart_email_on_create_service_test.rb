@@ -264,4 +264,19 @@ private
       @metafields_resource
     end
   end
+  test "does not touch the PCC metafield when preferred comes from Fluid member types" do
+    company.create_integration_setting!(settings: { "preferred_source" => "fluid_member_type" })
+    cart = cart_data.merge("customer_id" => 888)
+
+    reads = []
+    writes = []
+    service = Callbacks::CartEmailOnCreateService.new({ cart: cart })
+    service.define_singleton_method(:get_customer_type_from_metafields) { |id| reads << id; nil }
+    service.define_singleton_method(:update_pcc_metafield) { |id, type| writes << [ id, type ] }
+
+    service.send(:sync_pcc_metafield)
+
+    assert_empty reads, "must not read a metafield this source never consults"
+    assert_empty writes, "must not write a metafield this source never consults"
+  end
 end

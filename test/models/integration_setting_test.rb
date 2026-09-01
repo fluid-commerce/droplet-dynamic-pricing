@@ -35,6 +35,47 @@ describe IntegrationSetting do
     end
   end
 
+  describe "#preferred_source" do
+    it "defaults to \"exigo\" when the setting is absent" do
+      setting = companies(:acme).build_integration_setting(settings: {})
+
+      _(setting.preferred_source).must_equal "exigo"
+    end
+
+    it "returns the configured source when set" do
+      setting = companies(:acme).build_integration_setting(
+        settings: { "preferred_source" => "fluid_member_type" }
+      )
+
+      _(setting.preferred_source).must_equal "fluid_member_type"
+    end
+  end
+
+  describe "#preferred_from_fluid_member_type?" do
+    it "is false when the setting is absent" do
+      setting = companies(:acme).build_integration_setting(settings: {})
+
+      refute setting.preferred_from_fluid_member_type?
+    end
+
+    it "is true only for the fluid_member_type source" do
+      setting = companies(:acme).build_integration_setting(
+        settings: { "preferred_source" => "fluid_member_type" }
+      )
+
+      assert setting.preferred_from_fluid_member_type?
+    end
+
+    # An unrecognized source must not quietly stop a company reading Exigo.
+    it "is false for an unrecognized source" do
+      setting = companies(:acme).build_integration_setting(
+        settings: { "preferred_source" => "fluid" }
+      )
+
+      refute setting.preferred_from_fluid_member_type?
+    end
+  end
+
   describe "#exigo_preferred_signal" do
     it "defaults to \"autoships\" when the setting is absent" do
       setting = companies(:acme).build_integration_setting(settings: {})

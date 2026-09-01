@@ -45,6 +45,53 @@ class PreferredCustomerSyncJobTest < ActiveJob::TestCase
     refute_includes processed_companies, globex, "Should not process globex (Exigo disabled)"
   end
 
+  # This is what actually retires the nightly job per installation: a company
+  # reading Fluid member types has no snapshot to diff and no metafield to
+  # stamp, so it must not be queried at all.
+  def test_skips_companies_reading_preferred_from_fluid_member_types
+    acme = companies(:acme)
+    globex = companies(:globex)
+
+    exigo_credentials = {
+      exigo_db_host: "db.example.com",
+      exigo_db_username: "user",
+      exigo_db_password: "pass",
+      exigo_db_name: "exigo_db",
+      api_base_url: "https://api.example.com",
+      api_username: "api_user",
+      api_password: "api_pass",
+    }
+
+    IntegrationSetting.create!(
+      company: acme,
+      enabled: true,
+      credentials: exigo_credentials,
+      settings: {}
+    )
+
+    # Exigo is fully configured and enabled — only the read source takes it out.
+    IntegrationSetting.create!(
+      company: globex,
+      enabled: true,
+      credentials: exigo_credentials,
+      settings: { "preferred_source" => "fluid_member_type" }
+    )
+
+    processed_companies = []
+
+    PreferredCustomerSyncService.stub(:new, ->(company:) {
+      processed_companies << company
+      mock_service = Object.new
+      mock_service.define_singleton_method(:call) { true }
+      mock_service
+    }) do
+      perform_enqueued_jobs { PreferredCustomerSyncJob.perform_later }
+    end
+
+    assert_includes processed_companies, acme, "Should still process the Exigo-sourced company"
+    refute_includes processed_companies, globex, "Should skip the company reading Fluid member types"
+  end
+
   def test_processes_multiple_companies_with_exigo_enabled
     acme = companies(:acme)
     globex = companies(:globex)
