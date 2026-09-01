@@ -16,6 +16,8 @@ private
       cart_item_added: {}
     )
 
+    permit_batch_cart_items(permitted)
+
     cart = permitted.require(:cart)
     cart.require(:cart_token)
     cart.require(:company).require(:id)

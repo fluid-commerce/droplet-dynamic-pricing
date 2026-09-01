@@ -297,6 +297,66 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     assert_equal expected_item_data, call[:items]
   end
 
+  test "reprices every item in one PATCH when the callback carries cart_items" do
+    second_item = {
+      "id" => 674140,
+      "price" => "50.0",
+      "subscription_price" => "45.0",
+    }
+    fake_carts = FakeCartsResource.new
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+
+    service = Callbacks::CartItemAddedService.new({
+      cart: @cart_data,
+      cart_item: @cart_item,
+      cart_items: [ @cart_item, second_item ],
+    })
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    result = service.call
+
+    assert_equal true, result[:success]
+    assert_equal 1, fake_carts.items_prices_calls.size, "a batch must cost one PATCH, not one per item"
+    assert_equal [
+      { "id" => @cart_item["id"], "price" => @cart_item["subscription_price"].to_f },
+      { "id" => second_item["id"], "price" => second_item["subscription_price"].to_f },
+    ], fake_carts.items_prices_calls.first[:items]
+  end
+
+  test "falls back to cart_item when cart_items is absent" do
+    fake_carts = FakeCartsResource.new
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+
+    service = Callbacks::CartItemAddedService.new(@callback_params)
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    service.call
+
+    assert_equal [ [ { "id" => @cart_item["id"], "price" => @cart_item["subscription_price"].to_f } ] ],
+                 fake_carts.items_prices_calls.map { |call| call[:items] }
+  end
+
+  test "returns error when any batch item is missing its ID" do
+    headless_item = { "price" => "50.0", "subscription_price" => "45.0" }
+    fake_carts = FakeCartsResource.new
+    mock_client = Object.new
+    mock_client.define_singleton_method(:carts) { fake_carts }
+
+    service = Callbacks::CartItemAddedService.new({
+      cart: @cart_data,
+      cart_item: @cart_item,
+      cart_items: [ @cart_item, headless_item ],
+    })
+    service.define_singleton_method(:fluid_client) { mock_client }
+
+    result = service.call
+
+    assert_equal false, result[:success]
+    assert_empty fake_carts.items_prices_calls
+  end
+
   test "returns error if item ID is missing during price update" do
     cart_item_no_id = @cart_item.dup
     cart_item_no_id.delete("id")
