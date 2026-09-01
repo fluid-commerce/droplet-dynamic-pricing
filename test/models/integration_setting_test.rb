@@ -35,6 +35,30 @@ describe IntegrationSetting do
     end
   end
 
+  describe "#promote_member_type_on_first_subscription?" do
+    it "is false when the setting is absent" do
+      setting = companies(:acme).build_integration_setting(settings: {})
+
+      refute setting.promote_member_type_on_first_subscription?
+    end
+
+    it "is true when the toggle is on" do
+      setting = companies(:acme).build_integration_setting(
+        settings: { "promote_member_type_on_first_subscription" => "1" }
+      )
+
+      assert setting.promote_member_type_on_first_subscription?
+    end
+
+    it "is false when the toggle is explicitly off" do
+      setting = companies(:acme).build_integration_setting(
+        settings: { "promote_member_type_on_first_subscription" => "0" }
+      )
+
+      refute setting.promote_member_type_on_first_subscription?
+    end
+  end
+
   describe "#preferred_source" do
     it "defaults to \"exigo\" when the setting is absent" do
       setting = companies(:acme).build_integration_setting(settings: {})
