@@ -16,9 +16,7 @@ private
       subscription_added: {}
     )
 
-    batch_items = params[:cart_items]
-    permitted[:cart_items] = batch_items.filter_map { |item|
- item.permit!.to_h if item.respond_to?(:permit!) } if batch_items.is_a?(Array)
+    permit_batch_cart_items(permitted)
 
     cart = permitted.require(:cart)
     cart.require(:cart_token)

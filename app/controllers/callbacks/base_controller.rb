@@ -73,4 +73,20 @@ private
   def callback_params
     permitted_params.to_h.with_indifferent_access
   end
+
+  # A batched callback (Fluid's BATCH_CART_ITEM_CALLBACKS) may carry the
+  # items it speaks for as a top-level cart_items array of item objects.
+  # permit's empty-hash filter only passes hashes, so the array is permitted
+  # per element — the same accept-anything trust the cart and cart_item
+  # objects already get. filter_map: a malformed member (null, a scalar) is
+  # dropped rather than raising NoMethodError out of the params layer as a
+  # 500. Stated here once so every cart callback treats the field the same
+  # way.
+  def permit_batch_cart_items(permitted)
+    batch_items = params[:cart_items]
+    return permitted unless batch_items.is_a?(Array)
+
+    permitted[:cart_items] = batch_items.filter_map { |item| item.permit!.to_h if item.respond_to?(:permit!) }
+    permitted
+  end
 end

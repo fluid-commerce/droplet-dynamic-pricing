@@ -515,14 +515,22 @@ private
     report_exception(e, message: "Failed to update cart items prices for cart #{cart_token}: #{e.message}")
   end
 
+  # The payload's own subscription price for one item. Zero-aware: a
+  # bundle's "0.0" is a truthy String, so a plain `||` on the raw field would
+  # stop there and write zero. The single home for this fallback chain — the
+  # validation in update_item_to_subscription_price and the PATCH builder
+  # below must never disagree about it.
+  def subscription_payload_price(item)
+    nonzero_price(item["subscription_price"]) ||
+      bundle_group_base_price(item) ||
+      item["price"]
+  end
+
   # { id, price } per cart item at its subscription price, resolved from the cart's
   # country. Items country_safe_price refuses are dropped.
   def cart_items_with_subscription_price(items = cart_items)
     items.filter_map do |item|
-      payload_price = nonzero_price(item["subscription_price"]) ||
-                      bundle_group_base_price(item) ||
-                      item["price"]
-      price = country_safe_price(item, payload_price, kind: :subscription)
+      price = country_safe_price(item, subscription_payload_price(item), kind: :subscription)
       next if price.nil?
 
       { "id" => item["id"], "price" => price }
@@ -808,14 +816,8 @@ private
     items = callback_cart_items
     raise CallbackError, "Item ID is required" if items.any? { |item| item["id"].blank? }
 
-    # Zero-aware, matching cart_items_with_subscription_price: a bundle's "0.0" is a
-    # truthy String, so a plain `||` would stop there and write zero.
-    items.each do |item|
-      payload_price = nonzero_price(item["subscription_price"]) ||
-                      bundle_group_base_price(item) ||
-                      item["price"]
-      raise CallbackError, "Item price is not present in cart item" if payload_price.blank?
-    end
+    raise CallbackError, "Item price is not present in cart item" if items.any? { |item|
+ subscription_payload_price(item).blank? }
 
     # Items country_safe_price refuses are dropped, and already logged.
     # Volumes still go for every item: they come from the country-matched

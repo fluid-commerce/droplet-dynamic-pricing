@@ -40,8 +40,7 @@ class Callbacks::CartItemAddedService < Callbacks::BaseService
         event_type: "item_added",
         preferred_applied: true,
         additional_data: {
-          item_id: cart_item["id"],
-          item_count: callback_cart_items.size,
+          item_ids: callback_cart_items.map { |item| item["id"] },
           subscription_price: cart_item["subscription_price"],
           regular_price: cart_item["price"],
         }
