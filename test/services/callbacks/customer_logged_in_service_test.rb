@@ -111,4 +111,26 @@ class Callbacks::CustomerLoggedInServiceTest < ActiveSupport::TestCase
       "an unanswerable lookup must not strip the shopper's discount"
     assert_equal 0, carts.metadata_calls.size
   end
+  test "does not touch the PCC metafield when preferred comes from Fluid member types" do
+    company = companies(:acme)
+    company.create_integration_setting!(settings: { "preferred_source" => "fluid_member_type" })
+    cart = {
+      "cart_token" => "ct_login",
+      "customer_id" => 888,
+      "email" => "vip@example.com",
+      "company" => { "id" => company.fluid_company_id },
+      "items" => [],
+    }
+
+    reads = []
+    writes = []
+    service = Callbacks::CustomerLoggedInService.new({ cart: cart })
+    service.define_singleton_method(:get_customer_type_from_metafields) { |id| reads << id; nil }
+    service.define_singleton_method(:update_pcc_metafield) { |id, type| writes << [ id, type ] }
+
+    service.send(:sync_pcc_metafield, 888)
+
+    assert_empty reads, "must not read a metafield this source never consults"
+    assert_empty writes, "must not write a metafield this source never consults"
+  end
 end

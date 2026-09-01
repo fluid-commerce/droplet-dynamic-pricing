@@ -53,6 +53,26 @@ class IntegrationSetting < ApplicationRecord
     settings.dig("subscription_volume_source") || DEFAULT_SUBSCRIPTION_VOLUME_SOURCE
   end
 
+  # Preferred-status read sources (see #preferred_source).
+  DEFAULT_PREFERRED_SOURCE = "exigo"
+  FLUID_MEMBER_TYPE_PREFERRED_SOURCE = "fluid_member_type"
+
+  # Where preferred-customer status is read from. "exigo" (default) is today's
+  # behavior for every company: the custom.customer_type metafield the nightly
+  # sync stamps, with an Exigo read as the fallback. "fluid_member_type" reads
+  # Fluid's native member type instead, for tenants whose connector keeps it
+  # current (TM3). Defaults to "exigo" so existing installs are untouched.
+  def preferred_source
+    settings.dig("preferred_source") || DEFAULT_PREFERRED_SOURCE
+  end
+
+  # Asked rather than compared at each call site, so an unrecognized value
+  # cannot quietly stop a company reading Exigo — the setting that would take
+  # a tenant off its working source is the one that must fail safe.
+  def preferred_from_fluid_member_type?
+    preferred_source == FLUID_MEMBER_TYPE_PREFERRED_SOURCE
+  end
+
   # Exigo preferred signals (see #exigo_preferred_signal).
   DEFAULT_EXIGO_PREFERRED_SIGNAL = "autoships"
   CUSTOMER_TYPE_EXIGO_PREFERRED_SIGNAL = "customer_type"

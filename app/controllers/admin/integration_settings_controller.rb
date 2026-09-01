@@ -42,6 +42,7 @@ private
         adjust_volumes_for_subscription
         subscription_volume_source
         exigo_preferred_signal
+        preferred_source
       ],
       credentials: %i[
         exigo_db_host

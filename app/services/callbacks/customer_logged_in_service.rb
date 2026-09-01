@@ -76,6 +76,11 @@ class Callbacks::CustomerLoggedInService < Callbacks::BaseService
 private
 
   def sync_pcc_metafield(customer_id)
+    # The metafield is the Exigo source's cache. An installation reading Fluid
+    # member types no longer reads it, so writing it would keep a value nothing
+    # consults up to date at the cost of Fluid calls on a callback.
+    return if preferred_from_fluid_member_type?
+
     current_type = get_customer_type_from_metafields(customer_id)
     return if current_type == PREFERRED_CUSTOMER_TYPE
 

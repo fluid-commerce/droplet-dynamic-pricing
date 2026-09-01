@@ -48,6 +48,30 @@
     </div>
   </div>
 
+  <!-- Preferred Source -->
+  <div class="bg-white rounded-lg p-6 border border-gray-200">
+    <h3 class="font-semibold text-gray-700 mb-1">Preferred customer source</h3>
+    <p class="text-sm text-gray-500 mb-4">
+      Where preferred-customer status is read from. Everything below only
+      applies while this is set to Exigo.
+    </p>
+    <%= select_tag "integration_setting[settings][preferred_source]",
+          options_for_select(
+            [
+              [ "Exigo — the customer_type metafield the nightly sync stamps, with an Exigo read as fallback (default)", IntegrationSetting::DEFAULT_PREFERRED_SOURCE ],
+              [ "Fluid member type — read member_type_slug from Fluid directly", IntegrationSetting::FLUID_MEMBER_TYPE_PREFERRED_SOURCE ],
+            ],
+            @integration_setting.preferred_source
+          ),
+          class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" %>
+    <p class="text-xs text-gray-500 mt-1">
+      On "Fluid member type" the droplet stops querying Exigo for this company
+      entirely: the nightly sync skips it, and the callbacks no longer read or
+      write the customer_type metafield. Only correct for tenants whose
+      connector keeps member types current.
+    </p>
+  </div>
+
   <!-- Exigo Database Credentials -->
   <div class="bg-white rounded-lg p-6 border border-gray-200">
     <h3 class="font-semibold text-gray-700 mb-4">Exigo Database Credentials</h3>

@@ -1089,6 +1089,143 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     refute service.send(:preferred_lookup_failed?)
   end
 
+  test "is_preferred_customer? still reads the metafield when the source is the default" do
+    exigo_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
+    members = FakeMembersResource.new(member: { "member_type_slug" => "customer" })
+    service.define_singleton_method(:fluid_client) { Object.new }
+    service.define_singleton_method(:get_customer_type_from_metafields) { |_id| Callbacks::BaseService::PREFERRED_CUSTOMER_TYPE }
+    service.define_singleton_method(:fluid_members) { members }
+
+    assert service.send(:is_preferred_customer?, "vip@example.com")
+    assert_empty members.calls, "the default source must not resolve a Fluid member"
+  end
+
+  test "is_preferred_customer? reads the member type when the source is fluid_member_type" do
+    member_type_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
+    members = FakeMembersResource.new(member: { "member_type_slug" => "preferred" })
+    service.define_singleton_method(:fluid_members) { members }
+    service.define_singleton_method(:get_customer_type_from_metafields) { |_id| flunk("must not read the metafield") }
+    service.define_singleton_method(:exigo_preferred_by_email?) { |_email| flunk("must not query Exigo") }
+
+    assert service.send(:is_preferred_customer?, "vip@example.com")
+  end
+
+  # The Fluid customer id is members.legacy_customer_id, which `find` matches on
+  # directly — no mapping table, and more precise than the email.
+  test "the member lookup resolves by legacy_customer_id when the cart carries one" do
+    member_type_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
+    members = FakeMembersResource.new(member: { "member_type_slug" => "preferred" })
+    service.define_singleton_method(:fluid_members) { members }
+
+    service.send(:is_preferred_customer?, "vip@example.com")
+
+    assert_equal [ { legacy_customer_id: 55 } ], members.calls
+  end
+
+  test "the member lookup falls back to the email when there is no customer id" do
+    member_type_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params)
+    members = FakeMembersResource.new(member: { "member_type_slug" => "preferred" })
+    service.define_singleton_method(:fluid_members) { members }
+    service.define_singleton_method(:get_customer_id_by_email) { |_email| nil }
+
+    assert service.send(:is_preferred_customer?, "vip@example.com")
+    assert_equal [ { email: "vip@example.com" } ], members.calls
+  end
+
+  # The load-bearing one: on the Exigo source a non-preferred customer falls
+  # through to an Exigo read, so the member path has to be shown NOT to, and
+  # shown on the client rather than in a log line.
+  test "the member path issues no Exigo call even when the customer is not preferred" do
+    member_type_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
+    exigo_calls = []
+    service.define_singleton_method(:fluid_members) {
+ FakeMembersResource.new(member: { "member_type_slug" => "customer" }) }
+    service.define_singleton_method(:has_active_subscriptions?) { |_id| false }
+    service.define_singleton_method(:exigo_client) do
+      client = Object.new
+      client.define_singleton_method(:customer_has_active_autoship_by_email?) { |email| exigo_calls << email; true }
+      client.define_singleton_method(:customer_type_by_email) { |email| exigo_calls << email; 2 }
+      client
+    end
+
+    refute service.send(:is_preferred_customer?, "vip@example.com")
+    assert_empty exigo_calls, "the fluid_member_type source must not query Exigo at all"
+  end
+
+  test "the member path is not preferred for another member type" do
+    member_type_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
+    service.define_singleton_method(:fluid_members) {
+ FakeMembersResource.new(member: { "member_type_slug" => "customer" }) }
+    service.define_singleton_method(:has_active_subscriptions?) { |_id| false }
+
+    refute service.send(:is_preferred_customer?, "vip@example.com")
+  end
+
+  # STU2-2531: the active-subscription override is not redundant on this path.
+  # It is a different signal — behavioral rather than assigned — and it catches
+  # a connector lagging a new autoship.
+  test "an active subscription still overrides a non-preferred member type" do
+    member_type_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
+    service.define_singleton_method(:fluid_members) {
+ FakeMembersResource.new(member: { "member_type_slug" => "customer" }) }
+    service.define_singleton_method(:has_active_subscriptions?) { |_id| true }
+
+    assert service.send(:is_preferred_customer?, "vip@example.com")
+  end
+
+  # A customer with no member row is a real negative, the same way a missing
+  # metafield is — not a lookup that failed.
+  test "a member that does not exist is not preferred and is not a lookup failure" do
+    member_type_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
+    service.define_singleton_method(:fluid_members) { FakeMembersResource.new(raises: FluidClient::ResourceNotFoundError) }
+    service.define_singleton_method(:has_active_subscriptions?) { |_id| false }
+
+    refute service.send(:is_preferred_customer?, "vip@example.com")
+    refute service.send(:preferred_lookup_failed?)
+  end
+
+  test "a failed member lookup is recorded as a failure rather than answered" do
+    member_type_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
+    service.define_singleton_method(:fluid_members) { FakeMembersResource.new(raises: FluidClient::APIError) }
+    service.define_singleton_method(:has_active_subscriptions?) { |_id| false }
+
+    refute service.send(:is_preferred_customer?, "vip@example.com")
+    assert service.send(:preferred_lookup_failed?)
+  end
+
+  # base_service.rb keeps a failed read retryable so a failure cannot masquerade
+  # as an answer and burn calls correcting a value it never saw.
+  test "a failed member lookup is not memoized" do
+    member_type_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
+    members = FakeMembersResource.new(raises: FluidClient::APIError)
+    service.define_singleton_method(:fluid_members) { members }
+
+    2.times { service.send(:fluid_member_preferred?, customer_id: 55, email: "vip@example.com") }
+
+    assert_equal 2, members.calls.size, "a failed read has to stay retryable"
+  end
+
+  test "an answered member lookup is memoized for the request" do
+    member_type_integration_setting_for(@company)
+    service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge("customer_id" => 55)))
+    members = FakeMembersResource.new(member: { "member_type_slug" => "preferred" })
+    service.define_singleton_method(:fluid_members) { members }
+
+    2.times { service.send(:fluid_member_preferred?, customer_id: 55, email: "vip@example.com") }
+
+    assert_equal 1, members.calls.size
+  end
+
   test "the exigo preferred lookup reads autoships by default" do
     exigo_integration_setting_for(@company)
     service = Callbacks::BaseService.new(@callback_params)
@@ -1171,6 +1308,10 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
 private
 
+  def member_type_integration_setting_for(company)
+    exigo_integration_setting_for(company, settings: { "preferred_source" => "fluid_member_type" })
+  end
+
   def exigo_integration_setting_for(company, settings: {})
     IntegrationSetting.create!(
       company: company,
@@ -1186,6 +1327,25 @@ private
       },
       settings: settings
     )
+  end
+end
+
+# Records the identifier each member lookup was made with, so a test can assert
+# how the customer was resolved and how many reads it took.
+class FakeMembersResource
+  attr_reader :calls
+
+  def initialize(member: nil, raises: nil)
+    @member = member
+    @raises = raises
+    @calls = []
+  end
+
+  def find_by(**identifier)
+    @calls << identifier
+    raise @raises, "boom" if @raises
+
+    { "member" => @member }
   end
 end
 

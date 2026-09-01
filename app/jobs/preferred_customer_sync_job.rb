@@ -19,8 +19,15 @@ class PreferredCustomerSyncJob < ApplicationJob
 
 private
 
+  # A company reading preferred status from Fluid member types has no snapshot
+  # to diff and no metafield to stamp, so it is skipped outright — no Exigo
+  # query, no writes. This is what retires the nightly job per installation,
+  # and it is checked before the credential probes because being configured for
+  # Exigo is no longer the same as reading from it.
   def companies_to_sync
     Company.active.includes(:integration_setting).select do |company|
+      next false if company.integration_setting&.preferred_from_fluid_member_type?
+
       (company.integration_setting&.exigo_enabled?) || exigo_env_credentials_present?(company)
     end
   end

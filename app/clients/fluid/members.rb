@@ -12,6 +12,11 @@ module Fluid
       @members ||= Resource.new(self)
     end
 
+    # Fluid provisions this system member type for every company
+    # (Company::SystemMemberTypeProvisioner, tier_level 1), so it is a constant
+    # rather than per-company config.
+    PREFERRED_SLUG = "preferred".freeze
+
     class Resource
       BASE_PATH = "/api/v2025-06/members".freeze
 
