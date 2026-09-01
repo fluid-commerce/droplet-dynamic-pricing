@@ -51,6 +51,27 @@ class Callbacks::CartItemAddedControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "passes the batched cart_items through to the service" do
+    seen_params = nil
+    capture = lambda do |params|
+      seen_params = params
+      { success: true }
+    end
+
+    Callbacks::CartItemAddedService.stub(:call, capture) do
+      post "/callbacks/cart_item_added", params: {
+        cart: cart_data,
+        cart_item: cart_item,
+        cart_items: [ cart_item, { "id" => 674139, "price" => "40.0", "subscription_price" => "36.0" } ],
+      }, as: :json
+
+      assert_response :success
+    end
+
+    assert_equal [ 674138, 674139 ], seen_params[:cart_items].map { |item| item["id"] },
+                 "the top-level cart_items array must survive strong params"
+  end
+
   test "handles service errors gracefully" do
     Callbacks::CartItemAddedService.stub(:call, ->(_params) { raise StandardError.new("Test error") }) do
       post "/callbacks/cart_item_added", params: {

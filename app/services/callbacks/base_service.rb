@@ -788,33 +788,40 @@ private
     @cart_item ||= callback_params[:cart_item]
   end
 
+  # Every item this callback speaks for. A company on Fluid's
+  # BATCH_CART_ITEM_CALLBACKS flag sends one cart_item_added per add
+  # operation with the added items in cart_items (first element identical
+  # to cart_item); everyone else sends cart_item alone.
+  def callback_cart_items
+    @callback_cart_items ||= callback_params[:cart_items].presence || [ cart_item ].compact
+  end
+
   # Reprices the callback's cart item to its subscription price (falling back to
   # the regular price) and adjusts its volumes. Shared by CartItemAddedService
   # and CartItemUpdatedService so the two pricing paths cannot silently diverge.
   def update_item_to_subscription_price
-    item_id = cart_item["id"]
-    raise CallbackError, "Item ID is required" if item_id.blank?
+    items = callback_cart_items
+    raise CallbackError, "Item ID is required" if items.any? { |item| item["id"].blank? }
 
     # Zero-aware, matching cart_items_with_subscription_price: a bundle's "0.0" is a
     # truthy String, so a plain `||` would stop there and write zero.
-    payload_price = nonzero_price(cart_item["subscription_price"]) ||
-                    bundle_group_base_price(cart_item) ||
-                    cart_item["price"]
-    raise CallbackError, "Item price is not present in cart item" if payload_price.blank?
-
-    final_price = country_safe_price(cart_item, payload_price, kind: :subscription)
-
-    # Refused, and already logged. Volumes still go: they come from the
-    # country-matched row and self-skip without one.
-    if final_price.nil?
-      update_cart_items_volumes([ cart_item ], mode: :subscription)
-      return
+    items.each do |item|
+      payload_price = nonzero_price(item["subscription_price"]) ||
+                      bundle_group_base_price(item) ||
+                      item["price"]
+      raise CallbackError, "Item price is not present in cart item" if payload_price.blank?
     end
 
-    # Only the item the callback names. Lines left behind in a previous country are
-    # CartCountryChangedService's, which corrects the whole cart at once.
-    update_cart_items_prices([ { "id" => item_id, "price" => final_price } ])
-    update_cart_items_volumes([ cart_item ], mode: :subscription)
+    # Items country_safe_price refuses are dropped, and already logged.
+    # Volumes still go for every item: they come from the country-matched
+    # row and self-skip without one.
+    priced_items = cart_items_with_subscription_price(items)
+
+    # Only the items the callback names — one PATCH for the whole batch.
+    # Lines left behind in a previous country are CartCountryChangedService's,
+    # which corrects the whole cart at once.
+    update_cart_items_prices(priced_items) if priced_items.any?
+    update_cart_items_volumes(items, mode: :subscription)
   end
 
   def has_active_subscriptions?(customer_id)

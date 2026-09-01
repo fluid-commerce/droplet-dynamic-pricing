@@ -1,7 +1,7 @@
 class Callbacks::CartItemAddedService < Callbacks::BaseService
   def call
     raise CallbackError, "Cart is blank" if cart.blank?
-    raise CallbackError, "Cart item is blank" if cart_item.blank?
+    raise CallbackError, "Cart item is blank" if callback_cart_items.empty?
 
     # The cart is already paid for (or the order already exists): nothing left to
     # price, and writing now desyncs the order total from the captured amount
@@ -41,6 +41,7 @@ class Callbacks::CartItemAddedService < Callbacks::BaseService
         preferred_applied: true,
         additional_data: {
           item_id: cart_item["id"],
+          item_count: callback_cart_items.size,
           subscription_price: cart_item["subscription_price"],
           regular_price: cart_item["price"],
         }
