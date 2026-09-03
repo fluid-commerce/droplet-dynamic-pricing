@@ -52,3 +52,8 @@
 
 # don't ignore environment files
 !.env.local
+
+# Next.js build output. Both apps' images build from source; a host-built
+# .next would otherwise be copied in and shadow the one produced in the image.
+/.next/
+/src/.next/

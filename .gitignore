@@ -54,3 +54,11 @@ node_modules
 
 # ignore macOS Finder metadata
 .DS_Store
+
+# Next.js (the Next app's project directory is src/ — see src/next.config.ts)
+/src/.next
+/.next
+/next-env.d.ts
+/src/next-env.d.ts
+*.tsbuildinfo
+/.turbo

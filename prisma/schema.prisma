@@ -1,0 +1,344 @@
+// droplet-dynamic-pricing — Prisma schema
+//
+// This schema describes the SAME PostgreSQL database the Rails app owns
+// (db/schema.rb, version 2026_01_26_194025). Every model is mapped back to the
+// Rails table and column names with @@map / @map, so pointing this app at the
+// existing production database changes nothing about it. There is no data
+// migration and no renamed column.
+//
+// db/schema.rb and db/migrate/ were reconciled table-by-table before this file
+// was written — every `create_table`, `add_column` and index in the migrations
+// is accounted for in schema.rb, and the schema version equals the timestamp of
+// the newest migration. `prisma db pull` was therefore not needed here;
+// translating schema.rb is safe. (Other droplets in the fleet HAVE needed the
+// pull — this one genuinely does not.)
+//
+// Consequences that are deliberate and should not be "tidied":
+//
+//   * Primary keys are `BigInt`, because Rails 8 creates `bigserial` ids. They
+//     surface in TypeScript as `bigint`; convert with `String(id)` before
+//     handing one to a client component or to JSON.
+//   * Booleans Rails left nullable are `Boolean?`. Prisma throws
+//     `Inconsistent column data` when it reads a NULL into a required Boolean,
+//     so a single legacy row would break every read of that table.
+//   * Nullability, defaults and indexes mirror db/schema.rb EXACTLY, including
+//     which indexes are unique AND what they are named (`map:` on every index).
+//     `cloudbuild-next.yml` deliberately has no migration step, so nothing here
+//     is ever applied — but `pnpm db:push` run by hand would happily reshape a
+//     live Rails schema, and a `@unique` Rails does not have would then be an
+//     ALTER against a live table. In particular `companies.fluid_company_id`,
+//     `companies.fluid_shop`, `companies.company_droplet_uuid` and
+//     `integration_settings.company_id` are NOT unique — look them up with
+//     findFirst, never findUnique.
+//   * `exigo_autoship_snapshots.external_ids` is `@db.Json`, because Rails
+//     declared `t.json` (not `t.jsonb`) there. Prisma's `Json` defaults to
+//     `jsonb`, and without the attribute `db push` would try to retype a live
+//     column.
+//
+// The one table NOT in db/schema.rb at the time of writing is
+// FluidCallbackRegistration. It is owned by @fluid-app/droplet-sdk and is
+// additive — the Rails app neither reads nor writes it, so both apps can run
+// against this database at once. It is created by a RAILS migration
+// (db/migrate/20260903000001_create_fluid_callback_registrations.rb), because
+// Rails owns this schema and a table that exists only as a Prisma model exists
+// nowhere at all.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Rails: `companies`. One row per Fluid company that installed this droplet.
+model Company {
+  id BigInt @id @default(autoincrement())
+
+  fluidShop                String    @map("fluid_shop")
+  authenticationToken      String    @unique(map: "index_companies_on_authentication_token") @map("authentication_token")
+  name                     String
+  settings                 Json?     @default("{}")
+  webhookVerificationToken String?   @map("webhook_verification_token")
+  fluidCompanyId           BigInt    @map("fluid_company_id")
+  serviceCompanyId         String?   @map("service_company_id")
+  companyDropletUuid       String?   @map("company_droplet_uuid")
+  active                   Boolean?  @default(false)
+  uninstalledAt            DateTime? @map("uninstalled_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// No index in Rails, and none here. `companies` holds a handful of rows and
+  /// adding one would be a `db push` ALTER against a live table for nothing.
+  dropletInstallationUuid String? @map("droplet_installation_uuid")
+
+  /// Fluid `cbr_` uuids of the callback registrations created for this company
+  /// at install time. Rails stored this as jsonb defaulting to [].
+  installedCallbackIds Json? @default("[]") @map("installed_callback_ids")
+
+  events                   Event[]
+  integrationSettings      IntegrationSetting[]
+  cartPricingEvents        CartPricingEvent[]
+  customerTypeTransactions CustomerTypeTransaction[]
+  exigoAutoshipSnapshots   ExigoAutoshipSnapshot[]
+  priceTypes               PriceType[]
+
+  @@index([active], map: "index_companies_on_active")
+  @@index([companyDropletUuid], map: "index_companies_on_company_droplet_uuid")
+  @@index([fluidCompanyId], map: "index_companies_on_fluid_company_id")
+  @@index([fluidShop], map: "index_companies_on_fluid_shop")
+  @@map("companies")
+}
+
+/// Rails: `callbacks`. The droplet's local catalogue of Fluid callback
+/// definitions, synced from GET /api/callback/definitions. A row is registered
+/// with Fluid on install only when it is `active` and has a url + timeout.
+///
+/// `name` is NOT unique in the database, despite the Rails model declaring
+/// `validates :name, uniqueness: true`. That is a real Rails-side gap (two
+/// concurrent syncs can create duplicates) but it is not this migration's to
+/// fix: adding @unique here would make `db push` add a constraint to a live
+/// table that may already violate it.
+model Callback {
+  id BigInt @id @default(autoincrement())
+
+  name             String?
+  description      String?
+  url              String?
+  timeoutInSeconds Int?     @map("timeout_in_seconds")
+  active           Boolean?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("callbacks")
+}
+
+/// Rails: `events`. Scoped to a company.
+///
+/// NOTHING in the Rails app writes this table — `grep` finds no `Event.create`
+/// anywhere. It is mapped so `db push` leaves it alone and so `companies` keeps
+/// the foreign key. Do not invent an audit trail that did not exist.
+model Event {
+  id BigInt @id @default(autoincrement())
+
+  identifier String?
+  name       String?
+  payload    Json?     @default("{}")
+  timestamp  DateTime?
+  /// ActiveRecord enum: 0 pending, 1 processed, 2 failed. The default lives in
+  /// the Rails model, not the column, so this is a plain nullable integer.
+  status     Int?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  companyId BigInt  @map("company_id")
+  company   Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId], map: "index_events_on_company_id")
+  @@index([identifier], map: "index_events_on_identifier")
+  @@index([name], map: "index_events_on_name")
+  @@map("events")
+}
+
+/// Rails: `integration_settings`. Per-company Exigo credentials plus the
+/// schemaless `settings` jsonb whose keys have in-code defaults — see
+/// src/lib/integration-settings.
+model IntegrationSetting {
+  id BigInt @id @default(autoincrement())
+
+  companyId   BigInt   @map("company_id")
+  enabled     Boolean? @default(false)
+  settings    Json?    @default("{}")
+  credentials Json?    @default("{}")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  // Non-unique, matching Rails, even though the Rails model declares `has_one`.
+  // db/schema.rb has `t.index ["company_id"]` with no `unique: true`.
+  // Declaring @unique here would make `prisma db push` try to add a constraint
+  // to a live table — failing outright if any company has more than one row,
+  // and silently tightening the schema if not.
+  @@index([companyId], map: "index_integration_settings_on_company_id")
+  @@map("integration_settings")
+}
+
+/// Rails: `settings`. Droplet-wide configuration, each row a JSON Schema plus
+/// the values validated against it. See src/lib/settings.
+model Setting {
+  id BigInt @id @default(autoincrement())
+
+  name        String  @unique(map: "index_settings_on_name")
+  description String?
+  values      Json?   @default("{}")
+  schema      Json
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+/// Rails: `users`, created by Devise. `encrypted_password` is a plain bcrypt
+/// digest (devise.rb leaves `config.pepper` commented out, stretches 12), so
+/// Auth.js verifies existing rows directly and no user needs a password reset.
+model User {
+  id BigInt @id @default(autoincrement())
+
+  email             String @unique(map: "index_users_on_email") @default("")
+  encryptedPassword String @default("") @map("encrypted_password")
+
+  resetPasswordToken  String?   @unique(map: "index_users_on_reset_password_token") @map("reset_password_token")
+  resetPasswordSentAt DateTime? @map("reset_password_sent_at")
+  rememberCreatedAt   DateTime? @map("remember_created_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// Rails `t.string array: true` — a Postgres text[].
+  permissionSets String[] @default([]) @map("permission_sets")
+
+  @@map("users")
+}
+
+/// Rails: `webhooks`. `app/models/webhook.rb` is an empty class and nothing in
+/// the Rails app references it. Mapped so the table is accounted for and
+/// `db push` leaves it alone; no behaviour is ported.
+model Webhook {
+  id BigInt @id @default(autoincrement())
+
+  resource String?
+  event    String?
+  active   Boolean? @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("webhooks")
+}
+
+/// Rails: `price_types`. Per-company price type names, managed from the
+/// dropzone UI.
+model PriceType {
+  id BigInt @id @default(autoincrement())
+
+  companyId BigInt @map("company_id")
+  name      String
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, name], map: "index_price_types_on_company_id_and_name")
+  @@index([companyId], map: "index_price_types_on_company_id")
+  @@map("price_types")
+}
+
+/// Rails: `cart_pricing_events`. One row per cart event where this droplet
+/// decided whether preferred pricing applies. Written by the callback path,
+/// read by the dropzone dashboard.
+model CartPricingEvent {
+  id BigInt @id @default(autoincrement())
+
+  companyId BigInt @map("company_id")
+  /// `t.integer`, NOT bigint — Fluid cart ids are recorded as a plain int here.
+  cartId    Int?   @map("cart_id")
+  email     String?
+  /// ActiveRecord string-backed enum. A plain nullable String, not a Postgres
+  /// enum: creating a type would be a `db push` DDL against a live database.
+  eventType String? @map("event_type")
+
+  preferredPricingApplied Boolean? @default(false) @map("preferred_pricing_applied")
+  itemsCount              Int?     @map("items_count")
+  cartTotal               Decimal? @map("cart_total") @db.Decimal(10, 2)
+  metadata                Json?    @default("{}")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([cartId], map: "index_cart_pricing_events_on_cart_id")
+  @@index([companyId, createdAt], map: "index_cart_pricing_events_on_company_id_and_created_at")
+  @@index([companyId], map: "index_cart_pricing_events_on_company_id")
+  @@index([email], map: "index_cart_pricing_events_on_email")
+  @@map("cart_pricing_events")
+}
+
+/// Rails: `customer_type_transactions`. Audit trail of preferred/retail flips
+/// made by the nightly Exigo reconciliation.
+model CustomerTypeTransaction {
+  id BigInt @id @default(autoincrement())
+
+  companyId    BigInt  @map("company_id")
+  customerId   Int?    @map("customer_id")
+  externalId   String? @map("external_id")
+  previousType String? @map("previous_type")
+  newType      String? @map("new_type")
+  /// String-backed AR enum — plain String, same reasoning as
+  /// CartPricingEvent.eventType.
+  source       String?
+  metadata     Json?   @default("{}")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, createdAt], map: "index_customer_type_transactions_on_company_id_and_created_at")
+  @@index([companyId], map: "index_customer_type_transactions_on_company_id")
+  @@index([customerId], map: "index_customer_type_transactions_on_customer_id")
+  @@index([externalId], map: "index_customer_type_transactions_on_external_id")
+  @@map("customer_type_transactions")
+}
+
+/// Rails: `exigo_autoship_snapshots`. One row per nightly Exigo reconciliation
+/// run, holding the external ids that had an active autoship at that moment.
+model ExigoAutoshipSnapshot {
+  id BigInt @id @default(autoincrement())
+
+  companyId BigInt @map("company_id")
+  /// `t.json`, NOT `t.jsonb`. Prisma's `Json` maps to jsonb by default, so
+  /// without @db.Json a `db push` would ALTER a live column's type.
+  externalIds Json     @default("[]") @map("external_ids") @db.Json
+  syncedAt    DateTime @map("synced_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, syncedAt], map: "index_exigo_autoship_snapshots_on_company_id_and_synced_at")
+  @@index([companyId], map: "index_exigo_autoship_snapshots_on_company_id")
+  @@map("exigo_autoship_snapshots")
+}
+
+// ---------------------------------------------------------------------------
+// Owned by @fluid-app/droplet-sdk. Copied verbatim from
+// vendor/droplet-sdk/schema/callback-registrations.prisma — keep it identical
+// across the fleet so the shape survives the eventual Prisma -> Drizzle move.
+//
+// Only the digest is stored: Fluid presents the plaintext token on every
+// request, so a digest is enough to locate the registration, and a database
+// dump then yields no working callback credentials.
+// ---------------------------------------------------------------------------
+model FluidCallbackRegistration {
+  uuid           String @id
+  dri            String
+  definitionName String @map("definition_name")
+  tokenDigest    String @unique(map: "index_fluid_callback_registrations_on_token_digest") @map("token_digest")
+  url            String
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([dri], map: "index_fluid_callback_registrations_on_dri")
+  @@map("fluid_callback_registrations")
+}

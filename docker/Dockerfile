@@ -42,16 +42,16 @@ RUN apt-get update -qq && \
 
 # Install JavaScript dependencies
 ARG NODE_VERSION=23.8.0
-ARG YARN_VERSION=latest
 ENV PATH=/usr/local/node/bin:$PATH
 RUN curl -sL https://github.com/nodenv/node-build/archive/master.tar.gz | tar xz -C /tmp/ && \
     /tmp/node-build-master/bin/node-build "${NODE_VERSION}" /usr/local/node && \
-    npm install -g yarn@$YARN_VERSION && \
     rm -rf /tmp/node-build-master
 
-# Install Yarn
+# Install pnpm. The repo moved from yarn to pnpm when the Next app took over the
+# root package.json; the Rails frontend's Vite dependencies are still declared
+# there, and vite_ruby detects pnpm from the lockfile during assets:precompile.
 RUN corepack enable && \
-    corepack prepare yarn@4.7.0 --activate
+    corepack prepare pnpm@10.17.1 --activate
 
 # Install application gems
 COPY Gemfile Gemfile.lock ./
@@ -59,9 +59,11 @@ RUN bundle install && \
     rm -rf ~/.bundle/ "${BUNDLE_PATH}"/ruby/*/cache "${BUNDLE_PATH}"/ruby/*/bundler/gems/*/.git && \
     bundle exec bootsnap precompile --gemfile
 
-# Install node modules
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile
+# Install node modules. vendor/droplet-sdk is a `link:` dependency, so it has to
+# be present before pnpm can resolve the lockfile.
+COPY package.json pnpm-lock.yaml ./
+COPY vendor/droplet-sdk ./vendor/droplet-sdk
+RUN pnpm install --frozen-lockfile
 
 # Copy application code
 COPY . .
