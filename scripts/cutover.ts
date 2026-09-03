@@ -307,6 +307,34 @@ async function createAndPersist(
   return registration.uuid;
 }
 
+/**
+ * Applies `--only`, and REFUSES a name that is not an active row.
+ *
+ * Shared by repoint and reconcile. A typo that silently selected nothing meant
+ * `reconcile --only cart_ittem_added` printed "Nothing to fix" and exited zero,
+ * leaving the missing digest in place — and a missing digest means every
+ * callback for that definition is refused, which on the fail-open route is a
+ * silent 200.
+ */
+function selectDefinitions<T extends { name: string }>(
+  all: T[],
+  only: string[] | undefined,
+): T[] {
+  if (!only) return all;
+
+  const missing = only.filter((name) => !all.some((row) => row.name === name));
+  if (missing.length > 0) {
+    fail(
+      `  FAIL  --only names ${missing.join(", ")}, which ${
+        missing.length === 1 ? "is" : "are"
+      } not an ACTIVE row in the callbacks table. NOTHING has been changed. ` +
+        `Active: ${all.map((row) => row.name).join(", ") || "(none)"}`,
+    );
+  }
+
+  return all.filter((row) => only.includes(row.name));
+}
+
 async function status(handle: string) {
   const company = await loadCompany(handle);
   const dri = company.dropletInstallationUuid!;
@@ -489,23 +517,7 @@ async function repoint(
   // every repoint moved all nine definitions, so the documented
   // "cart_country_changed first, hold a week" canary silently moved the four
   // callbacks that reprice every line of every cart as well.
-  const active = only
-    ? allActive.filter((callback) => only.includes(callback.name))
-    : allActive;
-
-  if (only) {
-    const missing = only.filter(
-      (name) => !allActive.some((callback) => callback.name === name),
-    );
-    if (missing.length > 0) {
-      fail(
-        `  FAIL  --only names ${missing.join(", ")}, which ${
-          missing.length === 1 ? "is" : "are"
-        } not an ACTIVE row in the callbacks table. NOTHING has been changed. ` +
-          `Active: ${allActive.map((c) => c.name).join(", ") || "(none)"}`,
-      );
-    }
-  }
+  const active = selectDefinitions(allActive, only);
 
   // ---- PREFLIGHT ----------------------------------------------------------
   // Every definition is resolved before ANY of them is mutated. Resolving as we
@@ -816,9 +828,7 @@ async function reconcile(
   // so reconcile would report "Nothing to fix" for exactly the half-moved state
   // it exists to repair.
   const allActive = await activeCallbacks({ enforceServes: false });
-  const active = only
-    ? allActive.filter((callback) => only.includes(callback.name))
-    : allActive;
+  const active = selectDefinitions(allActive, only);
 
   // Resolved per definition against its EXACT expected destination, using the
   // same one-candidate rule repoint uses.
@@ -941,7 +951,7 @@ async function main() {
         "  pnpm cutover status    <fluid_shop>\n" +
         "  APPLY=1 pnpm cutover repoint   <fluid_shop> --url https://... [--from https://old]\n" +
         "                                 [--paths next|rails] [--only def1,def2] [--with-webhooks]\n" +
-        "  APPLY=1 pnpm cutover reconcile <fluid_shop> --url https://...",
+        "  APPLY=1 pnpm cutover reconcile <fluid_shop> --url https://... [--paths next|rails] [--only def1,def2]",
     );
   }
 

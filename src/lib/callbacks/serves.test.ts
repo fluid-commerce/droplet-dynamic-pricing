@@ -9,7 +9,7 @@
  * exist.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { servesCallbackUrl } from "./registration";
 
@@ -101,5 +101,89 @@ describe("servesCallbackUrl", () => {
     expect(
       servesCallbackUrl(` https://${own}/api/callbacks/cart-item-added/ `, hosts),
     ).toBe(true);
+  });
+});
+
+/**
+ * The WIRING, not just the predicate.
+ *
+ * The tests above prove `servesCallbackUrl` accepts a Rails path on the Rails
+ * host. They do not prove `activeCallbacks()` ever asks it the right question —
+ * and that is where the new-install window actually closes. A broken
+ * `hostServerBaseUrl()` lookup, or the hosts object being assembled wrongly,
+ * would leave a fresh installation with zero callback registrations while every
+ * assertion above stayed green.
+ */
+describe("activeCallbacks", () => {
+  const rows = (url: string) => [
+    { name: "cart_item_added", url, timeoutInSeconds: 20 },
+  ];
+
+  async function subject(
+    url: string,
+    { railsBaseUrl }: { railsBaseUrl?: string } = {},
+  ) {
+    vi.resetModules();
+    process.env.FLUID_DROPLET_URL = "https://next.example.run.app";
+
+    vi.doMock("@/lib/db", () => ({
+      prisma: { callback: { findMany: vi.fn(async () => rows(url)) } },
+    }));
+    vi.doMock("@/lib/settings", () => ({
+      hostServerBaseUrl: vi.fn(async () => {
+        if (!railsBaseUrl) throw new Error("no host_server row");
+        return railsBaseUrl;
+      }),
+    }));
+
+    const { activeCallbacks } = await import("./registration");
+    return activeCallbacks();
+  }
+
+  afterEach(() => {
+    vi.doUnmock("@/lib/db");
+    vi.doUnmock("@/lib/settings");
+    vi.resetModules();
+  });
+
+  it("registers a row already pointing at this app", async () => {
+    const active = await subject(
+      "https://next.example.run.app/api/callbacks/cart-item-added",
+    );
+    expect(active.map((c) => c.name)).toEqual(["cart_item_added"]);
+  });
+
+  it("registers a row still pointing at RAILS, closing the new-install window", async () => {
+    const active = await subject(
+      "https://rails.example.run.app/callbacks/cart_item_added",
+      { railsBaseUrl: "https://rails.example.run.app" },
+    );
+    expect(active.map((c) => c.name)).toEqual(["cart_item_added"]);
+  });
+
+  it("refuses a Rails-path row when host_server names a different host", async () => {
+    const active = await subject(
+      "https://somewhere-else.example.com/callbacks/cart_item_added",
+      { railsBaseUrl: "https://rails.example.run.app" },
+    );
+    expect(active).toEqual([]);
+  });
+
+  it("refuses a Rails-path row when host_server cannot be read at all", async () => {
+    // Fails CLOSED. Without a host to compare against, "a Rails path on the
+    // Rails host" is not a question that can be answered, and registering a url
+    // this app cannot vouch for is how the verify_email_success 404 loop began.
+    const active = await subject(
+      "https://rails.example.run.app/callbacks/cart_item_added",
+    );
+    expect(active).toEqual([]);
+  });
+
+  it("refuses a path neither app routes", async () => {
+    const active = await subject(
+      "https://next.example.run.app/api/callbacks/verify-email-success",
+      { railsBaseUrl: "https://rails.example.run.app" },
+    );
+    expect(active).toEqual([]);
   });
 });

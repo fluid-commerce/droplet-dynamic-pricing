@@ -84,6 +84,13 @@ async function rollbackRegistration(
  *
  * The Rails host is not guessed: it is `Setting.host_server.base_url`, the same
  * value the Rails install job built those urls from.
+ *
+ * That does mean an actor who can write BOTH the `host_server` setting AND a
+ * `callbacks` row could have callbacks delivered to a host of their choosing.
+ * It is not an expansion of trust: `Callback.serves?` on the Rails side derives
+ * its single permitted host from exactly the same setting, both are behind the
+ * Devise-guarded `/admin` tree, and either capability alone is insufficient.
+ * Worth knowing if a less-privileged operator role is ever added.
  */
 export function servesCallbackUrl(
   url: string,
