@@ -108,6 +108,53 @@ describe "Callback.ensure_served!" do
     refute Callback.find_by(name: "cart_item_updated").active
   end
 
+  # The counterpart of creating what we serve. validate_url_is_served refuses to
+  # SAVE such a row as active, but rows activated before that validation existed
+  # are still in the table active — which is how the droplet's own list claimed
+  # verify_email_success was on long after its route was deleted.
+  #
+  # Route-based on purpose, like serves? itself: deleting a Callbacks:: route is
+  # what retires a callback, with no second list to remember to edit.
+  it "deactivates an active row whose URL it no longer serves" do
+    stale = Callback.create!(
+      name: "verify_email_success",
+      description: "route deleted after activation",
+      url: "#{BASE_URL}/callbacks/cart_item_added",
+      timeout_in_seconds: 5,
+      active: true
+    )
+    stale.update_column(:url, "#{BASE_URL}/callbacks/verify_email_success")
+
+    Callback.ensure_served!
+
+    refute stale.reload.active, "a row this droplet cannot answer must not stay active"
+  end
+
+  it "leaves an active row it does serve alone" do
+    served = Callback.create!(
+      name: "cart_item_added",
+      description: "served",
+      url: "#{BASE_URL}/callbacks/cart_item_added",
+      timeout_in_seconds: 5,
+      active: true
+    )
+
+    Callback.ensure_served!
+
+    assert served.reload.active
+  end
+
+  # Already off is already correct: no write, and the row keeps the shape the
+  # sync gave it so a later host change can still configure it.
+  it "leaves an already inactive stale row untouched" do
+    stale = Callback.create!(name: "verify_email_success", description: "catalogue", active: false)
+
+    Callback.ensure_served!
+
+    refute stale.reload.active
+    _(stale.reload.url).must_be_nil
+  end
+
   it "does nothing when the host is not configured yet" do
     Setting.find_by(name: "host_server").update!(values: { "base_url" => "" })
 

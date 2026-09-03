@@ -58,6 +58,34 @@ class Callback < ApplicationRecord
       callback.active = true
       callback.save
     end
+
+    deactivate_unserved!
+  end
+
+  # Public: Switch off any row still marked active whose URL this droplet does
+  # not answer.
+  #
+  # validate_url_is_served refuses to SAVE such a row as active, but rows
+  # activated before that validation existed are still in the table active —
+  # which is how the droplet's own list claimed verify_email_success was on for
+  # weeks after its route was deleted. Nothing registers them (both the model
+  # and the install job refuse the URL), so this is about the list telling the
+  # truth.
+  #
+  # Route-based, like serves? itself: deleting a Callbacks:: route is what
+  # retires a callback, with no second list to remember to edit.
+  #
+  # Returns nothing.
+  def self.deactivate_unserved!
+    active.find_each do |callback|
+      next if serves?(callback.url)
+
+      callback.update_column(:active, false)
+      Rails.logger.warn(
+        "[Callback] Deactivated #{callback.name}: #{callback.url.inspect} " \
+        "is not a callback URL this droplet serves"
+      )
+    end
   end
 
   # Public: Whether this droplet answers callbacks at the given URL.
