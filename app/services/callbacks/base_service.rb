@@ -940,60 +940,32 @@ private
   end
 
   def is_preferred_customer?(email)
-    customer_id = email.blank? ? nil : (cart_customer_id || get_customer_id_by_email(email))
-    answer, reason = resolve_preferred_customer(email, customer_id)
-    log_preferred_decision(answer: answer, reason: reason, customer_id: customer_id)
-    answer
-  end
+    return false if email.blank?
 
-  # Returns [answer, reason]. The reason is the signal that settled it, and it
-  # is the whole point of the log line above: preferred pricing has several
-  # legitimate sources, and telling them apart after the fact used to mean
-  # inferring from which writes did not appear in the log.
-  #
-  # The active-subscription override is kept on BOTH sources on purpose. It
-  # exists so the two callback paths cannot disagree and oscillate the cart
-  # price (STU2-2531), and on the member-type path it is not redundant with the
-  # member type: it is a behavioral signal rather than an assigned one, so it
-  # catches a connector that has not caught up with a new autoship yet.
-  def resolve_preferred_customer(email, customer_id)
-    return [ false, "blank_email" ] if email.blank?
+    customer_id = cart_customer_id || get_customer_id_by_email(email)
 
+    # The active-subscription override below is kept on BOTH sources on purpose.
+    # It exists so the two callback paths cannot disagree and oscillate the cart
+    # price (STU2-2531), and on the member-type path it is not redundant with
+    # the member type: it is a behavioral signal rather than an assigned one, so
+    # it catches a connector that has not caught up with a new autoship yet.
     if preferred_from_fluid_member_type?
-      return [ true, "member_type" ] if fluid_member_preferred?(customer_id: customer_id, email: email)
-      return [ true, "active_subscription" ] if customer_id.present? && has_active_subscriptions?(customer_id)
+      return true if fluid_member_preferred?(customer_id: customer_id, email: email)
+      return true if customer_id.present? && has_active_subscriptions?(customer_id)
 
       # No Exigo fallback: the whole point of this source is that the
       # installation does not read Exigo.
-      return [ false, "member_type" ]
+      return false
     end
 
     if customer_id.present?
       customer_type = get_customer_type_from_metafields(customer_id)
-      return [ true, "metafield" ] if customer_type == PREFERRED_CUSTOMER_TYPE
+      return true if customer_type == PREFERRED_CUSTOMER_TYPE
 
-      return [ true, "active_subscription" ] if has_active_subscriptions?(customer_id)
+      return true if has_active_subscriptions?(customer_id)
     end
 
-    [ exigo_preferred_by_email?(email), exigo_signal_reason ]
-  end
-
-  def exigo_signal_reason
-    exigo_integration_setting&.exigo_preferred_by_customer_type? ? "exigo_customer_type" : "exigo_autoship"
-  end
-
-  # One line per decision. lookup_failed matters as much as the answer: a
-  # negative reached after a failed read is not a verified "retail", and
-  # reading the line without it invites the wrong conclusion.
-  def log_preferred_decision(answer:, reason:, customer_id:)
-    Rails.logger.info(
-      "[DynamicPricing] marker=preferred-decision " \
-      "source=#{preferred_from_fluid_member_type? ? 'fluid_member_type' : 'exigo'} " \
-      "reason=#{reason} preferred=#{answer} customer=#{customer_id.inspect} " \
-      "lookup_failed=#{preferred_lookup_failed?} cart=#{cart_token.inspect}"
-    )
-  rescue StandardError
-    nil
+    exigo_preferred_by_email?(email)
   end
 
   def preferred_from_fluid_member_type?
