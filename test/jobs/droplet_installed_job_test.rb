@@ -189,6 +189,76 @@ describe DropletInstalledJob do
       _(company.name).must_equal "Error Test Shop"
     end
 
+    # The droplet has answered cart_customer_attached and cart_customer_detached
+    # all along, but nothing ever created rows for them, so no install
+    # registered either one and logout never reached the droplet.
+    it "registers the cart customer attach and detach callbacks on install" do
+      ::Callback.delete_all
+      registered = []
+      fake_registrations = Object.new
+      fake_registrations.define_singleton_method(:create) do |attrs|
+        registered << attrs[:definition_name]
+        { "callback_registration" => { "uuid" => "reg-#{attrs[:definition_name]}" } }
+      end
+      fake_client = Object.new
+      fake_client.define_singleton_method(:callback_registrations) { fake_registrations }
+      fake_client.define_singleton_method(:webhooks) do
+        w = Object.new
+        w.define_singleton_method(:create) { |_a| { "webhook" => { "id" => 1 } } }
+        w
+      end
+
+      payload = { "company" => {
+        "fluid_shop" => "attach-detach-shop",
+        "name" => "Attach Detach Shop",
+        "fluid_company_id" => 909,
+        "droplet_uuid" => "attach-detach-uuid",
+        "authentication_token" => "attach-detach-token",
+        "webhook_verification_token" => "attach-detach-verify",
+        "droplet_installation_uuid" => "attach-detach-installation",
+      } }
+
+      FluidClient.stub(:new, fake_client) do
+        DropletInstalledJob.perform_now(payload)
+      end
+
+      _(registered).must_include "cart_customer_attached"
+      _(registered).must_include "cart_customer_detached"
+    end
+
+    it "registers every callback this droplet serves, not just the ones someone activated" do
+      ::Callback.delete_all
+      registered = []
+      fake_registrations = Object.new
+      fake_registrations.define_singleton_method(:create) do |attrs|
+        registered << attrs[:definition_name]
+        { "callback_registration" => { "uuid" => "reg-#{attrs[:definition_name]}" } }
+      end
+      fake_client = Object.new
+      fake_client.define_singleton_method(:callback_registrations) { fake_registrations }
+      fake_client.define_singleton_method(:webhooks) do
+        w = Object.new
+        w.define_singleton_method(:create) { |_a| { "webhook" => { "id" => 1 } } }
+        w
+      end
+
+      payload = { "company" => {
+        "fluid_shop" => "all-served-shop",
+        "name" => "All Served Shop",
+        "fluid_company_id" => 910,
+        "droplet_uuid" => "all-served-uuid",
+        "authentication_token" => "all-served-token",
+        "webhook_verification_token" => "all-served-verify",
+        "droplet_installation_uuid" => "all-served-installation",
+      } }
+
+      FluidClient.stub(:new, fake_client) do
+        DropletInstalledJob.perform_now(payload)
+      end
+
+      _(registered.sort).must_equal ::Callback::SERVED_PATHS.keys.sort
+    end
+
     it "handles no active callbacks" do
       # Ensure no active callbacks exist
       ::Callback.update_all(active: false)
@@ -289,7 +359,9 @@ describe DropletInstalledJob do
 
       registered_names = captured_attributes.map { |attributes| attributes[:definition_name] }
       refute_includes registered_names, "stale_callback"
-      _(Company.find_by(fluid_shop: "stale-callback-shop").installed_callback_ids).must_be_empty
+      # The served callbacks still register — the refusal is targeted at the row
+      # whose URL this droplet cannot answer, not a blanket abort.
+      _(registered_names.sort).must_equal ::Callback::SERVED_PATHS.keys.sort
     end
 
     it "merges newly installed callback ids with those already recorded" do

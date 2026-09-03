@@ -27,13 +27,16 @@ private
     end
   end
 
+  # A sync imports Fluid's whole catalogue, most of which this droplet has no
+  # handler for, so a NEW row arrives switched off. An existing row keeps its
+  # active flag, URL and timeout: reassigning active: false here switched off
+  # every callback an install had turned on, and the droplet stopped receiving
+  # them with nothing logged.
   def create_or_update_callback(definition)
     callback = Callback.find_or_initialize_by(name: definition["name"])
 
-    callback.assign_attributes(
-      description: definition["description"],
-      active: false
-    )
+    callback.description = definition["description"]
+    callback.active = false unless callback.persisted?
 
     callback.save!
   rescue => e

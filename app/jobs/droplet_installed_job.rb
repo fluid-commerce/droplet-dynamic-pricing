@@ -111,6 +111,13 @@ private
   end
 
   def register_active_callbacks(company)
+    # Before reading the table, make sure it actually describes this droplet.
+    # It used to be filled only by CallbackSyncService plus an operator
+    # clicking activate, so a callback nobody clicked was never registered —
+    # which is how cart_customer_attached and cart_customer_detached went
+    # unregistered despite having routes and services all along.
+    ::Callback.ensure_served!
+
     client = FluidClient.new(company.authentication_token)
     active_callbacks = ::Callback.active
     installed_callback_ids = []
