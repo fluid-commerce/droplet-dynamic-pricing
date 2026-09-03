@@ -35,6 +35,23 @@
 //     `jsonb`, and without the attribute `db push` would try to retype a live
 //     column.
 //
+// Two differences that are NOT reconciled, deliberately, because nothing here
+// is ever applied to the database:
+//
+//   * Prisma renders `String` as `text` and `DateTime` as `timestamp(3)`, while
+//     Rails created `varchar` and `timestamp`. `prisma migrate diff` will
+//     therefore report those columns as changed. They are not: both are read
+//     and written identically through the driver.
+//   * `@default(now())` is declared on columns whose Rails counterparts have no
+//     DATABASE default. That is fine because Prisma Client generates the
+//     timestamp itself and sends it in the INSERT — verified against a
+//     Rails-shaped table (`created_at timestamp NOT NULL`, no default) with a
+//     `create()` that omitted both timestamps; the row was written with both
+//     populated. It is NOT relying on a database default that does not exist.
+//
+// Both are further reasons `pnpm db:push` must never be run against a live
+// database: it would rewrite column types Rails owns.
+//
 // The one table NOT in db/schema.rb at the time of writing is
 // FluidCallbackRegistration. It is owned by @fluid-app/droplet-sdk and is
 // additive — the Rails app neither reads nor writes it, so both apps can run

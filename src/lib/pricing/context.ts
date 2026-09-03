@@ -255,8 +255,18 @@ export class PricingContext {
    * could collide across companies.
    */
   private preferredLookupKey(kind: string, identifier: unknown): string | null {
-    const companyId = this.reportingCompanyId;
-    if (isBlank(companyId) || isBlank(identifier)) return null;
+    // The VERIFIED tenant, not `cart.company.id`.
+    //
+    // Ruby namespaced this with the payload's company id, which was harmless
+    // there because the callback routes were unauthenticated and the payload
+    // WAS the tenant. It is not harmless now: the routes deliberately serve a
+    // request as the registration's company whatever the body claims, so a
+    // request signed by tenant A naming tenant B would write A's answer into
+    // B's namespace — and this cache outlives the request. B's next cart for
+    // the same customer id or email would then read A's preferred decision and
+    // be priced on it.
+    const companyId = this.deps.company.id;
+    if (isBlank(identifier)) return null;
 
     return `dynamic_pricing:preferred:${kind}:${String(companyId)}:${this.deps.cache.digest(
       String(identifier),
@@ -642,8 +652,17 @@ export class PricingContext {
    * STU2-3108 bug.
    */
   get cartPricingCountry(): unknown {
+    // Ruby's `||`, which falls through on nil and false ONLY. An empty
+    // `country_code` is TRUTHY in Ruby, so it stops the chain and is returned
+    // as `""` — which `cart_pricing_country.blank?` then reads as "cannot
+    // resolve", and the payload price is forwarded unchecked.
+    //
+    // `isPresent` here instead would fall through to `country.iso`, run the
+    // cross-country guard against a country the payload never claimed, and
+    // could substitute or refuse a price where Rails forwarded it. Narrow, but
+    // it is a different charge.
     const own = field(this.cart, "country_code");
-    if (isPresent(own)) return own;
+    if (own !== null && own !== undefined && own !== false) return own;
 
     const country = field(this.cart, "country");
     if (typeof country === "string") return country;

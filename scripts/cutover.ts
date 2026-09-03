@@ -315,7 +315,10 @@ async function status(handle: string) {
   const [live, stored, active] = await Promise.all([
     fluidRegistrations(client),
     storedFor(dri),
-    activeCallbacks(),
+    // `enforceServes: false`: status must SHOW the rows that still hold the
+    // Rails urls, since "which rows are still on a Rails path" is one of the
+    // questions it exists to answer.
+    activeCallbacks({ enforceServes: false }),
   ]);
   const storedByUuid = new Map(stored.map((row) => [row.uuid, row]));
 
@@ -467,6 +470,8 @@ async function repoint(
   targetUrl: string,
   fromUrl?: string,
   direction: Direction = "next",
+  only?: string[],
+  includeWebhooks = true,
 ) {
   const company = await loadCompany(handle);
   const dri = company.dropletInstallationUuid!;
@@ -478,7 +483,29 @@ async function repoint(
   // `enforceServes: false`: during a Rails -> Next move these rows still hold
   // the Rails urls, which the registration-time guard would reject. The
   // destination is computed from the definition name below, not from the row.
-  const active = await activeCallbacks({ enforceServes: false });
+  const allActive = await activeCallbacks({ enforceServes: false });
+
+  // `--only` is what makes the phased rollout in CUTOVER.md real. Without it
+  // every repoint moved all nine definitions, so the documented
+  // "cart_country_changed first, hold a week" canary silently moved the four
+  // callbacks that reprice every line of every cart as well.
+  const active = only
+    ? allActive.filter((callback) => only.includes(callback.name))
+    : allActive;
+
+  if (only) {
+    const missing = only.filter(
+      (name) => !allActive.some((callback) => callback.name === name),
+    );
+    if (missing.length > 0) {
+      fail(
+        `  FAIL  --only names ${missing.join(", ")}, which ${
+          missing.length === 1 ? "is" : "are"
+        } not an ACTIVE row in the callbacks table. NOTHING has been changed. ` +
+          `Active: ${allActive.map((c) => c.name).join(", ") || "(none)"}`,
+      );
+    }
+  }
 
   // ---- PREFLIGHT ----------------------------------------------------------
   // Every definition is resolved before ANY of them is mutated. Resolving as we
@@ -554,66 +581,87 @@ async function repoint(
   // `--webhook-path /webhook`.
   const webhookDestination = (w: { resource: string; event: string }) =>
     `${targetUrl}${webhookPathFor(w.resource, w.event, direction)}`;
-  let webhookPlans: FluidWebhook[] = [];
-  try {
-    const webhooks = ((await client.listWebhooks())?.webhooks ??
-      []) as FluidWebhook[];
-    const mine = ourWebhooks(webhooks, [
-      targetUrl,
-      ...(fromUrl ? [fromUrl] : []),
-    ]);
 
-    // COMPLETENESS, matching the callback preflight. Silently proceeding with
-    // whatever subset happened to match is how a company ends up split: a
-    // webhook whose url has drifted to something this tool does not recognise
-    // is simply absent from `mine`, and the run would move everything else and
-    // print Done.
-    //
-    // Exactly one registration per enabled definition, or stop.
-    const enabled = dropletConfig.webhooks.filter((w) => w.enabled !== false);
-    const problems: string[] = [];
-    for (const definition of enabled) {
-      const matches = mine.filter(
-        (w) => w.resource === definition.resource && w.event === definition.event,
-      );
-      const label = `${definition.resource}.${definition.event}`;
-      if (matches.length === 0) {
-        const drifted = webhooks.filter(
+  // The signing key these webhooks keep. See the update call below for why it
+  // must be the company's own token and not the shared one. Checked only when
+  // webhooks are actually being moved — a callback-only repoint has no business
+  // failing over a webhook credential it never touches.
+  if (includeWebhooks && !company.webhookVerificationToken) {
+    fail(
+      `  FAIL  ${company.fluidShop} has no webhook_verification_token. Moving ` +
+        `its subscription webhooks would have to blank or replace their signing ` +
+        `key, and the Next routes verify against exactly that value. NOTHING ` +
+        `has been changed.`,
+    );
+  }
+  const webhookAuthToken = company.webhookVerificationToken ?? "";
+  let webhookPlans: FluidWebhook[] = [];
+  if (!includeWebhooks) {
+    console.log(
+      "  NOTE  webhooks are NOT being moved (--only was given without " +
+        "--with-webhooks). They stay where they are.\n",
+    );
+  } else {
+    try {
+      const webhooks = ((await client.listWebhooks())?.webhooks ??
+        []) as FluidWebhook[];
+      const mine = ourWebhooks(webhooks, [
+        targetUrl,
+        ...(fromUrl ? [fromUrl] : []),
+      ]);
+
+      // COMPLETENESS, matching the callback preflight. Silently proceeding with
+      // whatever subset happened to match is how a company ends up split: a
+      // webhook whose url has drifted to something this tool does not recognise
+      // is simply absent from `mine`, and the run would move everything else and
+      // print Done.
+      //
+      // Exactly one registration per enabled definition, or stop.
+      const enabled = dropletConfig.webhooks.filter((w) => w.enabled !== false);
+      const problems: string[] = [];
+      for (const definition of enabled) {
+        const matches = mine.filter(
           (w) => w.resource === definition.resource && w.event === definition.event,
         );
-        problems.push(
-          drifted.length === 0
-            ? `    ${label}: not registered with Fluid at all`
-            : `    ${label}: registered at an unrecognised url — ` +
-              drifted.map((w) => w.url).join(", "),
-        );
-      } else if (matches.length > 1) {
-        // Two owners can subscribe to the same resource+event. Repointing the
-        // wrong one is an outage for the other droplet.
-        problems.push(
-          `    ${label}: ${matches.length} registrations match — ` +
-            matches.map((w) => `${w.id} ${w.url}`).join(", "),
+        const label = `${definition.resource}.${definition.event}`;
+        if (matches.length === 0) {
+          const drifted = webhooks.filter(
+            (w) => w.resource === definition.resource && w.event === definition.event,
+          );
+          problems.push(
+            drifted.length === 0
+              ? `    ${label}: not registered with Fluid at all`
+              : `    ${label}: registered at an unrecognised url — ` +
+                drifted.map((w) => w.url).join(", "),
+          );
+        } else if (matches.length > 1) {
+          // Two owners can subscribe to the same resource+event. Repointing the
+          // wrong one is an outage for the other droplet.
+          problems.push(
+            `    ${label}: ${matches.length} registrations match — ` +
+              matches.map((w) => `${w.id} ${w.url}`).join(", "),
+          );
+        }
+      }
+      if (problems.length > 0) {
+        fail(
+          `  FAIL  this company's webhooks cannot be resolved unambiguously. ` +
+            `NOTHING has been changed:\n${problems.join("\n")}\n` +
+            `\n  Moving the callbacks without them would split this company ` +
+            `across both apps.`,
         );
       }
-    }
-    if (problems.length > 0) {
+
+      webhookPlans = mine.filter((w) => w.url !== webhookDestination(w));
+    } catch (error) {
+      // `fail()` calls process.exit, so the completeness check above cannot land
+      // here — this only catches a genuine listing failure.
       fail(
-        `  FAIL  this company's webhooks cannot be resolved unambiguously. ` +
-          `NOTHING has been changed:\n${problems.join("\n")}\n` +
-          `\n  Moving the callbacks without them would split this company ` +
-          `across both apps.`,
+        `  FAIL  could not list webhooks (${error instanceof Error ? error.message : error}). ` +
+          `NOTHING has been changed — refusing to move callbacks without knowing ` +
+          `where this company's webhooks point.`,
       );
     }
-
-    webhookPlans = mine.filter((w) => w.url !== webhookDestination(w));
-  } catch (error) {
-    // `fail()` calls process.exit, so the completeness check above cannot land
-    // here — this only catches a genuine listing failure.
-    fail(
-      `  FAIL  could not list webhooks (${error instanceof Error ? error.message : error}). ` +
-        `NOTHING has been changed — refusing to move callbacks without knowing ` +
-        `where this company's webhooks point.`,
-    );
   }
 
   console.log(
@@ -681,7 +729,8 @@ async function repoint(
           `\n  This company is now SPLIT across two apps. Already moved:\n${moved}\n` +
           `\n  Put them back with:\n` +
           `    APPLY=1 pnpm cutover repoint ${handle} --url ${fromUrl ?? "<old url>"} ` +
-          `--from ${targetUrl} --paths ${direction === "next" ? "rails" : "next"}\n` +
+          `--from ${targetUrl} --paths ${direction === "next" ? "rails" : "next"}` +
+          `${only ? ` --only ${only.join(",")}` : ""}${includeWebhooks && only ? " --with-webhooks" : ""}\n` +
           `  then investigate before trying again.`,
       );
     }
@@ -695,11 +744,19 @@ async function repoint(
       // Fluid's update takes the whole registration rather than a patch, so
       // fields we are not changing are sent back unchanged; omitting them would
       // blank the subscription this webhook exists for.
+      //
+      // `auth_token` is the COMPANY's own verification token, NOT
+      // FLUID_WEBHOOK_AUTH_TOKEN. Fluid HMACs a webhook with the token stored
+      // ON that webhook (`Webhook#request_headers`), and install registers
+      // these with the company's token — so sending the shared one here would
+      // rotate the signing key out from under the routes, which verify against
+      // `company.webhook_verification_token`. Every moved subscription webhook
+      // would then be refused with a 401 by the app it was just moved to.
       await client.updateWebhook(String(webhook.id), {
         resource: webhook.resource,
         event: webhook.event,
         url: webhookDestination(webhook),
-        auth_token: process.env.FLUID_WEBHOOK_AUTH_TOKEN ?? "",
+        auth_token: webhookAuthToken,
         active: true,
       });
       movedWebhooks.push(label);
@@ -721,7 +778,8 @@ async function repoint(
           `\n  This company is now SPLIT. Already moved:\n${callbacks}\n${webhooksMoved}\n` +
           `\n  Put them back with:\n` +
           `    APPLY=1 pnpm cutover repoint ${handle} --url ${fromUrl ?? "<old url>"} ` +
-          `--from ${targetUrl} --paths ${direction === "next" ? "rails" : "next"}`,
+          `--from ${targetUrl} --paths ${direction === "next" ? "rails" : "next"}` +
+          `${only ? ` --only ${only.join(",")}` : ""}${includeWebhooks && only ? " --with-webhooks" : ""}`,
       );
     }
   }
@@ -739,7 +797,12 @@ async function repoint(
  * whose digest we lost — a crashed cutover, a restore from a backup taken
  * before it — can simply be adopted again.
  */
-async function reconcile(handle: string, targetUrl: string) {
+async function reconcile(
+  handle: string,
+  targetUrl: string,
+  direction: Direction = "next",
+  only?: string[],
+) {
   const company = await loadCompany(handle);
   const dri = company.dropletInstallationUuid!;
   const client = createFluidClient(company.authenticationToken);
@@ -747,7 +810,15 @@ async function reconcile(handle: string, targetUrl: string) {
   const live = await fluidRegistrations(client);
   const stored = await storedFor(dri);
   const heldUuids = new Set(stored.map((row) => row.uuid));
-  const active = await activeCallbacks();
+  // Same `enforceServes: false` as repoint, and for the same reason: until the
+  // global callbacks configuration is changed these rows still hold the RAILS
+  // urls, and the registration-time guard would filter every one of them out —
+  // so reconcile would report "Nothing to fix" for exactly the half-moved state
+  // it exists to repair.
+  const allActive = await activeCallbacks({ enforceServes: false });
+  const active = only
+    ? allActive.filter((callback) => only.includes(callback.name))
+    : allActive;
 
   // Resolved per definition against its EXACT expected destination, using the
   // same one-candidate rule repoint uses.
@@ -759,7 +830,13 @@ async function reconcile(handle: string, targetUrl: string) {
   // `https://target.example.attacker.test/...`.
   const broken: Registration[] = [];
   for (const callback of active) {
-    const destination = destinationFor(callback.url, targetUrl);
+    // From the DIRECTION's table, not from the stored row. Deriving it from the
+    // Rails url would look for `https://<next-host>/callbacks/...`, which is
+    // not where anything is registered, and nothing would ever be found.
+    const destination = new URL(
+      callbackPathFor(callback.name, direction),
+      targetUrl,
+    ).toString();
     const candidates = live.filter((r) => r.definition_name === callback.name);
     const ours = ourRegistration(candidates, heldUuids, [destination]);
 
@@ -837,12 +914,33 @@ async function main() {
     }
   }
 
+  // WHICH definitions to move. Nine callbacks all repricing live carts is not
+  // something to move in one command, and CUTOVER.md's phased rollout depends
+  // on this flag existing.
+  //
+  // Webhooks are all-or-nothing and are OFF whenever a subset of callbacks is
+  // selected — moving a company's webhooks while eight of its nine callbacks
+  // still answer from Rails is a half-cutover, and the point of the canary is
+  // that it is not one.
+  const onlyFlag = rest.indexOf("--only");
+  const only =
+    onlyFlag >= 0
+      ? (rest[onlyFlag + 1] ?? "")
+          .split(",")
+          .map((name) => name.trim())
+          .filter(Boolean)
+      : undefined;
+  if (onlyFlag >= 0 && (!only || only.length === 0)) {
+    fail("--only needs a comma-separated list of definition names.");
+  }
+  const includeWebhooks = only ? rest.includes("--with-webhooks") : true;
+
   if (!command || !handle) {
     fail(
       "Usage:\n" +
         "  pnpm cutover status    <fluid_shop>\n" +
         "  APPLY=1 pnpm cutover repoint   <fluid_shop> --url https://... [--from https://old]\n" +
-        "                                 [--paths next|rails]\n" +
+        "                                 [--paths next|rails] [--only def1,def2] [--with-webhooks]\n" +
         "  APPLY=1 pnpm cutover reconcile <fluid_shop> --url https://...",
     );
   }
@@ -853,11 +951,11 @@ async function main() {
       break;
     case "repoint":
       if (!url) fail("repoint needs --url or FLUID_DROPLET_URL.");
-      await repoint(handle, url, fromUrl, direction);
+      await repoint(handle, url, fromUrl, direction, only, includeWebhooks);
       break;
     case "reconcile":
       if (!url) fail("reconcile needs --url or FLUID_DROPLET_URL.");
-      await reconcile(handle, url);
+      await reconcile(handle, url, direction, only);
       break;
     default:
       fail(`Unknown command "${command}".`);

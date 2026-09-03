@@ -257,11 +257,24 @@ touches only lines this droplet locked.
 ```bash
 pnpm cutover status  acme                                        # read-only
 pnpm cutover repoint acme --url https://...-next-...run.app \
-                          --from https://fluid-droplet-dynamic-pricing-...run.app
+                          --from https://fluid-droplet-dynamic-pricing-...run.app \
+                          --only cart_country_changed
 APPLY=1 pnpm cutover repoint acme --url https://...-next-...run.app \
-                          --from https://fluid-droplet-dynamic-pricing-...run.app
+                          --from https://fluid-droplet-dynamic-pricing-...run.app \
+                          --only cart_country_changed
 pnpm cutover status  acme                                        # confirm
 ```
+
+**`--only` is not optional here.** Without it `repoint` moves ALL NINE
+definitions, including the four that reprice every line of every cart — which
+is the opposite of a canary. `--only` takes a comma-separated list of Fluid
+definition names (column 3 of the table in §1) and fails if one of them is not
+an active row.
+
+Webhooks are all-or-nothing and are **off** whenever `--only` is given: moving a
+company's webhooks while eight of its nine callbacks still answer from Rails is
+a half-cutover. Pass `--with-webhooks` alongside `--only` if you really do mean
+to move them, and see step 5 for when that is.
 
 `--paths` defaults to `next`, so going forwards needs no flag. Going back needs
 `--paths rails` — see the rollback below.
@@ -292,6 +305,26 @@ clears the stamp. Diff `cart_pricing_events` volumes against the prior week.
 Cut over **one definition at a time, one company at a time**, starting with the
 lowest-volume installation. Hold a full business day between each.
 
+```bash
+APPLY=1 pnpm cutover repoint acme --url https://...-next-...run.app \
+                          --from https://fluid-droplet-dynamic-pricing-...run.app \
+                          --only cart_item_added
+```
+
+Once all nine definitions are on the Next app for a company, move that company's
+five subscription webhooks in the same command shape:
+
+```bash
+APPLY=1 pnpm cutover repoint acme --url https://...-next-...run.app \
+                          --from https://fluid-droplet-dynamic-pricing-...run.app
+```
+
+With no `--only`, webhooks move too — and by then every callback is already
+there, so nothing is split. The repoint preserves each webhook's `auth_token`
+(the company's own verification token), because that value IS the HMAC key:
+replacing it would make every moved webhook fail verification at the app it was
+just moved to.
+
 Verify per definition: the distribution of `cart_pricing_events.cart_total` and
 `preferred_pricing_applied` matches the prior week for the same company; zero
 `[fluid-callback:…] rejected` lines; zero `Refusing to set zero price` warnings
@@ -313,16 +346,40 @@ Nothing surfaces either. Every company can be fully cut over and working while
 the next install still goes to Rails and registers its callbacks back onto
 Rails.
 
-So, once every company has been repointed:
+So, once every company has been repointed — **and in this order**:
 
 1. In Fluid's droplet settings, set `fluid_webhook.url` to
    `https://…-next-….run.app/api/webhooks` and press **Update Droplet**.
    Confirm an install arrives.
 2. On the admin **Callbacks** screen, change each of the nine rows' url to the
-   Next path from the table in §1. `pnpm cutover status <shop>` prints these
-   rows and flags any still on a Rails path.
+   Next origin and the Next path from the table in §1.
+   `pnpm cutover status <shop>` prints these rows and flags any still on a
+   Rails path.
 
 Both are global, not per-tenant, and there is no partial version of either.
+
+**The order matters, and the reverse of it is a silent failure.** Whichever app
+handles an install registers only the callbacks whose url it recognises as one
+it can answer — Rails through `Callback.serves?`, the Next app through
+`servesCallbackUrl`. Doing step 2 first would leave Rails receiving installs
+while the rows name the Next host, and Rails would refuse all nine: the company
+would look installed and active while receiving no pricing callbacks at all.
+
+Between step 1 and step 2 there is no such gap, because `servesCallbackUrl`
+deliberately ALSO accepts a Rails path on the Rails host — read from
+`Setting.host_server.base_url`, the same value the Rails install job built those
+urls from. An installation landing in that window is registered at the Rails
+urls, which Rails is still serving, and its token digest is stored here ready
+for the repoint. It logs a warning saying exactly that. See
+`src/lib/callbacks/serves.test.ts`, which pins both halves.
+
+**Verify after both edits** with a real test install: it must produce nine
+`fluid_callback_registrations` rows, all on the Next origin.
+
+```sql
+SELECT definition_name, url FROM fluid_callback_registrations
+ WHERE dri = '<the new installation dri>' ORDER BY definition_name;
+```
 
 **7. Retire Rails.** Min-instances to 0 first and leave it a while — that is
 reversible in seconds. Delete only once nothing has needed it.
@@ -337,6 +394,11 @@ APPLY=1 pnpm cutover repoint acme \
   --from https://fluid-droplet-dynamic-pricing-next-...run.app \
   --paths rails
 ```
+
+Add `--only <definitions>` — and `--with-webhooks` if the webhooks moved too —
+to roll back exactly what was moved. Every failure message from `repoint` prints
+the precise rollback command, including those flags and everything it had
+already moved.
 
 `--paths rails` is REQUIRED going back and the tool will not guess the
 direction. Without it the rollback would register every definition at the Next
@@ -367,8 +429,12 @@ the same `definition_name`.
 definition. Only the digest is missing:
 
 ```bash
-APPLY=1 pnpm cutover reconcile acme --url https://...-next-...run.app
+APPLY=1 pnpm cutover reconcile acme --url https://...-next-...run.app \
+                          --only cart_country_changed
 ```
+
+`reconcile` takes the same `--paths` and `--only` flags as `repoint` and resolves
+each definition against the same destination the repoint used. Pass them.
 
 *A later update failed outright.* Then some registrations are at one url and
 some at the other. `reconcile` will NOT fix this and will report "Nothing to

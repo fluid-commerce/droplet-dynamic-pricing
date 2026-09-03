@@ -387,3 +387,51 @@ describe("locked cart items", () => {
     expect(ctx.lockedCartItems.map((i) => i.id)).toEqual([1]);
   });
 });
+
+describe("the preferred-lookup cache is namespaced by the VERIFIED tenant", () => {
+  it("does not let a body naming another company poison that company's namespace", async () => {
+    // The routes deliberately serve a request as the REGISTRATION's company
+    // whatever the body claims. Namespacing this cache with `cart.company.id`
+    // — which Ruby did, harmlessly, because its callbacks were unauthenticated
+    // — would let tenant A write an answer into tenant B's namespace, and this
+    // cache outlives the request.
+    const shared = recordingDeps({
+      fluid: { subscriptions: { subscriptions: [{ id: 1 }] } },
+    });
+
+    // Tenant A (company id 1n), with a body that claims to be company 999.
+    const attacker = new PricingContext(
+      { cart: cartPayload({ company: { id: 999 } }) },
+      shared,
+    );
+    expect(await attacker.hasActiveSubscriptions("cust-1")).toBe(true);
+
+    // Tenant B — a DIFFERENT verified company — asking about the same customer.
+    const victimDeps = recordingDeps({
+      fluid: { subscriptions: { subscriptions: [] } },
+    });
+    victimDeps.company = { id: 999n, name: "Victim" };
+    victimDeps.cache = shared.cache;
+    const victim = new PricingContext(
+      { cart: cartPayload({ company: { id: 999 } }) },
+      victimDeps,
+    );
+
+    // B gets its OWN answer, and pays for its own lookup.
+    expect(await victim.hasActiveSubscriptions("cust-1")).toBe(false);
+    expect(victimDeps.callsTo("listSubscriptionsByCustomer")).toHaveLength(1);
+  });
+
+  it("still shares one answer across the two carts of one shopper on one tenant", async () => {
+    // The cache has to keep doing its job: an N-line add fires N callbacks.
+    const deps = recordingDeps({
+      fluid: { subscriptions: { subscriptions: [{ id: 1 }] } },
+    });
+    const one = new PricingContext({ cart: cartPayload() }, deps);
+    const two = new PricingContext({ cart: cartPayload({ cart_token: "crt_2" }) }, deps);
+
+    expect(await one.hasActiveSubscriptions("cust-1")).toBe(true);
+    expect(await two.hasActiveSubscriptions("cust-1")).toBe(true);
+    expect(deps.callsTo("listSubscriptionsByCustomer")).toHaveLength(1);
+  });
+});

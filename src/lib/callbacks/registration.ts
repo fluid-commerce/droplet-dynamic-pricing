@@ -19,7 +19,11 @@ import type { FluidClient } from "@/lib/fluid";
 import { prisma } from "@/lib/db";
 // Imported from the table module rather than from @/lib/pricing, which
 // re-exports the route factory and would make this a cycle.
-import { CALLBACK_ROUTES } from "@/lib/pricing/routes-table";
+import {
+  CALLBACK_ROUTES,
+  RAILS_CALLBACK_PATHS,
+} from "@/lib/pricing/routes-table";
+import { hostServerBaseUrl } from "@/lib/settings";
 import { callbackStore } from "./store";
 
 export interface CallbackRegistrationResults {
@@ -53,27 +57,38 @@ async function rollbackRegistration(
 }
 
 /**
- * Whether this droplet actually answers a callback at `url`.
+ * Whether a callback registered at `url` will actually be ANSWERED.
  *
- * Port of `Callback.serves?` (app/models/callback.rb). `CallbackSyncService`
- * imports EVERY definition Fluid offers, so the admin list contains names this
- * droplet has no handler for; enabling one registered a URL that 404s on
- * arrival, and Fluid alerted on every dispatch until somebody noticed. That is
- * how TM3's `verify_email_success` registration (Fluid reg 1410) came to exist.
+ * Port of `Callback.serves?` (app/models/callback.rb), widened by one case that
+ * only exists during the migration.
  *
- * Three conditions, all of which the Ruby also required:
- *  - absolute http(s) with a host,
- *  - that host is this droplet's own when one is configured, and
- *  - the PATH is one of the routes in CALLBACK_ROUTES.
+ * `CallbackSyncService` imports EVERY definition Fluid offers, so the admin
+ * list contains names this droplet has no handler for; enabling one registered
+ * a URL that 404s on arrival, and Fluid alerted on every dispatch until
+ * somebody noticed. That is how TM3's `verify_email_success` registration
+ * (Fluid reg 1410) came to exist.
  *
- * The path is checked rather than the definition name because the two are
- * allowed to differ — that is the whole `subscription_added` ->
- * `cart_subscription_added` problem. Here they no longer do, since the Next
- * paths are named for the definition, but the check stays URL-shaped so a
- * registration left pointing at the RAILS path is refused rather than silently
- * re-registered onto a route this app does not have.
+ * Two shapes are accepted, and the second is the migration-only one:
+ *
+ *  1. one of THIS app's paths on THIS app's host, and
+ *  2. one of the RAILS paths on the RAILS host.
+ *
+ * (2) matters at exactly one moment. Once the droplet-level `droplet.installed`
+ * webhook points here but the `callbacks` table rows still hold the Rails urls,
+ * a new installation is registered by THIS app from rows describing the OTHER
+ * one. Refusing them would register nothing at all: the company would look
+ * installed and active while receiving no pricing callbacks, with the only
+ * trace a log line on a service nobody is watching yet. Accepting them
+ * registers urls Rails is still serving — which is correct, because Rails IS
+ * still serving them — and the digest is stored here ready for the repoint.
+ *
+ * The Rails host is not guessed: it is `Setting.host_server.base_url`, the same
+ * value the Rails install job built those urls from.
  */
-export function servesCallbackUrl(url: string, servedHost?: string): boolean {
+export function servesCallbackUrl(
+  url: string,
+  hosts: { own?: string; rails?: string } = {},
+): boolean {
   let parsed: URL;
   try {
     parsed = new URL(url.trim());
@@ -83,21 +98,35 @@ export function servesCallbackUrl(url: string, servedHost?: string): boolean {
 
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
   if (!parsed.host) return false;
-  if (servedHost && parsed.hostname !== servedHost) return false;
 
-  const paths = new Set(Object.values(CALLBACK_ROUTES));
-  return paths.has(parsed.pathname.replace(/\/$/, ""));
+  const path = parsed.pathname.replace(/\/$/, "");
+
+  const ours = new Set(Object.values(CALLBACK_ROUTES));
+  if (ours.has(path) && (!hosts.own || parsed.hostname === hosts.own)) {
+    return true;
+  }
+
+  const rails = new Set(Object.values(RAILS_CALLBACK_PATHS));
+  if (rails.has(path) && hosts.rails && parsed.hostname === hosts.rails) {
+    return true;
+  }
+
+  return false;
+}
+
+/** The hostname of a configured base url, or undefined if it is unusable. */
+function hostOf(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The host Fluid must dispatch to for a callback to reach THIS app. */
 export function servedHost(): string | undefined {
-  const configured = process.env.FLUID_DROPLET_URL;
-  if (!configured) return undefined;
-  try {
-    return new URL(configured).hostname;
-  } catch {
-    return undefined;
-  }
+  return hostOf(process.env.FLUID_DROPLET_URL);
 }
 
 /**
@@ -121,17 +150,31 @@ export async function activeCallbacks({
     where: { active: true },
     orderBy: { name: "asc" },
   });
-  const host = servedHost();
+
+  const hosts = enforceServes
+    ? {
+        own: servedHost(),
+        rails: hostOf(await hostServerBaseUrl().catch(() => undefined)),
+      }
+    : {};
 
   return rows.flatMap((row) => {
     if (!row.name || !row.url || !row.timeoutInSeconds) return [];
 
-    if (enforceServes && !servesCallbackUrl(row.url, host)) {
+    if (enforceServes && !servesCallbackUrl(row.url, hosts)) {
       console.error(
         `[Registration] Refusing to register callback ${row.name}: ` +
           `${JSON.stringify(row.url)} is not a callback URL this droplet serves`,
       );
       return [];
+    }
+
+    if (hosts.own && new URL(row.url).hostname !== hosts.own) {
+      console.warn(
+        `[Registration] ${row.name} is being registered at ${row.url}, which is ` +
+          "the RAILS app. That is expected only while the callbacks table has " +
+          "not yet been repointed — see CUTOVER.md step 6.",
+      );
     }
 
     return [

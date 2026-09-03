@@ -41,7 +41,13 @@ async function main() {
   // The callbacks this droplet registers come from the `callbacks` table, which
   // is where an operator turns them on. `url` is stored absolute there, so it is
   // already the exact string that was registered with Fluid.
-  const enabled = await activeCallbacks();
+  // `enforceServes: false`: the backfill ADOPTS registrations that already
+  // exist, matching them by the url stored on the row. Before the global
+  // callbacks configuration is changed those rows hold the RAILS urls — which
+  // is exactly the state the backfill is run in — and the registration-time
+  // guard would filter every one of them out, exiting zero with "nothing to
+  // backfill" while every token stayed unstored.
+  const enabled = await activeCallbacks({ enforceServes: false });
   if (enabled.length === 0) {
     console.log("No active callbacks configured; nothing to backfill.");
     await prisma.$disconnect();

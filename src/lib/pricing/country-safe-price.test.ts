@@ -234,4 +234,20 @@ describe("countrySafePrice", () => {
     expect(ctx.cartPricingCountry).toBeUndefined();
     expect(ctx.cartCountry).toBe("CA");
   });
+
+  it('treats an EMPTY country_code as unresolvable, not as absent (Ruby `||`)', async () => {
+    // `"" || cart.country.iso` is `""` in Ruby, and `"".blank?` is true — so
+    // the payload price is forwarded unchecked. Falling through to
+    // `country.iso` instead would run the cross-country guard against a country
+    // the payload never claimed, and could substitute or refuse a price where
+    // Rails forwarded it.
+    const { ctx, deps } = context(
+      { v1: [row({ country_code: "CA", currency_code: "CAD", price: "113.85" })] },
+      { country_code: "", country: { iso: "PH" } },
+    );
+
+    expect(ctx.cartPricingCountry).toBe("");
+    expect(await ctx.countrySafePrice(item(), "113.85", "regular")).toBe(113.85);
+    expect(deps.callsTo("getVariant")).toHaveLength(0);
+  });
 });
