@@ -4,6 +4,38 @@ Droplets are integrations between third-party services and Fluid. This is a repo
 
 Documentation can be found in the [project's GitHub page](https://fluid-commerce.github.io/droplet-template/)
 
+## The Next.js app
+
+This repository now contains **two** applications against **one** database.
+
+- The **Rails** app is everything under `app/`, `config/`, `db/` and `test/`.
+  It is live, it owns the schema, and nothing about it has changed.
+- The **Next.js** app lives under `src/`, with `prisma/`, `scripts/`,
+  `vendor/droplet-sdk`, `Dockerfile.next` and `cloudbuild-next.yml`. It maps
+  onto the same Rails tables with `@@map` and performs no migrations of its own.
+
+Nothing points at the Next app. Fluid calls whatever url is recorded in each
+installation's callback and webhook registrations, so the Next service takes no
+traffic until a registration is repointed at it — one company and one callback
+definition at a time.
+
+**Read [CUTOVER.md](CUTOVER.md) before deploying or repointing anything.** It
+carries the verified local-route → Fluid definition-name mapping for all nine
+callbacks (three of which differ), the per-route failure policy, and the
+rollback.
+
+```bash
+pnpm install
+pnpm db:generate          # prisma client
+pnpm dev                  # next dev on :3000
+pnpm lint / typecheck / test / build
+pnpm cutover status <fluid_shop>
+```
+
+The Rails frontend's Vite build moved from yarn to pnpm at the same time, since
+the root `package.json` is now the Next app's: `pnpm build:vite` and
+`pnpm test:jest` are the Rails-side scripts.
+
 ## Production environment
 
 ### Google cloud infrastructure

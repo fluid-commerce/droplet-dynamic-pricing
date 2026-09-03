@@ -1,0 +1,97 @@
+# Builds and deploys the Next app as its OWN Cloud Run service.
+#
+#   gcloud beta builds submit --config cloudbuild-next.yml --region=europe-west1 \
+#     --substitutions=COMMIT_SHA=$(git rev-parse --short HEAD),_TIMESTAMP=$(date +%Y%m%d%H%M%S) \
+#     --project=fluid-417204 .
+#
+# Deliberately a SEPARATE service (`${_APP_NAME}-next`) rather than another
+# revision of the Rails one. Nothing routes to it by hostname: Fluid calls
+# whatever url is recorded in each installation's callback and webhook
+# registrations, so this service receives no traffic at all until an
+# installation is repointed at it. That makes deploying it inert, and makes
+# cutover a per-company decision rather than a percentage.
+#
+# Region, project, artifact repository and substitution style are taken from
+# cloudbuild-production.yml, which deploys the Rails service. Only the image
+# path and the service name differ: `${_APP_NAME}-rails/web` becomes
+# `${_APP_NAME}-next/web`, and `${_APP_NAME}` becomes `${_APP_NAME}-next`.
+#
+# There is no migrations step, and there must not be. Rails owns this schema;
+# the Next app maps onto the same tables and treats them as read-shaped. Two
+# migration tools against one database is how you get a schema neither app
+# agrees with. cloudbuild-production.yml keeps the `${_APP_NAME}-migrations`
+# job — including the one that creates `fluid_callback_registrations` — and that
+# stays the Rails pipeline's business, not this one's.
+#
+# The Rails config also builds from `docker/Dockerfile`; this one builds from
+# `Dockerfile.next` at the repo root, so the two images cannot collide.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        "build",
+        "-t",
+        "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA",
+        ".",
+        "-f",
+        "Dockerfile.next",
+      ]
+    id: build
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        "tag",
+        "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA",
+        "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:latest",
+      ]
+    id: tag
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        "push",
+        "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA",
+      ]
+    id: push commit sha
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        "push",
+        "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:latest",
+      ]
+    id: push latest
+
+  # `services update` rather than `deploy`: the service is created once, by
+  # hand, carrying the same DATABASE_URL and Fluid credentials as the Rails
+  # service plus its own FLUID_DROPLET_URL. Keeping creation out of the pipeline
+  # means this step cannot invent configuration, and a service that does not
+  # exist yet fails loudly here instead of coming up misconfigured.
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    args:
+      [
+        "run",
+        "services",
+        "update",
+        "${_APP_NAME}-next",
+        "--platform=managed",
+        "--image=europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA",
+        "--region=europe-west1",
+        "--revision-suffix=${COMMIT_SHA}-${_TIMESTAMP}",
+      ]
+    id: deploy next
+    entrypoint: gcloud
+
+substitutions:
+  _APP_NAME: "fluid-droplet-dynamic-pricing"
+  _APP_REPOSITORY: "fluid-droplets"
+
+images:
+  - "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA"
+  - "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:latest"
+
+options:
+  substitutionOption: ALLOW_LOOSE
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8

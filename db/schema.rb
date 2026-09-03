@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_01_26_194025) do
+ActiveRecord::Schema[8.0].define(version: 2026_09_03_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -101,6 +101,17 @@ ActiveRecord::Schema[8.0].define(version: 2026_01_26_194025) do
     t.datetime "updated_at", null: false
     t.index ["company_id", "synced_at"], name: "index_exigo_autoship_snapshots_on_company_id_and_synced_at"
     t.index ["company_id"], name: "index_exigo_autoship_snapshots_on_company_id"
+  end
+
+  create_table "fluid_callback_registrations", primary_key: "uuid", id: :text, force: :cascade do |t|
+    t.text "dri", null: false
+    t.text "definition_name", null: false
+    t.text "token_digest", null: false
+    t.text "url", null: false
+    t.datetime "created_at", default: -> { "CURRENT_TIMESTAMP" }, null: false
+    t.datetime "updated_at", default: -> { "CURRENT_TIMESTAMP" }, null: false
+    t.index ["dri"], name: "index_fluid_callback_registrations_on_dri"
+    t.index ["token_digest"], name: "index_fluid_callback_registrations_on_token_digest", unique: true
   end
 
   create_table "integration_settings", force: :cascade do |t|
