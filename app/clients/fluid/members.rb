@@ -17,6 +17,12 @@ module Fluid
     # rather than per-company config.
     PREFERRED_SLUG = "preferred".freeze
 
+    # The one system member type below preferred (tier_level 0 against
+    # preferred's 1). It is the only type a promotion may overwrite: rep is
+    # tier_level 2, so writing preferred over it demotes, and a company's own
+    # custom type ranks nowhere this droplet can reason about.
+    PROMOTABLE_SLUGS = [ nil, "", "customer" ].freeze
+
     class Resource
       BASE_PATH = "/api/v2025-06/members".freeze
 
