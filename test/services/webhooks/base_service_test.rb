@@ -36,6 +36,82 @@ class Webhooks::BaseServiceTest < ActiveSupport::TestCase
     assert_equal [ %w[m-1 preferred] ], members.updates
   end
 
+  # STU2-3242 scopes this to customers: "whose customer type is currently
+  # Customer". The first cut only guarded against ALREADY being preferred, so a
+  # rep who bought a subscription was rewritten from rep to preferred — and in
+  # Fluid rep is tier_level 2 against preferred's 1, so that is a demotion, not
+  # a no-op. Reported from production.
+  test "does not promote a rep" do
+    promotion_setting_for(@company)
+    service = build_service
+    members = FakePromotionMembersResource.new(member: { "id" => "m-rep", "member_type_slug" => "rep" })
+    stub_customer_type_writes(service, members: members)
+
+    service.send(:set_customer_preferred, 77)
+
+    assert_empty members.updates, "a rep must keep its member type"
+  end
+
+  # Companies can define their own member types. Anything that is not the one
+  # type below preferred is left alone rather than guessed at.
+  test "does not promote a member type it does not recognize" do
+    promotion_setting_for(@company)
+    service = build_service
+    members = FakePromotionMembersResource.new(member: { "id" => "m-x", "member_type_slug" => "distributor" })
+    stub_customer_type_writes(service, members: members)
+
+    service.send(:set_customer_preferred, 77)
+
+    assert_empty members.updates
+  end
+
+  test "promotes a member whose type is customer" do
+    promotion_setting_for(@company)
+    service = build_service
+    members = FakePromotionMembersResource.new(member: { "id" => "m-1", "member_type_slug" => "customer" })
+    stub_customer_type_writes(service, members: members)
+
+    service.send(:set_customer_preferred, 77)
+
+    assert_equal [ %w[m-1 preferred] ], members.updates
+  end
+
+  # A member with no type assigned is below preferred the same way customer is.
+  test "promotes a member with no member type" do
+    promotion_setting_for(@company)
+    service = build_service
+    members = FakePromotionMembersResource.new(member: { "id" => "m-none", "member_type_slug" => nil })
+    stub_customer_type_writes(service, members: members)
+
+    service.send(:set_customer_preferred, 77)
+
+    assert_equal [ %w[m-none preferred] ], members.updates
+  end
+
+  # The promotion log said "Promoted member X to preferred" without saying from
+  # what, so the production report could not be triaged from the logs at all.
+  test "the promotion log records the type it promoted from" do
+    promotion_setting_for(@company)
+    service = build_service
+    members = FakePromotionMembersResource.new(member: { "id" => "m-1", "member_type_slug" => "customer" })
+    stub_customer_type_writes(service, members: members)
+
+    line = capture_log { service.send(:set_customer_preferred, 77) }
+
+    assert_includes line, "from=customer"
+  end
+
+  test "the skip log records the type it refused to overwrite" do
+    promotion_setting_for(@company)
+    service = build_service
+    members = FakePromotionMembersResource.new(member: { "id" => "m-rep", "member_type_slug" => "rep" })
+    stub_customer_type_writes(service, members: members)
+
+    line = capture_log { service.send(:set_customer_preferred, 77) }
+
+    assert_includes line, "rep"
+  end
+
   test "promotion is idempotent when the member is already preferred" do
     promotion_setting_for(@company)
     service = build_service
@@ -98,6 +174,24 @@ class Webhooks::BaseServiceTest < ActiveSupport::TestCase
   end
 
 private
+
+  def capture_log
+    lines = []
+    logger = Object.new
+    logger.define_singleton_method(:info) { |msg| lines << msg.to_s }
+    logger.define_singleton_method(:method_missing) { |*_a| nil }
+    logger.define_singleton_method(:respond_to_missing?) { |*_a| true }
+
+    original = Rails.logger
+    Rails.logger = logger
+    begin
+      yield
+    ensure
+      Rails.logger = original
+    end
+
+    lines.find { |l| l.include?("member") } || ""
+  end
 
   def build_service
     Webhooks::BaseService.new({ "subscription" => { "id" => 1 } }, @company)

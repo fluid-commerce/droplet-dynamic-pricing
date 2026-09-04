@@ -168,9 +168,17 @@ protected
     member = response["member"] || response[:member]
     return if member.blank?
 
+    # Only from the type below preferred. STU2-3242 scopes this to customers
+    # ("whose customer type is currently Customer"), and the distinction is not
+    # cosmetic: rep is tier_level 2 against preferred's 1, so writing preferred
+    # over a rep demotes them. Guarding only against already-being-preferred is
+    # what moved reps in production.
     slug = member["member_type_slug"] || member[:member_type_slug]
-    if slug == Fluid::Members::PREFERRED_SLUG
-      Rails.logger.info "Member for customer #{customer_id} is already preferred, skipping promotion"
+    unless Fluid::Members::PROMOTABLE_SLUGS.include?(slug)
+      Rails.logger.info(
+        "Not promoting member for customer #{customer_id}: member_type_slug=#{slug.presence || 'none'} " \
+        "is not a type this droplet promotes from"
+      )
       return
     end
 
@@ -178,7 +186,9 @@ protected
     return if member_id.blank?
 
     fluid_members.update_member_type(member_id, Fluid::Members::PREFERRED_SLUG)
-    Rails.logger.info "Promoted member #{member_id} (customer #{customer_id}) to preferred"
+    Rails.logger.info(
+      "Promoted member #{member_id} (customer #{customer_id}) to preferred from=#{slug.presence || 'none'}"
+    )
   rescue StandardError => e
     Rails.logger.error "Failed to promote member type for customer #{customer_id}: #{e.message}"
   end
