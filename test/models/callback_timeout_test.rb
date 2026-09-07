@@ -55,6 +55,36 @@ describe "Callback timeout budget" do
       .must_equal Callback::DEFAULT_TIMEOUT_IN_SECONDS
   end
 
+  # The floor is derived, so tuning the ladder up can push it past the 20s
+  # ceiling Fluid's own validation allows — and then no valid timeout exists.
+  # That is a misconfiguration of the HTTP budget, not of the registration, and
+  # it has to be loud instead of silently writing a value that cannot work.
+  it "reports when the HTTP budget cannot fit any allowed timeout" do
+    messages = []
+    logger = Object.new
+    logger.define_singleton_method(:error) { |msg| messages << msg.to_s }
+    logger.define_singleton_method(:method_missing) { |*_a| nil }
+    logger.define_singleton_method(:respond_to_missing?) { |*_a| true }
+
+    original = Rails.logger
+    Rails.logger = logger
+    begin
+      Callback.stub_const_minimum(999) { Callback.ensure_served! }
+    ensure
+      Rails.logger = original
+    end
+
+    _(messages.join).must_match(/cannot fit/i)
+  end
+
+  it "still writes a saveable timeout when the budget does not fit" do
+    Callback.stub_const_minimum(999) { Callback.ensure_served! }
+
+    Callback.find_each do |callback|
+      assert callback.valid?, "#{callback.name}: #{callback.errors.full_messages}"
+    end
+  end
+
   it "leaves a tuned timeout above the floor alone" do
     Callback.create!(
       name: "cart_item_updated",

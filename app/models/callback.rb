@@ -46,6 +46,24 @@ class Callback < ApplicationRecord
   # callback out while the droplet is still working.
   DEFAULT_TIMEOUT_IN_SECONDS = 20
 
+  # The largest timeout Fluid accepts on a registration.
+  MAXIMUM_TIMEOUT_IN_SECONDS = 20
+
+  # Internal: Test seam. MINIMUM_TIMEOUT_IN_SECONDS is derived from env-tunable
+  # constants read at boot, so the impossible case (a floor above the ceiling
+  # Fluid allows) cannot be reached by setting an env var mid-suite.
+  def self.stub_const_minimum(value)
+    original = method(:minimum_timeout_in_seconds)
+    define_singleton_method(:minimum_timeout_in_seconds) { value }
+    yield
+  ensure
+    define_singleton_method(:minimum_timeout_in_seconds, original)
+  end
+
+  def self.minimum_timeout_in_seconds
+    MINIMUM_TIMEOUT_IN_SECONDS
+  end
+
   # Public: Make sure this droplet has a row for every callback it answers, so
   # an install registers all of them rather than whatever someone remembered to
   # activate.
@@ -77,8 +95,8 @@ class Callback < ApplicationRecord
         callback.active = true
       end
 
-      if callback.timeout_in_seconds.to_i < MINIMUM_TIMEOUT_IN_SECONDS
-        callback.timeout_in_seconds = DEFAULT_TIMEOUT_IN_SECONDS
+      if callback.timeout_in_seconds.to_i < minimum_timeout_in_seconds
+        callback.timeout_in_seconds = satisfiable_timeout_in_seconds
       end
 
       next unless callback.changed?
@@ -87,6 +105,27 @@ class Callback < ApplicationRecord
     end
 
     deactivate_unserved!
+  end
+
+  # Internal: The timeout to write.
+  #
+  # Normally the default. When the derived floor exceeds MAXIMUM — the ceiling
+  # Fluid's own validation allows — no timeout can satisfy the HTTP budget, so
+  # the ceiling is written and the incompatibility is logged rather than
+  # persisting a value the validation would reject. That state means the
+  # callback HTTP tuning (FLUID_CALLBACK_API_TIMEOUT / _RETRIES) is set beyond
+  # what a synchronous callback can accommodate.
+  #
+  # Returns an Integer.
+  def self.satisfiable_timeout_in_seconds
+    return DEFAULT_TIMEOUT_IN_SECONDS if minimum_timeout_in_seconds <= MAXIMUM_TIMEOUT_IN_SECONDS
+
+    Rails.logger.error(
+      "[Callback] The callback HTTP budget cannot fit any allowed timeout: it needs " \
+      "#{minimum_timeout_in_seconds}s but Fluid accepts at most #{MAXIMUM_TIMEOUT_IN_SECONDS}s. " \
+      "Lower FLUID_CALLBACK_API_TIMEOUT or FLUID_CALLBACK_API_RETRIES."
+    )
+    MAXIMUM_TIMEOUT_IN_SECONDS
   end
 
   # Public: Switch off any row still marked active whose URL this droplet does
@@ -152,8 +191,9 @@ class Callback < ApplicationRecord
 
   validates :name, presence: true, uniqueness: true
   validates :description, presence: true
-  validates :timeout_in_seconds, numericality: { greater_than: 0, less_than_or_equal_to: 20, only_integer: true },
- allow_nil: true
+  validates :timeout_in_seconds,
+            numericality: { greater_than: 0, less_than_or_equal_to: MAXIMUM_TIMEOUT_IN_SECONDS, only_integer: true },
+            allow_nil: true
 
   validate :validate_active_requirements
 
