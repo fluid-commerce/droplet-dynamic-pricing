@@ -26,22 +26,42 @@ class Callback < ApplicationRecord
     "cart_subscription_removed" => "/callbacks/subscription_removed",
   }.freeze
 
-  # Matches what the deployed registrations carry. Fluid abandons the callback
-  # at this deadline, so it is the shopper's budget, not ours.
-  DEFAULT_TIMEOUT_IN_SECONDS = 5
+  # The smallest registration timeout this droplet can actually satisfy.
+  #
+  # Fluid abandons a synchronous callback at the registration's
+  # timeout_in_seconds. The droplet's worst case for ONE Fluid call is the retry
+  # ladder in Connections::Fluid, so a registration below that is unsatisfiable
+  # by construction, however fast the droplet's own work is. Derived rather than
+  # written down so tuning the ladder cannot silently invalidate it.
+  MINIMUM_TIMEOUT_IN_SECONDS = (
+    ((Connections::Fluid::CALLBACK_RETRIES + 1) * Connections::Fluid::CALLBACK_TIMEOUT) +
+    (Connections::Fluid::CALLBACK_RETRIES * Connections::Fluid::CALLBACK_RETRY_INTERVAL)
+  ).ceil
+
+  # 20 is the ceiling the validation above allows, and the default the Fluid
+  # client has always sent when a registration omits the field
+  # (Fluid::CallbackRegistrations::Resource#payload). Fluid abandons the callback
+  # at this deadline, so it is the shopper's budget, not ours — but it has to be
+  # long enough for the ladder above, or a single slow Fluid read times the whole
+  # callback out while the droplet is still working.
+  DEFAULT_TIMEOUT_IN_SECONDS = 20
 
   # Public: Make sure this droplet has a row for every callback it answers, so
   # an install registers all of them rather than whatever someone remembered to
   # activate.
   #
-  # A row with a URL was set up by somebody, so its active flag, URL and
-  # timeout are left alone — an operator who tuned a timeout or deliberately
-  # turned one off is not overruled by the next install.
+  # A row with a URL was set up by somebody, so its active flag and URL are
+  # left alone — an operator who deliberately turned one off is not overruled
+  # by the next install.
   #
   # A row WITHOUT a URL was imported by CallbackSyncService, which writes only
   # the name and description and leaves everything else nil. That is the shape
   # every deployed environment is already in, so treating it as "already
   # exists" would configure nothing and register nothing.
+  #
+  # The timeout is the one field checked on EVERY row, configured or not: a
+  # value under MINIMUM_TIMEOUT_IN_SECONDS is not a tuning an operator can be
+  # right about, it is a budget this droplet cannot meet.
   #
   # Returns nothing.
   def self.ensure_served!
@@ -50,12 +70,19 @@ class Callback < ApplicationRecord
 
     SERVED_PATHS.each do |name, path|
       callback = find_or_initialize_by(name: name)
-      next if callback.url.present?
 
-      callback.description = "Answered by this droplet at #{path}" if callback.description.blank?
-      callback.url = "#{base_url.chomp('/')}#{path}"
-      callback.timeout_in_seconds ||= DEFAULT_TIMEOUT_IN_SECONDS
-      callback.active = true
+      if callback.url.blank?
+        callback.description = "Answered by this droplet at #{path}" if callback.description.blank?
+        callback.url = "#{base_url.chomp('/')}#{path}"
+        callback.active = true
+      end
+
+      if callback.timeout_in_seconds.to_i < MINIMUM_TIMEOUT_IN_SECONDS
+        callback.timeout_in_seconds = DEFAULT_TIMEOUT_IN_SECONDS
+      end
+
+      next unless callback.changed?
+
       callback.save
     end
 
