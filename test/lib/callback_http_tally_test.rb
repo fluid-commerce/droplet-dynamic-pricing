@@ -33,21 +33,21 @@ describe "FluidClient HTTP tally" do
 
   before { CallbackHttpTally.reset }
 
-  def client_with_stub(profile:)
-    client = FluidClient.new("token", profile: profile)
-    client.instance_variable_set(:@connection, StubConnection.new)
-    client
+  # The connection is shared per thread now, so it is stubbed at its source
+  # rather than injected into one client.
+  def with_stub_connection
+    Connections::Fluid.stub(:connection, ->(**) { StubConnection.new }) { yield }
   end
 
   # The shopper is blocked on these, so they are the ones worth measuring.
   it "tallies a call made on the callback profile" do
-    client_with_stub(profile: :callback).get("/api/anything")
+    with_stub_connection { FluidClient.new("t", profile: :callback).get("/api/anything") }
 
     assert_equal 1, CallbackHttpTally.summary[:calls]
   end
 
   it "tallies writes too, not only reads" do
-    client_with_stub(profile: :callback).patch("/api/anything", body: {})
+    with_stub_connection { FluidClient.new("t", profile: :callback).patch("/api/anything", body: {}) }
 
     assert_equal 1, CallbackHttpTally.summary[:calls]
   end
@@ -55,7 +55,7 @@ describe "FluidClient HTTP tally" do
   # Background work is not on anyone's critical path and would only pollute the
   # per-callback numbers.
   it "ignores calls made on the default profile" do
-    client_with_stub(profile: :job).get("/api/anything")
+    with_stub_connection { FluidClient.new("t", profile: :job).get("/api/anything") }
 
     assert_equal 0, CallbackHttpTally.summary[:calls]
   end

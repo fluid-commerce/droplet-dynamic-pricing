@@ -28,23 +28,23 @@ class FluidClient
   end
 
   def get(path, options = {})
-    handle_response(timed { connection.get(path, options[:query]) })
+    handle_response(timed { connection.get(path, options[:query], auth_headers) })
   end
 
   def post(path, options = {})
-    handle_response(timed { connection.post(path, options[:body]) })
+    handle_response(timed { connection.post(path, options[:body], auth_headers) })
   end
 
   def put(path, options = {})
-    handle_response(timed { connection.put(path, options[:body]) })
+    handle_response(timed { connection.put(path, options[:body], auth_headers) })
   end
 
   def patch(path, options = {})
-    handle_response(timed { connection.patch(path, options[:body]) })
+    handle_response(timed { connection.patch(path, options[:body], auth_headers) })
   end
 
   def delete(path, options = {})
-    handle_response(timed { connection.delete(path, options[:query]) })
+    handle_response(timed { connection.delete(path, options[:query], auth_headers) })
   end
 
 private
@@ -65,10 +65,19 @@ private
     end
   end
 
+  # Shared per thread, so the TLS handshake is paid once rather than once per
+  # callback. See Connections::Fluid.connection.
   def connection
-    @connection ||= Connections::Fluid.create_connection(profile: @profile).tap do |conn|
-      conn.headers["Authorization"] = "Bearer #{@auth_token}"
-    end
+    Connections::Fluid.connection(profile: @profile)
+  end
+
+  # Per REQUEST, not on the connection: the token is per company and the
+  # connection is shared, so stamping it on the connection would hand one
+  # company's request another company's credentials.
+  def auth_headers
+    return {} if @auth_token.blank?
+
+    { "Authorization" => "Bearer #{@auth_token}" }
   end
 
   def handle_response(response)
