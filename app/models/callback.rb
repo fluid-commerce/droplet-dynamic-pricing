@@ -26,8 +26,15 @@ class Callback < ApplicationRecord
     "cart_subscription_removed" => "/callbacks/subscription_removed",
   }.freeze
 
-  # Matches what the deployed registrations carry. Fluid abandons the callback
-  # at this deadline, so it is the shopper's budget, not ours.
+  # What we send as the registration's timeout_in_seconds. Fluid's API accepts
+  # and stores it, and nothing else reads it.
+  #
+  # It is NOT the deadline. Fluid abandons a synchronous callback at the
+  # callback DEFINITION's maximum_timeout_in_milliseconds
+  # (Callback::Client#make_requests), which is 5000ms for the three this droplet
+  # is alerted on and 20s for the ones that omit the field. Changing the number
+  # below moves nothing; the budget the droplet has to fit in is
+  # Connections::Fluid::CALLBACK_BUDGET.
   DEFAULT_TIMEOUT_IN_SECONDS = 5
 
   # Public: Make sure this droplet has a row for every callback it answers, so

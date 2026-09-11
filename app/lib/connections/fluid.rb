@@ -8,21 +8,48 @@ module Connections
     TIMEOUT = ENV.fetch("FLUID_API_TIMEOUT", 30).to_i
     OPEN_TIMEOUT = ENV.fetch("FLUID_API_OPEN_TIMEOUT", 10).to_i
 
-    # Fluid abandons a synchronous callback at the registration's
-    # timeout_in_seconds, which Callback validates at <= 20s and registers at 20s
-    # by default. The values above are therefore unreachable on that path: a call
-    # allowed 30s can only ever time out AFTER Fluid has given up and served the
-    # cart. That is the shape behind the 19.84s callback timeout in the
-    # CURRENT-3248 traces.
+    # The deadline Fluid actually enforces on a synchronous callback.
     #
-    # 5s is ~6x the 0.70-0.79s that PATCH update_cart_items_prices measures in
-    # production, and leaves room for the several calls a callback makes in
-    # sequence. Tunable without a code change if that proves tight.
-    CALLBACK_TIMEOUT = ENV.fetch("FLUID_CALLBACK_API_TIMEOUT", 5).to_i
+    # It comes from the callback DEFINITION, not from the registration:
+    # Callback::Client#make_requests reads
+    # definition.maximum_timeout_in_milliseconds (falling back to 20_000) and
+    # hands it straight to Typhoeus, which is what sets response.timed_out?.
+    # A registration's timeout_in_seconds is never read by any Fluid code — it
+    # survives only in that app's client.md — so writing a bigger number there
+    # buys this droplet nothing.
+    #
+    # The three definitions this droplet is alerted on declare 5000ms:
+    #   cart_item_added.yml, cart_subscription_added.yml,
+    #   cart_subscription_removed.yml
+    # Others (cart_email_on_create, cart_customer_logged_in,
+    # cart_country_changed) omit the field and get 20s. 5 is the tightest, so it
+    # is the one the ladder below has to fit.
+    #
+    # Mirrored here because this droplet cannot read Fluid's definition files.
+    # If Fluid retunes those YAMLs, this constant is what has to follow.
+    CALLBACK_BUDGET = 5
+
+    # One attempt, sized against CALLBACK_BUDGET rather than against nothing.
+    #
+    # This was 5s — the WHOLE budget — so a single hung Fluid call spent the
+    # entire deadline by itself, and the retry after it could not arrive in time
+    # by construction. The values above (30s) are unreachable on this path for
+    # the same reason: a call allowed 30s can only ever time out long after
+    # Fluid has given up and served the cart. That is the shape behind both the
+    # 19.84s CURRENT-3248 traces and the TM3 timeouts: ~1.4% of dispatches, all
+    # in the tail, on callbacks whose median is ~1s.
+    #
+    # 2s is still ~2.5x the 0.70-0.79s that PATCH update_cart_items_prices
+    # measures in production, so a legitimately slow call is not cut off, and it
+    # keeps the full ladder (2 attempts + backoff = 4.25s) inside the budget.
+    # Tunable without a code change; the tests fail if a tuning puts the ladder
+    # back outside the budget.
+    CALLBACK_TIMEOUT = ENV.fetch("FLUID_CALLBACK_API_TIMEOUT", 2).to_i
     CALLBACK_OPEN_TIMEOUT = ENV.fetch("FLUID_CALLBACK_API_OPEN_TIMEOUT", 2).to_i
 
     # The callback profile keeps a retry, bounded so the ladder cannot outlive the
-    # budget: 2 attempts at 5s plus 0.25s between them is ~10.25s, inside 20s.
+    # budget: 2 attempts at 2s plus 0.25s between them is 4.25s, inside the 5s
+    # CALLBACK_BUDGET.
     #
     # It has to keep one. faraday-retry only retries IDEMPOTENT_METHODS
     # (delete/get/head/options/put), and every cart write here is a PATCH, so the
