@@ -618,8 +618,25 @@ private
       return payload_price.to_f
     end
 
-    # Lookup failed — fall through rather than block the reprice on a blip.
     rows = variant_country_rows(variant_id)
+
+    # nil means the lookup FAILED (variant_country_rows rescues to nil; an
+    # answered variant with no rows is []). The guard below cannot run without
+    # those rows, and forwarding the payload price unchecked is precisely the
+    # STU2-3108 fail-open — a PH cart locked at the CAD figure. Refuse the item
+    # instead: the caller drops it (filter_map on nil) and the line keeps the
+    # price Fluid already had, which is what a timeout used to do for us before
+    # the ladder fit inside the budget.
+    if rows.nil?
+      Rails.logger.warn(
+        "[DynamicPricing] Refusing to price item #{item['id']} on cart #{cart_token}: " \
+        "variant #{variant_id} could not be read, so the cross-country guard cannot run"
+      )
+      return nil
+    end
+
+    # Answered, but the variant has no country rows — nothing to check against,
+    # and no reason to stop repricing.
     return payload_price.to_f if rows.blank?
 
     foreign = foreign_priced_row(rows, payload_price)

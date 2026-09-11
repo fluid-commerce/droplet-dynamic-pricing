@@ -155,6 +155,55 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     refute called, "update_items_prices should not be called when all prices are zero"
   end
 
+  # --- Cross-country guard, when the variant lookup itself fails ---
+  #
+  # variant_country_rows answers nil for a FAILED lookup and [] for a variant
+  # that genuinely has no rows. country_safe_price used to collapse both to
+  # blank and forward the payload price unchecked, which is the STU2-3108
+  # fail-open: the guard silently switches off and Fluid locks whatever price
+  # the payload carried.
+  #
+  # This mattered less while CALLBACK_TIMEOUT was the whole budget, because a
+  # variant GET slow enough to fail also blew the callback's deadline and
+  # nothing got written at all. With the ladder inside the budget the droplet
+  # now survives that failure and keeps going — so the fail-open became
+  # reachable, and silent.
+
+  def build_price_service(fake_variants:, country_code: "US")
+    cart = {
+      "cart_token" => "ct_abc",
+      "country_code" => country_code,
+      "company" => { "id" => @company.fluid_company_id },
+      "items" => [],
+    }
+    service = Callbacks::BaseService.new({ cart: cart })
+    client = Object.new
+    client.define_singleton_method(:variants) { fake_variants }
+    service.define_singleton_method(:fluid_client) { client }
+    service
+  end
+
+  test "country_safe_price refuses the item when the variant lookup failed" do
+    service = build_price_service(fake_variants: FailingVariantsResource.new)
+    item = { "id" => 1, "variant_id" => 10, "price" => "100.0" }
+
+    price = service.send(:country_safe_price, item, "100.0", kind: :regular)
+
+    assert_nil price,
+      "a failed lookup means the guard could not run; forwarding the payload price " \
+      "is the STU2-3108 fail-open"
+  end
+
+  test "country_safe_price still forwards the payload price when the variant has no rows" do
+    service = build_price_service(fake_variants: FakeVariantsResource.new(10 => []))
+    item = { "id" => 1, "variant_id" => 10, "price" => "100.0" }
+
+    price = service.send(:country_safe_price, item, "100.0", kind: :regular)
+
+    assert_equal 100.0, price,
+      "an answered lookup with no rows is not a failure and must keep repricing"
+  end
+
   # --- Volume adjustment (STU2-2526) ---
 
   def enable_volume_adjustment!
@@ -1370,6 +1419,12 @@ class FakeExigoLookupClient
   def customer_type_by_email(email)
     @calls << [ :customer_type_by_email, email ]
     @customer_type
+  end
+end
+
+class FailingVariantsResource
+  def get(_variant_id)
+    raise FluidClient::Error, "upstream timed out"
   end
 end
 
