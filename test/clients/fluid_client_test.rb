@@ -265,15 +265,19 @@ describe FluidClient do
       assert_equal Connections::Fluid::CALLBACK_TIMEOUT, connection.options.timeout
     end
 
-    # Unchanged by the profile split, and pinned here because it is the property
-    # a shared connection would put at risk: the token belongs to one company.
-    it "still carries its own token on its own connection" do
+    # This used to assert the opposite — that each client had its OWN connection
+    # carrying its own token — and flagged a shared connection as the risk to
+    # the property. The connection is now shared (it is the only way the pool
+    # outlives a request), so the property moved rather than disappeared: the
+    # shared connection must carry NO token, and each client supplies its own
+    # per request. See the fluid_pooling test for the request side.
+    it "keeps the token off the shared connection" do
       one = FluidClient.new("token1", profile: :callback).send(:connection)
       two = FluidClient.new("token2", profile: :callback).send(:connection)
 
-      _(one.headers["Authorization"]).must_equal "Bearer token1"
-      _(two.headers["Authorization"]).must_equal "Bearer token2"
-      refute_same one, two
+      assert_same one, two, "the pool only pays if the connection is reused"
+      assert_nil one.headers["Authorization"],
+        "a token on a shared connection would answer for the wrong company"
     end
   end
 end

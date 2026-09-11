@@ -36,13 +36,39 @@ module Connections
     CALLBACK_RETRIES = ENV.fetch("FLUID_CALLBACK_API_RETRIES", 1).to_i
     CALLBACK_RETRY_INTERVAL = ENV.fetch("FLUID_CALLBACK_API_RETRY_INTERVAL", "0.25").to_f
 
-    # Shared, cached connection
-    # Uses persistent connections with idle timeout for optimal performance.
-    # - Connections are reused when jobs run frequently (no TLS handshakes, lower latency)
-    # - Idle connections are closed after 5 seconds, avoiding stale connection errors
-    # - Retry middleware handles transient timeout failures
-    def self.connection
-      @connection ||= create_connection
+    # Public: The connection for a profile, reused for the life of the thread.
+    #
+    # Before this had callers, every FluidClient built its own Faraday
+    # connection — and a Faraday connection builds its own NetHttpPersistent
+    # adapter, which builds its own Net::HTTP::Persistent pool. Since
+    # Callbacks::BaseService builds one client per request, every callback threw
+    # its pool away and the next one paid TCP + TLS again, inside a budget Fluid
+    # caps at 5s for the busiest callbacks. `pool_size: 5` and `idle_timeout = 5`
+    # below were never once exercised, and the sockets were never shut down.
+    #
+    # Per THREAD, not per process. The adapter writes the request's timeout onto
+    # the shared Net::HTTP::Persistent and applies it when a connection is
+    # checked out, so two of Puma's threads sharing one pool would read each
+    # other's settings. A thread-local keeps all of the reuse — Puma's threads
+    # are long-lived, which is the whole reason a persistent pool pays — and
+    # none of the race.
+    #
+    # The auth token deliberately does NOT live here: it is per company and this
+    # droplet serves many, so FluidClient sends it per request.
+    #
+    # Returns a Faraday::Connection.
+    def self.connection(profile: :job)
+      store = (Thread.current[:fluid_connections] ||= {})
+      store[profile] ||= create_connection(profile: profile)
+    end
+
+    # Internal: Drop every cached connection on this thread. For tests, and for
+    # anything that changes Setting.fluid_api.base_url at runtime — the URL is
+    # read once, when the connection is built.
+    #
+    # Returns nothing.
+    def self.reset_connections!
+      Thread.current[:fluid_connections] = {}
     end
 
     # `profile: :callback` for anything answering one of Fluid's synchronous

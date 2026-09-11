@@ -28,31 +28,56 @@ class FluidClient
   end
 
   def get(path, options = {})
-    handle_response(connection.get(path, options[:query]))
+    handle_response(timed { connection.get(path, options[:query], auth_headers) })
   end
 
   def post(path, options = {})
-    handle_response(connection.post(path, options[:body]))
+    handle_response(timed { connection.post(path, options[:body], auth_headers) })
   end
 
   def put(path, options = {})
-    handle_response(connection.put(path, options[:body]))
+    handle_response(timed { connection.put(path, options[:body], auth_headers) })
   end
 
   def patch(path, options = {})
-    handle_response(connection.patch(path, options[:body]))
+    handle_response(timed { connection.patch(path, options[:body], auth_headers) })
   end
 
   def delete(path, options = {})
-    handle_response(connection.delete(path, options[:query]))
+    handle_response(timed { connection.delete(path, options[:query], auth_headers) })
   end
 
 private
 
-  def connection
-    @connection ||= Connections::Fluid.create_connection(profile: @profile).tap do |conn|
-      conn.headers["Authorization"] = "Bearer #{@auth_token}"
+  # Internal: Measure a call when the shopper is blocked on it.
+  #
+  # Only the :callback profile is tallied — see CallbackHttpTally. The timing is
+  # in an ensure so a call that raises (a timeout above all) still reports the
+  # time it burned, which is the case the measurement exists for.
+  def timed
+    return yield unless @profile == :callback
+
+    started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    begin
+      yield
+    ensure
+      CallbackHttpTally.record(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at)
     end
+  end
+
+  # Shared per thread, so the TLS handshake is paid once rather than once per
+  # callback. See Connections::Fluid.connection.
+  def connection
+    Connections::Fluid.connection(profile: @profile)
+  end
+
+  # Per REQUEST, not on the connection: the token is per company and the
+  # connection is shared, so stamping it on the connection would hand one
+  # company's request another company's credentials.
+  def auth_headers
+    return {} if @auth_token.blank?
+
+    { "Authorization" => "Bearer #{@auth_token}" }
   end
 
   def handle_response(response)
