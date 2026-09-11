@@ -25,6 +25,23 @@ class Callbacks::TimingLogTest < ActionDispatch::IntegrationTest
     Rails.logger = original
   end
 
+  # Without this the deadline never starts, CallbackBudget.remaining stays nil,
+  # and every Fluid call silently falls back to the connection ceiling — the
+  # flat timeout the deadline exists to replace.
+  test "starts the deadline so Fluid calls are bounded by what is left of it" do
+    seen = nil
+
+    Callbacks::CartItemAddedService.stub(:call, ->(*) {
+      seen = CallbackBudget.remaining
+      { success: true }
+    }) do
+      post "/callbacks/cart_item_added", params: { cart: cart_data, cart_item: { "id" => 1 } }, as: :json
+    end
+
+    refute_nil seen, "the callback request must put a deadline on the work it does"
+    assert_operator seen, :<=, Connections::Fluid::CALLBACK_BUDGET
+  end
+
   test "reports the outbound Fluid share alongside the total" do
     line = capture_timing_line do
       Callbacks::CartItemAddedService.stub(:call, ->(*) {

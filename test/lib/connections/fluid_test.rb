@@ -14,14 +14,24 @@ describe Connections::Fluid do
       assert_operator callback.open_timeout, :<=, default.open_timeout
     end
 
-    # It must KEEP a retry. faraday-retry only retries idempotent methods, so the
-    # ladder applies to the reads — and a failed variant GET makes
-    # country_safe_price forward the payload price unchecked (STU2-3108). Removing
-    # the retry would trade a slow callback for a wrong price.
-    it "keeps a retry, because the reads are what it protects" do
+    # The retry is gone, and it was never doing what it claimed.
+    #
+    # It was justified as protecting the reads: a failed variant GET made
+    # country_safe_price forward the payload price unchecked (STU2-3108). But
+    # with a per-call timeout equal to the budget, the first attempt only ever
+    # raised AT the deadline, so the retry began after Fluid had already served
+    # the cart. It never rescued a call — it spent 5s more answering nobody.
+    #
+    # Under a deadline the same holds by construction: a timeout means the
+    # budget is spent, so there is nothing left to retry INTO. And the STU2-3108
+    # exposure it was defending is closed at the source now — country_safe_price
+    # refuses an item whose lookup failed instead of forwarding a price it could
+    # not check.
+    it "does not retry, because a timeout means the budget is already gone" do
       handlers = Connections::Fluid.create_connection(profile: :callback).builder.handlers.map(&:name)
 
-      assert(handlers.any? { |name| name.include?("Retry") }, "the callback profile must still retry reads")
+      refute(handlers.any? { |name| name.include?("Retry") },
+        "a retry cannot fit inside a budget the first attempt just exhausted")
     end
 
     # Fluid abandons a synchronous callback at the deadline its DEFINITION
@@ -40,27 +50,56 @@ describe Connections::Fluid do
     # 5s budget, so ONE hung Fluid call consumed the entire deadline on its own
     # — and the retry that followed was 5.25s of work Fluid had already stopped
     # listening for.
-    it "fits its whole ladder inside the deadline Fluid enforces" do
-      attempts = Connections::Fluid::CALLBACK_RETRIES + 1
-      worst_case = (attempts * Connections::Fluid::CALLBACK_TIMEOUT) +
-                   (Connections::Fluid::CALLBACK_RETRIES * Connections::Fluid::CALLBACK_RETRY_INTERVAL)
-
-      assert_operator worst_case, :<, Connections::Fluid::CALLBACK_BUDGET,
-        "every attempt plus every backoff has to fit in the #{Connections::Fluid::CALLBACK_BUDGET}s " \
-        "deadline Fluid abandons the callback at"
+    #
+    # The fix is not a smaller slice (that kills legitimately slow calls) but a
+    # ceiling that leaves the droplet room to answer: every call, even the most
+    # generous, has to finish with the margin still unspent.
+    it "leaves the droplet room to answer after its most generous call" do
+      assert_operator Connections::Fluid::CALLBACK_TIMEOUT + Connections::Fluid::CALLBACK_MARGIN,
+                      :<=, Connections::Fluid::CALLBACK_BUDGET,
+        "a call allowed the whole budget would answer exactly as Fluid stops listening"
     end
 
-    # A single attempt must leave room for the rest of the callback's work, not
-    # just for itself: subscription_removed measures p95 3.47s in production
-    # across a dozen-odd sequential calls. A per-call timeout equal to the whole
-    # budget cannot be survived by anything downstream of it.
-    it "keeps one attempt to a fraction of the budget" do
-      assert_operator Connections::Fluid::CALLBACK_TIMEOUT, :<=, Connections::Fluid::CALLBACK_BUDGET / 2.0,
-        "one attempt must not be able to spend half the budget"
+    it "reserves a real margin, not a token one" do
+      assert_operator Connections::Fluid::CALLBACK_MARGIN, :>, 0
     end
 
     it "retries less than background work does" do
       assert_operator Connections::Fluid::CALLBACK_RETRIES, :<, 3
+    end
+  end
+
+  describe "the deadline middleware" do
+    after { CallbackBudget.reset }
+
+    def run_middleware
+      env = Faraday::Env.new
+      env.request = Faraday::RequestOptions.new
+      env.request.timeout = Connections::Fluid::CALLBACK_TIMEOUT
+      Connections::Fluid::DeadlineTimeout.new(->(_) { }).call(env)
+      env.request.timeout
+    end
+
+    it "gives a call what is left of the callback's budget" do
+      CallbackBudget.start!
+      CallbackBudget.started_at -= 3.0
+
+      assert_in_delta 1.75, run_middleware, 0.05
+    end
+
+    # The point of the whole exercise: a call that could still answer in time is
+    # never cut short to protect the calls after it.
+    it "does not cut a slow call short while the budget can still cover it" do
+      CallbackBudget.start!
+
+      assert_operator run_middleware, :>, 3.0,
+        "an early call must be allowed to take seconds, not a fixed slice"
+    end
+
+    it "leaves background work on its own timeout" do
+      CallbackBudget.reset
+
+      assert_equal Connections::Fluid::CALLBACK_TIMEOUT, run_middleware
     end
   end
 

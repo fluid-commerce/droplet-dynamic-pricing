@@ -3,6 +3,10 @@ class Callbacks::BaseController < ApplicationController
 
   def create
     started_at = monotonic_now
+    # Every outbound Fluid call from here on is bounded by what is left of this,
+    # rather than by a flat per-call timeout that cannot tell a hung call from a
+    # slow one. See CallbackBudget.
+    CallbackBudget.start!
     result = service_class.call(callback_params)
     log_timing(started_at, outcome: result[:success] ? "ok" : "rejected")
 
