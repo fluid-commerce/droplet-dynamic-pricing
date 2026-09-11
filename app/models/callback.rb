@@ -26,60 +26,22 @@ class Callback < ApplicationRecord
     "cart_subscription_removed" => "/callbacks/subscription_removed",
   }.freeze
 
-  # The smallest registration timeout this droplet can actually satisfy.
-  #
-  # Fluid abandons a synchronous callback at the registration's
-  # timeout_in_seconds. The droplet's worst case for ONE Fluid call is the retry
-  # ladder in Connections::Fluid, so a registration below that is unsatisfiable
-  # by construction, however fast the droplet's own work is. Derived rather than
-  # written down so tuning the ladder cannot silently invalidate it.
-  MINIMUM_TIMEOUT_IN_SECONDS = (
-    ((Connections::Fluid::CALLBACK_RETRIES + 1) * Connections::Fluid::CALLBACK_TIMEOUT) +
-    (Connections::Fluid::CALLBACK_RETRIES * Connections::Fluid::CALLBACK_RETRY_INTERVAL)
-  ).ceil
-
-  # 20 is the ceiling the validation above allows, and the default the Fluid
-  # client has always sent when a registration omits the field
-  # (Fluid::CallbackRegistrations::Resource#payload). Fluid abandons the callback
-  # at this deadline, so it is the shopper's budget, not ours — but it has to be
-  # long enough for the ladder above, or a single slow Fluid read times the whole
-  # callback out while the droplet is still working.
-  DEFAULT_TIMEOUT_IN_SECONDS = 20
-
-  # The largest timeout Fluid accepts on a registration.
-  MAXIMUM_TIMEOUT_IN_SECONDS = 20
-
-  # Internal: Test seam. MINIMUM_TIMEOUT_IN_SECONDS is derived from env-tunable
-  # constants read at boot, so the impossible case (a floor above the ceiling
-  # Fluid allows) cannot be reached by setting an env var mid-suite.
-  def self.stub_const_minimum(value)
-    original = method(:minimum_timeout_in_seconds)
-    define_singleton_method(:minimum_timeout_in_seconds) { value }
-    yield
-  ensure
-    define_singleton_method(:minimum_timeout_in_seconds, original)
-  end
-
-  def self.minimum_timeout_in_seconds
-    MINIMUM_TIMEOUT_IN_SECONDS
-  end
+  # Matches what the deployed registrations carry. Fluid abandons the callback
+  # at this deadline, so it is the shopper's budget, not ours.
+  DEFAULT_TIMEOUT_IN_SECONDS = 5
 
   # Public: Make sure this droplet has a row for every callback it answers, so
   # an install registers all of them rather than whatever someone remembered to
   # activate.
   #
-  # A row with a URL was set up by somebody, so its active flag and URL are
-  # left alone — an operator who deliberately turned one off is not overruled
-  # by the next install.
+  # A row with a URL was set up by somebody, so its active flag, URL and
+  # timeout are left alone — an operator who tuned a timeout or deliberately
+  # turned one off is not overruled by the next install.
   #
   # A row WITHOUT a URL was imported by CallbackSyncService, which writes only
   # the name and description and leaves everything else nil. That is the shape
   # every deployed environment is already in, so treating it as "already
   # exists" would configure nothing and register nothing.
-  #
-  # The timeout is the one field checked on EVERY row, configured or not: a
-  # value under MINIMUM_TIMEOUT_IN_SECONDS is not a tuning an operator can be
-  # right about, it is a budget this droplet cannot meet.
   #
   # Returns nothing.
   def self.ensure_served!
@@ -88,44 +50,16 @@ class Callback < ApplicationRecord
 
     SERVED_PATHS.each do |name, path|
       callback = find_or_initialize_by(name: name)
+      next if callback.url.present?
 
-      if callback.url.blank?
-        callback.description = "Answered by this droplet at #{path}" if callback.description.blank?
-        callback.url = "#{base_url.chomp('/')}#{path}"
-        callback.active = true
-      end
-
-      if callback.timeout_in_seconds.to_i < minimum_timeout_in_seconds
-        callback.timeout_in_seconds = satisfiable_timeout_in_seconds
-      end
-
-      next unless callback.changed?
-
+      callback.description = "Answered by this droplet at #{path}" if callback.description.blank?
+      callback.url = "#{base_url.chomp('/')}#{path}"
+      callback.timeout_in_seconds ||= DEFAULT_TIMEOUT_IN_SECONDS
+      callback.active = true
       callback.save
     end
 
     deactivate_unserved!
-  end
-
-  # Internal: The timeout to write.
-  #
-  # Normally the default. When the derived floor exceeds MAXIMUM — the ceiling
-  # Fluid's own validation allows — no timeout can satisfy the HTTP budget, so
-  # the ceiling is written and the incompatibility is logged rather than
-  # persisting a value the validation would reject. That state means the
-  # callback HTTP tuning (FLUID_CALLBACK_API_TIMEOUT / _RETRIES) is set beyond
-  # what a synchronous callback can accommodate.
-  #
-  # Returns an Integer.
-  def self.satisfiable_timeout_in_seconds
-    return DEFAULT_TIMEOUT_IN_SECONDS if minimum_timeout_in_seconds <= MAXIMUM_TIMEOUT_IN_SECONDS
-
-    Rails.logger.error(
-      "[Callback] The callback HTTP budget cannot fit any allowed timeout: it needs " \
-      "#{minimum_timeout_in_seconds}s but Fluid accepts at most #{MAXIMUM_TIMEOUT_IN_SECONDS}s. " \
-      "Lower FLUID_CALLBACK_API_TIMEOUT or FLUID_CALLBACK_API_RETRIES."
-    )
-    MAXIMUM_TIMEOUT_IN_SECONDS
   end
 
   # Public: Switch off any row still marked active whose URL this droplet does
@@ -191,9 +125,8 @@ class Callback < ApplicationRecord
 
   validates :name, presence: true, uniqueness: true
   validates :description, presence: true
-  validates :timeout_in_seconds,
-            numericality: { greater_than: 0, less_than_or_equal_to: MAXIMUM_TIMEOUT_IN_SECONDS, only_integer: true },
-            allow_nil: true
+  validates :timeout_in_seconds, numericality: { greater_than: 0, less_than_or_equal_to: 20, only_integer: true },
+ allow_nil: true
 
   validate :validate_active_requirements
 
