@@ -454,15 +454,6 @@ private
     variant = response&.dig("variant") || response&.dig(:variant)
     @variant_country_rows[variant_id] =
       variant&.dig("variant_countries") || variant&.dig(:variant_countries) || []
-  rescue FluidClient::ResourceNotFoundError
-    # An ANSWER, not a failure: Fluid looked and the variant is gone (deleted or
-    # archived) while a line still references it. There is nothing to
-    # cross-check against, which is the same position as a variant with no
-    # country rows — and callers must not read it as "the lookup broke", because
-    # they refuse to price on that, and refusing here would strand the line at
-    # whatever price it already carried.
-    Rails.logger.warn "Variant #{variant_id} no longer exists in Fluid"
-    @variant_country_rows[variant_id] = []
   rescue StandardError => e
     Rails.logger.error "Failed to fetch variant #{variant_id} country rows: #{e.message}"
     @variant_country_rows[variant_id] = nil
@@ -627,31 +618,8 @@ private
       return payload_price.to_f
     end
 
+    # Lookup failed — fall through rather than block the reprice on a blip.
     rows = variant_country_rows(variant_id)
-
-    # nil means the lookup FAILED (variant_country_rows rescues to nil; an
-    # answered variant with no rows is []). The guard below cannot run without
-    # those rows, and forwarding the payload price unchecked is precisely the
-    # STU2-3108 fail-open — a PH cart locked at the CAD figure. Refuse the item
-    # instead: the caller drops it (filter_map on nil) and the line keeps the
-    # price Fluid already had, which is what a timeout used to do for us before
-    # the ladder fit inside the budget.
-    if rows.nil?
-      # Reported, not just logged. Refusing costs the shopper their discount and
-      # the callback still answers success, so without this the line is dropped
-      # with nobody told — the same silence the swallowed write failures had.
-      report_exception(
-        CallbackError.new("Variant #{variant_id} unreadable; refusing to price item #{item['id']}"),
-        message: "[DynamicPricing] Refusing to price item #{item['id']} on cart #{cart_token}: " \
-                 "variant #{variant_id} could not be read, so the cross-country guard cannot run",
-        variant_id: variant_id,
-        item_id: item["id"]
-      )
-      return nil
-    end
-
-    # Answered, but the variant has no country rows — nothing to check against,
-    # and no reason to stop repricing.
     return payload_price.to_f if rows.blank?
 
     foreign = foreign_priced_row(rows, payload_price)

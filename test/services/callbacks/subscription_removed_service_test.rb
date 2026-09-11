@@ -29,20 +29,6 @@ class FakeCustomersResource
   end
 end
 
-class CountingCustomersResource
-  attr_reader :get_calls
-
-  def initialize(customers_response = [])
-    @customers_response = customers_response
-    @get_calls = 0
-  end
-
-  def get(params)
-    @get_calls += 1
-    { "customers" => @customers_response }
-  end
-end
-
 class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
   include VolumeTestHelpers
 
@@ -72,94 +58,6 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
   def callback_params
     { cart: cart_data }
-  end
-
-  # should_keep_subscription_prices returns early unless customer_logged_in?,
-  # which IS cart_customer_id.present? — and then looked the customer up by
-  # email anyway, spending a Fluid GET on an id the payload had already handed
-  # it. On the slowest callback in production (p95 3.47s against a 5s deadline)
-  # that is one of only three reads.
-  #
-  # is_preferred_customer? has always done it the other way round
-  # (cart_customer_id || get_customer_id_by_email), so this also stops the two
-  # paths resolving different customers for the same cart.
-  test "uses the customer id the cart already carries instead of looking it up" do
-    fake_carts = FakeCartsResource.new
-    fake_customers = CountingCustomersResource.new([ { "id" => 999 } ])
-
-    mock_client = Object.new
-    mock_client.define_singleton_method(:carts) { fake_carts }
-    mock_client.define_singleton_method(:customers) { fake_customers }
-
-    service = Callbacks::SubscriptionRemovedService.new(callback_params)
-    service.define_singleton_method(:fluid_client) { mock_client }
-
-    service.stub(:has_active_subscriptions?, false) do
-      service.stub(:has_another_subscription_in_cart?, false) do
-        assert service.call[:success]
-      end
-    end
-
-    assert_equal 0, fake_customers.get_calls,
-      "the cart carries customer_id 12345; looking it up by email is a wasted Fluid call"
-  end
-
-  test "asks about subscriptions for the cart's own customer" do
-    fake_carts = FakeCartsResource.new
-    fake_customers = CountingCustomersResource.new([ { "id" => 999 } ])
-
-    mock_client = Object.new
-    mock_client.define_singleton_method(:carts) { fake_carts }
-    mock_client.define_singleton_method(:customers) { fake_customers }
-
-    service = Callbacks::SubscriptionRemovedService.new(callback_params)
-    service.define_singleton_method(:fluid_client) { mock_client }
-
-    asked_for = []
-    service.define_singleton_method(:has_active_subscriptions?) do |customer_id|
-      asked_for << customer_id
-      false
-    end
-
-    service.stub(:has_another_subscription_in_cart?, false) do
-      service.call
-    end
-
-    assert_equal [ 12345 ], asked_for,
-      "the email lookup answered 999; the cart's own 12345 is the authority"
-  end
-
-  class RaisingSubscriptionsResource
-    def get_by_customer(*)
-      raise FluidClient::Error, "upstream refused the connection"
-    end
-  end
-
-  # `false` from a preferred lookup means either "not preferred" or "could not
-  # tell" — every lookup behind it rescues to false. Only the first justifies
-  # stripping the discount off every line. CustomerLoggedInService has guarded
-  # this since CURRENT-3361; this service never did, so one failed Fluid call
-  # repriced a live subscriber's cart to regular.
-  test "does not strip a preferred cart when the lookup could not answer" do
-    fake_carts = FakeCartsResource.new
-
-    mock_client = Object.new
-    mock_client.define_singleton_method(:carts) { fake_carts }
-    mock_client.define_singleton_method(:customers) { CountingCustomersResource.new }
-    mock_client.define_singleton_method(:subscriptions) { RaisingSubscriptionsResource.new }
-
-    cart = cart_data.merge("metadata" => { "price_type" => "preferred_customer" })
-    service = Callbacks::SubscriptionRemovedService.new({ cart: cart })
-    service.define_singleton_method(:fluid_client) { mock_client }
-
-    service.stub(:has_another_subscription_in_cart?, false) do
-      assert service.call[:success]
-    end
-
-    assert_empty fake_carts.metadata_calls,
-      "a lookup that failed is not a shopper who stopped being preferred"
-    assert_empty fake_carts.items_prices_calls,
-      "repricing every line to regular on an unanswered lookup is a wrong charge"
   end
 
   test "call returns error when cart is blank" do

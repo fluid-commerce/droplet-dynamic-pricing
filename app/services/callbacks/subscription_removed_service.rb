@@ -39,26 +39,7 @@ class Callbacks::SubscriptionRemovedService < Callbacks::BaseService
       return result_success
     end
 
-    keep = should_keep_subscription_prices(customer_email)
-
-    # `keep == false` means either "not preferred" or "we could not tell": every
-    # lookup behind should_keep_subscription_prices rescues to false and flags
-    # the failure. Only the first justifies stripping the discount off every
-    # line — CustomerLoggedInService has guarded the same branch since
-    # CURRENT-3361, and this service was missing it, so a single failed Fluid
-    # call repriced a live subscriber's cart to regular.
-    #
-    # Leaving the cart untouched is the safe end: it keeps whatever it already
-    # had, and the next callback re-derives the answer with a working lookup.
-    if !keep && was_preferred && preferred_lookup_failed?
-      Rails.logger.warn(
-        "[DynamicPricing] Not stripping preferred pricing on cart #{cart_token}: " \
-        "a preferred lookup failed, so 'not preferred' is unproven"
-      )
-      return result_success
-    end
-
-    if keep
+    if should_keep_subscription_prices(customer_email)
       update_cart_metadata({ "price_type" => "preferred_customer" })
       use_subscription_prices = true
     else
@@ -98,12 +79,7 @@ private
 
     return false unless customer_logged_in?
 
-    # customer_logged_in? IS cart_customer_id.present?, so the id is already in
-    # hand; looking it up by email spent a Fluid GET to re-derive it on the
-    # slowest callback this droplet serves. No `||` fallback: the guard above
-    # makes cart_customer_id present by construction, so one would be dead code
-    # describing a call this path cannot make.
-    customer_id = cart_customer_id
+    customer_id = get_customer_id_by_email(customer_email)
 
     if customer_id.present?
       return true if has_active_subscriptions?(customer_id)

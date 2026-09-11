@@ -3,10 +3,6 @@ class Callbacks::BaseController < ApplicationController
 
   def create
     started_at = monotonic_now
-    # Every outbound Fluid call from here on is bounded by what is left of this,
-    # rather than by a flat per-call timeout that cannot tell a hung call from a
-    # slow one. See CallbackBudget.
-    CallbackBudget.start!(callback_definition_name)
     result = service_class.call(callback_params)
     log_timing(started_at, outcome: result[:success] ? "ok" : "rejected")
 
@@ -63,19 +59,6 @@ private
 
   def monotonic_now
     Process.clock_gettime(Process::CLOCK_MONOTONIC)
-  end
-
-  # Internal: Fluid's name for the callback being answered, which is what
-  # carries its deadline.
-  #
-  # Resolved off the ROUTE rather than the controller class, because the two are
-  # allowed to differ and do: cart_subscription_removed is answered at
-  # /callbacks/subscription_removed, so SubscriptionRemovedController.name would
-  # miss the budget map entirely and take the fallback.
-  #
-  # Returns a String, or nil for a path SERVED_PATHS does not name.
-  def callback_definition_name
-    ::Callback::SERVED_PATHS.key(request.path)
   end
 
   def timing_callback_name
