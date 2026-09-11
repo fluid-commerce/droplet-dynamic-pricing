@@ -41,10 +41,17 @@ private
     @timing_logged = true
 
     duration_ms = ((monotonic_now - started_at) * 1000).round
+    # How much of duration_ms left the process, and over how many calls. Without
+    # it a slow callback cannot be told apart from a chatty one, and the two want
+    # opposite fixes: a slow call wants a tighter budget, a chatty one wants
+    # fewer calls.
+    http = CallbackHttpTally.summary
 
     Rails.logger.info(
       "[DynamicPricing] marker=callback-timing callback=#{timing_callback_name} " \
-      "outcome=#{outcome} duration_ms=#{duration_ms} cart=#{timing_cart_token.inspect}"
+      "outcome=#{outcome} duration_ms=#{duration_ms} " \
+      "fluid_calls=#{http[:calls]} fluid_ms=#{http[:elapsed_ms]} " \
+      "cart=#{timing_cart_token.inspect}"
     )
   rescue StandardError => e
     Rails.logger.warn "[DynamicPricing] failed to log callback timing: #{e.message}"
