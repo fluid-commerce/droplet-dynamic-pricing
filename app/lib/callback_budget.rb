@@ -18,17 +18,24 @@
 # request and job). Outside a callback request there is no deadline at all, and
 # #remaining answers nil so background work keeps its own generous budget.
 class CallbackBudget < ActiveSupport::CurrentAttributes
-  attribute :started_at
+  attribute :started_at, :budget
 
   # The smallest timeout worth issuing. Past the deadline nothing can be won,
   # but the call still has to carry SOME timeout or it inherits the connection
   # default and runs on for seconds nobody is waiting through.
   FLOOR = 0.25
 
-  # Public: Start the clock. Called once per callback request.
+  # Public: Start the clock for one callback request.
+  #
+  # definition_name - Fluid's name for the callback being answered, which is
+  #                   what carries the deadline. An unknown name takes the
+  #                   tightest budget rather than the most generous.
   #
   # Returns nothing.
-  def self.start!
+  def self.start!(definition_name)
+    self.budget = Connections::Fluid::CALLBACK_BUDGETS.fetch(
+      definition_name, Connections::Fluid::CALLBACK_BUDGET
+    )
     self.started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
   end
 
@@ -39,8 +46,8 @@ class CallbackBudget < ActiveSupport::CurrentAttributes
     return nil if started_at.nil?
 
     elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
-    left = Connections::Fluid::CALLBACK_BUDGET - Connections::Fluid::CALLBACK_MARGIN - elapsed
+    left = budget - Connections::Fluid::CALLBACK_MARGIN - elapsed
 
-    left.clamp(FLOOR, Connections::Fluid::CALLBACK_BUDGET)
+    left.clamp(FLOOR, budget)
   end
 end

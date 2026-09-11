@@ -194,6 +194,36 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
       "is the STU2-3108 fail-open"
   end
 
+  # A 404 is an ANSWER: Fluid looked and the variant is not there (deleted,
+  # archived). variant_country_rows rescued StandardError, so it collapsed into
+  # the same nil as a timeout and the new refusal dropped the line — where the
+  # old fall-through repriced it. On cart_country_changed that regression is
+  # visible as money: the payload carries the NEW country's price, so refusing
+  # leaves a PHP cart locked at the old USD figure.
+  test "country_safe_price treats a variant that is gone as answered, not failed" do
+    service = build_price_service(fake_variants: NotFoundVariantsResource.new)
+    item = { "id" => 1, "variant_id" => 10, "price" => "100.0" }
+
+    price = service.send(:country_safe_price, item, "100.0", kind: :regular)
+
+    assert_equal 100.0, price,
+      "Fluid answered; there is simply no variant to cross-check against"
+  end
+
+  # Refusing the item is the safe end, but it must not be a quiet one: the
+  # shopper loses their discount and the callback still returns success, so
+  # nothing else in the system will ever mention it.
+  test "country_safe_price reports the failure it refuses on" do
+    service = build_price_service(fake_variants: FailingVariantsResource.new)
+    reported = []
+    service.define_singleton_method(:report_exception) { |e, **| reported << e }
+
+    service.send(:country_safe_price, { "id" => 1, "variant_id" => 10 }, "100.0", kind: :regular)
+
+    assert_equal 1, reported.size,
+      "a refused line is a missing discount; swallowing it is why these went unnoticed"
+  end
+
   test "country_safe_price still forwards the payload price when the variant has no rows" do
     service = build_price_service(fake_variants: FakeVariantsResource.new(10 => []))
     item = { "id" => 1, "variant_id" => 10, "price" => "100.0" }
@@ -1419,6 +1449,12 @@ class FakeExigoLookupClient
   def customer_type_by_email(email)
     @calls << [ :customer_type_by_email, email ]
     @customer_type
+  end
+end
+
+class NotFoundVariantsResource
+  def get(_variant_id)
+    raise FluidClient::ResourceNotFoundError, "Resource not found: 404"
   end
 end
 

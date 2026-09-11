@@ -39,7 +39,39 @@ class Callbacks::TimingLogTest < ActionDispatch::IntegrationTest
     end
 
     refute_nil seen, "the callback request must put a deadline on the work it does"
-    assert_operator seen, :<=, Connections::Fluid::CALLBACK_BUDGET
+    assert_in_delta 5 - Connections::Fluid::CALLBACK_MARGIN, seen, 0.1
+  end
+
+  # The controller class name is NOT Fluid's definition name — this droplet
+  # answers cart_subscription_removed at /callbacks/subscription_removed — and
+  # the budget is keyed by the definition, so resolving it off the class would
+  # silently miss and hand every such callback the fallback budget.
+  test "resolves the budget by Fluid's definition name, not the controller's" do
+    seen = nil
+
+    Callbacks::SubscriptionRemovedService.stub(:call, ->(*) {
+      seen = CallbackBudget.budget
+      { success: true }
+    }) do
+      post "/callbacks/subscription_removed", params: { cart: cart_data }, as: :json
+    end
+
+    assert_equal 5, seen
+  end
+
+  test "gives a 20s callback its real budget" do
+    seen = nil
+
+    Callbacks::CustomerLoggedInService.stub(:call, ->(*) {
+      seen = CallbackBudget.budget
+      { success: true }
+    }) do
+      post "/callbacks/customer_logged_in",
+           params: { cart: cart_data.merge("email" => "s@example.com") }, as: :json
+    end
+
+    assert_equal 20, seen,
+      "cart_customer_logged_in omits maximum_timeout_in_milliseconds, so Fluid waits 20s"
   end
 
   test "reports the outbound Fluid share alongside the total" do

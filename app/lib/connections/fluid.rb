@@ -8,7 +8,8 @@ module Connections
     TIMEOUT = ENV.fetch("FLUID_API_TIMEOUT", 30).to_i
     OPEN_TIMEOUT = ENV.fetch("FLUID_API_OPEN_TIMEOUT", 10).to_i
 
-    # The deadline Fluid actually enforces on a synchronous callback.
+    # The deadline Fluid actually enforces on a synchronous callback, per
+    # callback — and they are NOT all the same.
     #
     # It comes from the callback DEFINITION, not from the registration:
     # Callback::Client#make_requests reads
@@ -18,15 +19,32 @@ module Connections
     # survives only in that app's client.md — so writing a bigger number there
     # buys this droplet nothing.
     #
-    # The three definitions this droplet is alerted on declare 5000ms:
-    #   cart_item_added.yml, cart_subscription_added.yml,
-    #   cart_subscription_removed.yml
-    # Others (cart_email_on_create, cart_customer_logged_in,
-    # cart_country_changed) omit the field and get 20s. 5 is the tightest, so it
-    # is the one the ladder below has to fit.
+    # The first four declare maximum_timeout_in_milliseconds: 5000. The rest omit
+    # the field and get Callback::Client::MAX_TIMEOUT_IN_MILLISECONDS, 20s.
+    # Holding those to 5s would cut off the most call-heavy callbacks — the
+    # login path alone makes 6-8 fixed calls plus 2 per item — while Fluid is
+    # still listening for another fifteen seconds.
+    #
+    # Every callback in Callback::SERVED_PATHS is listed, so a name missing here
+    # means Fluid grew a definition this droplet has not caught up with.
     #
     # Mirrored here because this droplet cannot read Fluid's definition files.
-    # If Fluid retunes those YAMLs, this constant is what has to follow.
+    # If Fluid retunes those YAMLs, this map is what has to follow.
+    CALLBACK_BUDGETS = {
+      "cart_item_added"           => 5,
+      "cart_item_updated"         => 5,
+      "cart_subscription_added"   => 5,
+      "cart_subscription_removed" => 5,
+      "cart_country_changed"      => 20,
+      "cart_customer_attached"    => 20,
+      "cart_customer_detached"    => 20,
+      "cart_customer_logged_in"   => 20,
+      "cart_email_on_create"      => 20,
+    }.freeze
+
+    # What an unrecognised callback is assumed to have. The tightest, so a
+    # definition added in Fluid without a matching entry above is treated
+    # conservatively rather than being handed a budget it may not have.
     CALLBACK_BUDGET = 5
 
     # Held back from every call's timeout for the work that is NOT an outbound
@@ -35,34 +53,38 @@ module Connections
     # would finish exactly as Fluid stops listening.
     CALLBACK_MARGIN = ENV.fetch("FLUID_CALLBACK_API_MARGIN", "0.25").to_f
 
-    # The CEILING for one call, not a slice of the budget.
+    # The CEILING for one call, not a slice of a budget.
     #
     # A flat slice was the wrong shape: any value tight enough to survive a hung
     # call also kills a legitimately slow one. DeadlineTimeout narrows each call
     # to what CallbackBudget says is actually left, so this is only the most a
-    # call may ever be given — which is the budget minus the margin, because a
-    # call handed the whole budget would answer exactly as Fluid stops
-    # listening.
-    CALLBACK_TIMEOUT = ENV.fetch("FLUID_CALLBACK_API_TIMEOUT", CALLBACK_BUDGET - CALLBACK_MARGIN).to_f
+    # call may ever be given — sized off the WIDEST budget, since a 20s callback
+    # must not be capped at a 5s callback's ceiling.
+    CALLBACK_TIMEOUT = ENV.fetch("FLUID_CALLBACK_API_TIMEOUT",
+                                 CALLBACK_BUDGETS.values.push(CALLBACK_BUDGET).max - CALLBACK_MARGIN).to_f
 
     CALLBACK_OPEN_TIMEOUT = ENV.fetch("FLUID_CALLBACK_API_OPEN_TIMEOUT", 2).to_i
 
-    # The callback profile does NOT retry, and the retry it used to have was
-    # never doing what it claimed.
+    # The callback profile keeps its retry, and this is the correction to an
+    # earlier commit on this branch that removed it.
     #
-    # It was justified as protecting the reads: a failed variant GET made
-    # country_safe_price forward the payload price unchecked (STU2-3108). But
-    # with a per-call timeout equal to the budget, the first attempt only raised
-    # AT the deadline — so the retry started after Fluid had served the cart. It
-    # rescued nothing and spent 5s more answering nobody.
+    # The reasoning for removing it — "the first attempt only ever raised AT the
+    # deadline, so the retry began after Fluid served the cart" — is true of READ
+    # timeouts and false of CONNECT ones. CALLBACK_OPEN_TIMEOUT is a separate 2s,
+    # so a connect stall raised at 2s and the retry re-issued at ~2.3s with most
+    # of the budget unspent. It recovered, routinely.
     #
-    # Under a deadline that holds by construction: a timeout means the budget is
-    # spent, so there is nothing left to retry into. And the STU2-3108 exposure
-    # is closed at its source now — country_safe_price refuses an item whose
-    # lookup failed rather than forwarding a price it could not check.
+    # What removing it cost is not a slow callback but a wrong price: a stalled
+    # subscriptions GET lands in has_active_subscriptions?'s rescue, which
+    # answers false, and should_keep_subscription_prices reads that as "not
+    # preferred" and reprices a subscriber's cart to regular.
     #
-    # Background work keeps its own retries; nobody is waiting on those.
-    CALLBACK_RETRIES = ENV.fetch("FLUID_CALLBACK_API_RETRIES", 0).to_i
+    # It is registered BEFORE DeadlineTimeout, which makes it the outer
+    # middleware: every attempt re-enters the deadline and is re-bounded by what
+    # is actually left, so the ladder cannot outlive the budget no matter how
+    # many attempts it is given. Once the budget is spent there is nothing left
+    # to retry with, and the retry stops mattering on its own.
+    CALLBACK_RETRIES = ENV.fetch("FLUID_CALLBACK_API_RETRIES", 1).to_i
     CALLBACK_RETRY_INTERVAL = ENV.fetch("FLUID_CALLBACK_API_RETRY_INTERVAL", "0.25").to_f
 
     # Shared, cached connection
@@ -92,7 +114,15 @@ module Connections
     class DeadlineTimeout < Faraday::Middleware
       def call(env)
         remaining = CallbackBudget.remaining
-        env.request.timeout = remaining if remaining
+        if remaining
+          env.request.timeout = remaining
+          # open_timeout is read separately by the adapter (Faraday's
+          # request_timeout falls back to :timeout only when :open_timeout is
+          # unset, and this profile sets it). Left alone, a late call the
+          # deadline has narrowed to the floor could still spend the full
+          # CALLBACK_OPEN_TIMEOUT stalling on the socket.
+          env.request.open_timeout = [ remaining, CALLBACK_OPEN_TIMEOUT ].min
+        end
 
         @app.call(env)
       end
@@ -102,16 +132,15 @@ module Connections
       callback = profile == :callback
 
       Faraday.new(url: Setting.fluid_api.base_url) do |conn|
-        if callback
-          conn.use DeadlineTimeout
-        else
-          conn.request :retry,
-                       max: 3,
-                       interval: 0.5,
-                       backoff_factor: 2,
-                       interval_randomness: 0.2,
-                       exceptions: [ Faraday::TimeoutError ]
-        end
+        conn.request :retry,
+                     max: callback ? CALLBACK_RETRIES : 3,
+                     interval: callback ? CALLBACK_RETRY_INTERVAL : 0.5,
+                     backoff_factor: 2,
+                     interval_randomness: 0.2,
+                     exceptions: [ Faraday::TimeoutError ]
+        # AFTER the retry, so it sits inside it: each attempt gets its own read
+        # of what is left rather than reusing the first attempt's timeout.
+        conn.use DeadlineTimeout if callback
         conn.request :json
         conn.response :json, content_type: /\bjson$/
         conn.adapter :net_http_persistent, pool_size: 5 do |http|

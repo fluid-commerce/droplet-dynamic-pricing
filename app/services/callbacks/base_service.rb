@@ -454,6 +454,15 @@ private
     variant = response&.dig("variant") || response&.dig(:variant)
     @variant_country_rows[variant_id] =
       variant&.dig("variant_countries") || variant&.dig(:variant_countries) || []
+  rescue FluidClient::ResourceNotFoundError
+    # An ANSWER, not a failure: Fluid looked and the variant is gone (deleted or
+    # archived) while a line still references it. There is nothing to
+    # cross-check against, which is the same position as a variant with no
+    # country rows — and callers must not read it as "the lookup broke", because
+    # they refuse to price on that, and refusing here would strand the line at
+    # whatever price it already carried.
+    Rails.logger.warn "Variant #{variant_id} no longer exists in Fluid"
+    @variant_country_rows[variant_id] = []
   rescue StandardError => e
     Rails.logger.error "Failed to fetch variant #{variant_id} country rows: #{e.message}"
     @variant_country_rows[variant_id] = nil
@@ -628,9 +637,15 @@ private
     # price Fluid already had, which is what a timeout used to do for us before
     # the ladder fit inside the budget.
     if rows.nil?
-      Rails.logger.warn(
-        "[DynamicPricing] Refusing to price item #{item['id']} on cart #{cart_token}: " \
-        "variant #{variant_id} could not be read, so the cross-country guard cannot run"
+      # Reported, not just logged. Refusing costs the shopper their discount and
+      # the callback still answers success, so without this the line is dropped
+      # with nobody told — the same silence the swallowed write failures had.
+      report_exception(
+        CallbackError.new("Variant #{variant_id} unreadable; refusing to price item #{item['id']}"),
+        message: "[DynamicPricing] Refusing to price item #{item['id']} on cart #{cart_token}: " \
+                 "variant #{variant_id} could not be read, so the cross-country guard cannot run",
+        variant_id: variant_id,
+        item_id: item["id"]
       )
       return nil
     end

@@ -14,54 +14,34 @@ describe Connections::Fluid do
       assert_operator callback.open_timeout, :<=, default.open_timeout
     end
 
-    # The retry is gone, and it was never doing what it claimed.
+    # The retry stays, but OUTSIDE the deadline rather than beside it.
     #
-    # It was justified as protecting the reads: a failed variant GET made
-    # country_safe_price forward the payload price unchecked (STU2-3108). But
-    # with a per-call timeout equal to the budget, the first attempt only ever
-    # raised AT the deadline, so the retry began after Fluid had already served
-    # the cart. It never rescued a call — it spent 5s more answering nobody.
+    # The claim that it never worked holds only for READ timeouts: with
+    # CALLBACK_TIMEOUT equal to the budget, the first attempt raised at the
+    # deadline and the retry began after Fluid had served the cart. It does NOT
+    # hold for CONNECT failures — CALLBACK_OPEN_TIMEOUT is a separate 2s, so a
+    # connect stall raised at 2s and the retry re-issued at ~2.3s with most of
+    # the budget still unspent, and recovered.
     #
-    # Under a deadline the same holds by construction: a timeout means the
-    # budget is spent, so there is nothing left to retry INTO. And the STU2-3108
-    # exposure it was defending is closed at the source now — country_safe_price
-    # refuses an item whose lookup failed instead of forwarding a price it could
-    # not check.
-    it "does not retry, because a timeout means the budget is already gone" do
+    # Dropping it made a single connect stall terminal, and the paths behind it
+    # rescue to false: a shopper with a live subscription gets repriced to
+    # regular. So it is registered before DeadlineTimeout, which puts it OUTSIDE
+    # — every attempt re-enters the middleware and is re-bounded by what is
+    # actually left, and once the budget is spent the retry has nothing to spend.
+    it "keeps a retry, because a connect stall can fail with budget to spare" do
       handlers = Connections::Fluid.create_connection(profile: :callback).builder.handlers.map(&:name)
 
-      refute(handlers.any? { |name| name.include?("Retry") },
-        "a retry cannot fit inside a budget the first attempt just exhausted")
+      assert(handlers.any? { |name| name.include?("Retry") },
+        "a connect stall raises at CALLBACK_OPEN_TIMEOUT with budget left; that is recoverable")
     end
 
-    # Fluid abandons a synchronous callback at the deadline its DEFINITION
-    # declares (Callback::Client#make_requests reads
-    # definition.maximum_timeout_in_milliseconds and hands it to Typhoeus).
-    # The registration's timeout_in_seconds is never consulted — it appears only
-    # in Fluid's client.md. The three callbacks this droplet is alerted on
-    # (cart_item_added, cart_subscription_added, cart_subscription_removed) all
-    # declare 5000ms, so 5s is the real budget, not the 20s cap Callback
-    # validates.
-    it "names the deadline Fluid actually enforces" do
-      assert_equal 5, Connections::Fluid::CALLBACK_BUDGET
-    end
+    it "puts the retry outside the deadline, so each attempt is re-bounded" do
+      handlers = Connections::Fluid.create_connection(profile: :callback).builder.handlers.map(&:name)
+      retry_at = handlers.index { |name| name.include?("Retry") }
+      deadline_at = handlers.index { |name| name.include?("DeadlineTimeout") }
 
-    # The bug behind the TM3 timeout alerts: CALLBACK_TIMEOUT was 5s against a
-    # 5s budget, so ONE hung Fluid call consumed the entire deadline on its own
-    # — and the retry that followed was 5.25s of work Fluid had already stopped
-    # listening for.
-    #
-    # The fix is not a smaller slice (that kills legitimately slow calls) but a
-    # ceiling that leaves the droplet room to answer: every call, even the most
-    # generous, has to finish with the margin still unspent.
-    it "leaves the droplet room to answer after its most generous call" do
-      assert_operator Connections::Fluid::CALLBACK_TIMEOUT + Connections::Fluid::CALLBACK_MARGIN,
-                      :<=, Connections::Fluid::CALLBACK_BUDGET,
-        "a call allowed the whole budget would answer exactly as Fluid stops listening"
-    end
-
-    it "reserves a real margin, not a token one" do
-      assert_operator Connections::Fluid::CALLBACK_MARGIN, :>, 0
+      assert_operator retry_at, :<, deadline_at,
+        "an attempt that reused the first attempt's timeout could outlive the budget"
     end
 
     it "retries less than background work does" do
@@ -81,7 +61,7 @@ describe Connections::Fluid do
     end
 
     it "gives a call what is left of the callback's budget" do
-      CallbackBudget.start!
+      CallbackBudget.start!("cart_subscription_removed")
       CallbackBudget.started_at -= 3.0
 
       assert_in_delta 1.75, run_middleware, 0.05
@@ -90,10 +70,26 @@ describe Connections::Fluid do
     # The point of the whole exercise: a call that could still answer in time is
     # never cut short to protect the calls after it.
     it "does not cut a slow call short while the budget can still cover it" do
-      CallbackBudget.start!
+      CallbackBudget.start!("cart_subscription_removed")
 
       assert_operator run_middleware, :>, 3.0,
         "an early call must be allowed to take seconds, not a fixed slice"
+    end
+
+    # A connect stall is bounded by open_timeout, which Faraday reads separately
+    # from :timeout. Leaving it at a flat 2s lets a late call — one the deadline
+    # has already narrowed to 0.25s — still spend 2s stalling on the socket.
+    it "narrows the connect timeout too, not only the read" do
+      env = Faraday::Env.new
+      env.request = Faraday::RequestOptions.new
+      env.request.timeout = Connections::Fluid::CALLBACK_TIMEOUT
+      env.request.open_timeout = Connections::Fluid::CALLBACK_OPEN_TIMEOUT
+      CallbackBudget.start!("cart_subscription_removed")
+      CallbackBudget.started_at -= 4.9
+
+      Connections::Fluid::DeadlineTimeout.new(->(_) { }).call(env)
+
+      assert_operator env.request.open_timeout, :<=, CallbackBudget::FLOOR
     end
 
     it "leaves background work on its own timeout" do
