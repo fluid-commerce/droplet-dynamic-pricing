@@ -79,7 +79,12 @@ private
 
     return false unless customer_logged_in?
 
-    customer_id = get_customer_id_by_email(customer_email)
+    # customer_logged_in? IS cart_customer_id.present?, so the id is already in
+    # hand — looking it up by email spent a Fluid GET to re-derive it, on the
+    # slowest callback this droplet serves. is_preferred_customer? has always
+    # preferred the payload's id, and the fallback is kept for the same reason
+    # it has there: an id the payload omits is still worth resolving.
+    customer_id = cart_customer_id || get_customer_id_by_email(customer_email)
 
     if customer_id.present?
       return true if has_active_subscriptions?(customer_id)
