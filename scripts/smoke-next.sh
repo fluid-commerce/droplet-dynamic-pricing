@@ -120,17 +120,24 @@ for path in subscription-started subscription-paused subscription-cancelled \
 done
 
 # The assertions above prove the service REFUSES what it should. They cannot
-# prove it ACCEPTS what it should: deploy with FLUID_WEBHOOK_AUTH_TOKEN absent
-# or wrong and every one of them still passes, while every genuine signed
-# install and uninstall is also refused. So if the secret is available, send a
-# correctly signed lifecycle event and require it NOT to be a 401.
+# prove it ACCEPTS what it should: deploy with the lifecycle secret absent or
+# wrong and every one of them still passes, while every genuine signed install
+# and uninstall is also refused. So if the secret is available, send a correctly
+# signed lifecycle event and require it NOT to be a 401.
 #
-#   FLUID_WEBHOOK_AUTH_TOKEN=... scripts/smoke-next.sh https://...
+#   FLUID_DROPLET_WEBHOOK_SECRET=... scripts/smoke-next.sh https://...
 #
 # 401 means verification is rejecting real Fluid traffic. Anything else — 202,
 # 204, even a 500 from the handler — proves the signature was accepted, which is
 # the only thing this check is about.
-if [ -n "${FLUID_WEBHOOK_AUTH_TOKEN:-}" ]; then
+#
+# The key is the DROPLET row's `webhook_secret`, not the `auth_token` this app
+# registers its webhooks with. Both are checked, because the positive half alone
+# passes against a service running on the wrong key: pass FLUID_WEBHOOK_AUTH_TOKEN
+# too and the second assertion requires that value to be REFUSED. That pair is
+# what distinguishes "verifying correctly" from "verifying against the token
+# that happens to be in the environment".
+if [ -n "${FLUID_DROPLET_WEBHOOK_SECRET:-}" ]; then
   # `droplet.uninstalled`, NOT `droplet.installed`, and this matters.
   #
   # A signed install would WRITE: handleDropletInstalled only bails early when a
@@ -146,7 +153,7 @@ if [ -n "${FLUID_WEBHOOK_AUTH_TOKEN:-}" ]; then
   BODY='{"resource":"droplet","event":"uninstalled","company":{"droplet_installation_uuid":"dri_smoke_probe_no_such_installation"}}'
   TS=$(date +%s)
   SIG=$(printf '%s.%s' "$TS" "$BODY" \
-    | openssl dgst -sha256 -hmac "$FLUID_WEBHOOK_AUTH_TOKEN" \
+    | openssl dgst -sha256 -hmac "$FLUID_DROPLET_WEBHOOK_SECRET" \
     | sed 's/^.*= //')
   SIGNED=$(code -X POST "$BASE/api/webhooks" \
     -H 'content-type: application/json' \
@@ -154,14 +161,46 @@ if [ -n "${FLUID_WEBHOOK_AUTH_TOKEN:-}" ]; then
     -H "X-Fluid-Signature: $SIG" \
     -d "$BODY")
   if [ "$SIGNED" = "401" ]; then
-    printf '  FAIL  %-48s %s\n' "signed lifecycle webhook is accepted" "$SIGNED"
+    printf '  FAIL  %-48s %s\n' "droplet-secret lifecycle webhook accepted" "$SIGNED"
     fail=$((fail + 1))
   else
-    printf '  ok    %-48s %s\n' "signed lifecycle webhook is accepted" "$SIGNED"
+    printf '  ok    %-48s %s\n' "droplet-secret lifecycle webhook accepted" "$SIGNED"
+  fi
+
+  # The other direction. Fluid never signs a lifecycle event with the shared
+  # auth_token, so a service that accepts it is running on the wrong key — the
+  # STU2-3356 defect, which the positive check above cannot see.
+  #
+  # Only meaningful when the two values actually differ. Where they are equal
+  # the request is byte-identical to the one just accepted, so demanding a 401
+  # would contradict the check above; say so and skip rather than fail.
+  if [ -z "${FLUID_WEBHOOK_AUTH_TOKEN:-}" ]; then
+    printf '  SKIP  %-48s %s\n' "shared token is refused for lifecycle" \
+      "set FLUID_WEBHOOK_AUTH_TOKEN to check"
+  elif [ "$FLUID_WEBHOOK_AUTH_TOKEN" = "$FLUID_DROPLET_WEBHOOK_SECRET" ]; then
+    printf '  SKIP  %-48s %s\n' "shared token is refused for lifecycle" \
+      "both values are identical — nothing to distinguish"
+  else
+    SHARED_SIG=$(printf '%s.%s' "$TS" "$BODY" \
+      | openssl dgst -sha256 -hmac "$FLUID_WEBHOOK_AUTH_TOKEN" \
+      | sed 's/^.*= //')
+    SHARED=$(code -X POST "$BASE/api/webhooks" \
+      -H 'content-type: application/json' \
+      -H "X-Fluid-Timestamp: $TS" \
+      -H "X-Fluid-Signature: $SHARED_SIG" \
+      -d "$BODY")
+    if [ "$SHARED" = "401" ]; then
+      printf '  ok    %-48s %s\n' "shared token is refused for lifecycle" "$SHARED"
+    else
+      printf '  FAIL  %-48s %s\n' "shared token is refused for lifecycle" "$SHARED"
+      fail=$((fail + 1))
+    fi
   fi
 else
-  printf '  SKIP  %-48s %s\n' "signed lifecycle webhook is accepted" \
-    "set FLUID_WEBHOOK_AUTH_TOKEN to check"
+  printf '  SKIP  %-48s %s\n' "droplet-secret lifecycle webhook accepted" \
+    "set FLUID_DROPLET_WEBHOOK_SECRET to check"
+  printf '  SKIP  %-48s %s\n' "shared token is refused for lifecycle" \
+    "set FLUID_DROPLET_WEBHOOK_SECRET to check"
 fi
 
 echo
@@ -169,12 +208,13 @@ if [ "$fail" -gt 0 ]; then
   echo "$fail check(s) failed — do not repoint any installation at this service."
   exit 1
 fi
-if [ -n "${FLUID_WEBHOOK_AUTH_TOKEN:-}" ]; then
+if [ -n "${FLUID_DROPLET_WEBHOOK_SECRET:-}" ]; then
   echo "Passed. The service refuses unsigned webhooks AND accepts a signed one."
 else
   echo "Passed, but only the refusal half was checked — nothing here proves a"
   echo "genuine signed webhook would be accepted. Re-run with"
-  echo "FLUID_WEBHOOK_AUTH_TOKEN set before repointing anything."
+  echo "FLUID_DROPLET_WEBHOOK_SECRET set (and FLUID_WEBHOOK_AUTH_TOKEN, to check"
+  echo "that it is refused) before repointing anything."
 fi
 echo "This does NOT establish that a signed callback would be accepted;"
 echo "cut an internal installation over first and watch it."

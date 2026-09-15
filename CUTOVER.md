@@ -234,9 +234,44 @@ points at it, so this changes nothing — that is the property worth having.
 The service is created **once, by hand**, before the first run:
 `cloudbuild-next.yml` does `run services update`, not `deploy`, so it cannot
 invent configuration. It needs the same `DATABASE_URL` as the Rails service,
-plus its own `FLUID_DROPLET_URL`, `AUTH_SECRET` and `FLUID_WEBHOOK_AUTH_TOKEN`.
-See `.env.example`. **There are no Exigo environment variables** — every Exigo
-credential is per company, in `integration_settings.credentials`.
+plus its own `FLUID_DROPLET_URL`, `AUTH_SECRET`, `FLUID_WEBHOOK_AUTH_TOKEN` and
+`FLUID_DROPLET_WEBHOOK_SECRET`. See `.env.example`. **There are no Exigo
+environment variables** — every Exigo credential is per company, in
+`integration_settings.credentials`.
+
+`FLUID_DROPLET_WEBHOOK_SECRET` is the one that decides whether installs work at
+all. It is the `webhook_secret` column on the droplet row, and it is a
+**different value** from `FLUID_WEBHOOK_AUTH_TOKEN` — that one is the
+`auth_token` this app registers its webhooks with, which Fluid never signs a
+lifecycle event with. Reading the wrong one 401s every install and uninstall
+without reporting anything (STU2-3356, and STU2-3348 before it).
+
+Creating it, from the value in `droplets.webhook_secret`:
+
+```bash
+printf '%s' "$SECRET" | gcloud secrets create DYNAMIC_PRICING_FLUID_DROPLET_WEBHOOK_SECRET \
+  --data-file=- --project fluid-417204
+```
+
+`printf`, not a here-string. `<<<"$SECRET"` appends a newline, which is stored
+verbatim and breaks every HMAC — silently, because the symptom is a 401 nobody
+is watching. Check before trusting it:
+
+```bash
+gcloud secrets versions access latest \
+  --secret DYNAMIC_PRICING_FLUID_DROPLET_WEBHOOK_SECRET --project fluid-417204 \
+  | wc -c   # must equal the source length, not length + 1
+```
+
+Then map it onto the service:
+
+```bash
+gcloud run services update fluid-droplet-dynamic-pricing-next \
+  --region europe-west1 --project fluid-417204 \
+  --update-secrets FLUID_DROPLET_WEBHOOK_SECRET=DYNAMIC_PRICING_FLUID_DROPLET_WEBHOOK_SECRET:latest
+```
+
+Do not print either value while doing this.
 
 On boot the app logs whether `fluid_callback_registrations` is populated
 (`src/instrumentation.ts` → `reportCallbackVerificationReadiness`). Read that
@@ -247,6 +282,19 @@ this one has teeth on the callbacks too: eight of the nine fail closed, so an
 unsigned probe must come back 401 and a missing route shows up as a 404. Only
 `cart-email-on-create` is opaque to an unsigned probe, and that one is checked
 for its exact neutral body.
+
+Pass **both** secrets, or the lifecycle half is skipped:
+
+```bash
+FLUID_DROPLET_WEBHOOK_SECRET=... FLUID_WEBHOOK_AUTH_TOKEN=... \
+  scripts/smoke-next.sh https://...-next-...run.app
+```
+
+With both set it checks the two directions that together identify the key the
+service is actually using: a lifecycle event signed with the droplet secret must
+be accepted, and the same event signed with the shared token must be **refused**.
+The positive check alone is not enough — it passes against a service running on
+the wrong key, which is exactly how this defect survives review.
 
 **3. One internal installation, `cart_country_changed` only.** The safest of the
 nine, and the reason is structural: `UpdateCountryAction` dispatches it with
