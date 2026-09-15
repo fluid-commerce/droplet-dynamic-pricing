@@ -52,6 +52,42 @@ initializeHandlers();
 const BOOTSTRAP_EVENTS = [INSTALL_EVENT, "droplet.uninstalled"];
 
 /**
+ * The key Fluid signs `droplet.installed` / `droplet.uninstalled` with.
+ *
+ * It is the `webhook_secret` column on the DROPLET row — not
+ * FLUID_WEBHOOK_AUTH_TOKEN, which is the `auth_token` this app registers its
+ * webhooks with. The two are different values, and this route shipped reading
+ * the wrong one (STU2-3356).
+ *
+ * That is not a loud failure. `Droplet::WebhookDispatcher` HMACs
+ * `{timestamp}.{body}` with `droplets.webhook_secret`; verified against the
+ * shared token instead, every install and uninstall 401s. A 4xx lifecycle
+ * delivery is never retried, `Droplet::LifecycleWebhookJob` discards the
+ * dispatcher's failure result, and Sidekiq records success — so the only
+ * evidence is a `webhook_events` row nobody reads. ShipStation sat like that
+ * for eight months while four merchants installed it into nothing
+ * (STU2-3348).
+ *
+ * The fallback exists so an environment that has not been given the new secret
+ * behaves exactly as it did before rather than refusing every install outright.
+ * It is not a safe resting place — an install verified against the shared token
+ * is an install Fluid never signed — so taking it says so on the way past.
+ * `scripts/smoke-next.sh` is what proves the deployed service is not on it.
+ */
+const dropletWebhookSecret = process.env.FLUID_DROPLET_WEBHOOK_SECRET?.trim();
+
+if (!dropletWebhookSecret) {
+  console.warn(
+    "[Webhook] FLUID_DROPLET_WEBHOOK_SECRET is unset; falling back to " +
+      "FLUID_WEBHOOK_AUTH_TOKEN for lifecycle events. Fluid does not sign " +
+      "droplet.installed/uninstalled with that token, so installs will 401.",
+  );
+}
+
+const BOOTSTRAP_SECRET =
+  dropletWebhookSecret || process.env.FLUID_WEBHOOK_AUTH_TOKEN;
+
+/**
  * The object a handler should run on.
  *
  * Delegates to the SDK's `effectivePayload`, which is the same function
@@ -67,7 +103,7 @@ export { effectivePayload as payloadForHandler };
 export const POST = withFluidWebhook(
   {
     name: "droplet",
-    bootstrapSecret: process.env.FLUID_WEBHOOK_AUTH_TOKEN,
+    bootstrapSecret: BOOTSTRAP_SECRET,
     bootstrapEvents: BOOTSTRAP_EVENTS,
 
     /**

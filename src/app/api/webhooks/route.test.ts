@@ -39,7 +39,17 @@ vi.mock("@/lib/handlers/droplet-uninstalled", () => ({
 
 const { POST } = await import("./route");
 
-const BOOTSTRAP = "test-webhook-token";
+/**
+ * What Fluid actually signs a lifecycle event with: the `webhook_secret` on the
+ * droplet row, exposed to this app as FLUID_DROPLET_WEBHOOK_SECRET.
+ */
+const BOOTSTRAP = "test-droplet-webhook-secret";
+
+/**
+ * The OTHER value — the shared token this app registers its webhooks with.
+ * Fluid never signs a lifecycle event with it, so it must not authenticate one.
+ */
+const SHARED_TOKEN = "test-webhook-token";
 
 const installBody = {
   resource: "droplet",
@@ -138,6 +148,20 @@ describe("POST /api/webhooks", () => {
     );
 
     expect(response.status).toBe(500);
+  });
+
+  it("refuses an install signed with the shared webhook auth token", async () => {
+    // The defect this route shipped with: `bootstrapSecret` was
+    // FLUID_WEBHOOK_AUTH_TOKEN, which is NOT what Fluid signs lifecycle events
+    // with. Reversed, the real droplet secret failed to verify and every
+    // install and uninstall 401'd — silently, because a 4xx lifecycle delivery
+    // is never retried and reports to nobody.
+    const response = await POST(
+      signedWebhookRequest({ secret: SHARED_TOKEN, body: installBody }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(handleInstalled).not.toHaveBeenCalled();
   });
 
   it("refuses a replayed signature that is older than the freshness window", async () => {
