@@ -32,10 +32,10 @@ export interface WebhookContext<Principal> {
    * The verified tenant.
    *
    * Non-null means the request verified — but NOT necessarily against this
-   * company's own secret. On an event listed in `bootstrapEvents` the shared
-   * bootstrap secret is also a candidate, and a reinstall verifies against it
-   * while `resolve` still finds the existing company, so the handler sees that
-   * company with a bootstrap-verified request.
+   * company's own secret. An event listed in `bootstrapEvents` verifies against
+   * the shared bootstrap secret and ONLY that, so a reinstall is bootstrap-
+   * verified while `resolve` still finds the existing company: the handler sees
+   * that company on a request no company token could have signed.
    *
    * Null means the bootstrap secret verified and no company was found — a first
    * install, which the handler is expected to create. It is never null for an
@@ -54,7 +54,16 @@ export interface WithFluidWebhookConfig<Principal> {
    * Unlike callbacks, webhook secrets are per-company, so the tenant must be
    * guessed from untrusted input *before* verification. That is inherent to the
    * scheme: resolve a candidate, verify against it, and only then trust it.
-   * Returning null means no candidate — treated as an auth failure.
+   *
+   * The two failure modes are NOT the same and must not be conflated:
+   *
+   *   return null — "there is no such tenant". A settled answer. The request is
+   *     refused with `onAuthFailure`, and Fluid will not retry it.
+   *   throw       — "I could not find out". The lookup itself failed: the
+   *     database was unreachable, a query timed out. The request is answered
+   *     with `onResolveError` (503 by default) so Fluid retries the delivery.
+   *
+   * Throw for "unknown", and an outage becomes a permanently rejected webhook.
    */
   resolve: (
     hints: WebhookRoutingHints,
@@ -68,6 +77,12 @@ export interface WithFluidWebhookConfig<Principal> {
    * authenticate it. Every other event requires a signature: a shared value
    * accepted generally is a bypass, because one leaked copy authenticates
    * anything.
+   *
+   * The exclusivity runs BOTH ways. For an event in `bootstrapEvents` this is
+   * the only accepted signer, and a per-company secret is refused — see the
+   * cross-tenant note at the candidate list. Omitting it while listing
+   * lifecycle events means those events cannot verify at all (`no_bootstrap_
+   * secret`), which is a loud failure by design.
    */
   bootstrapSecret?: string;
   /**
@@ -87,6 +102,13 @@ export interface WithFluidWebhookConfig<Principal> {
 
   onAuthFailure?: (reason: string) => Response;
   onInvalidBody?: (reason: string) => Response;
+  /**
+   * Answers a `resolve` that threw. Defaults to 503.
+   *
+   * Must stay a 5xx: Fluid retries 5xx and 429, and treats every other 4xx as
+   * a permanent rejection that is never delivered again.
+   */
+  onResolveError?: (error: unknown) => Response;
   onHandlerError?: (error: unknown) => Response;
 }
 
@@ -132,10 +154,9 @@ export const eventOf = (payload: unknown): string => {
  *
  * `eventOf` accepts several shapes; everything downstream — tenant hints,
  * handler payload — has to look at the same object it chose, or the three
- * disagree. They did: the route kept its own unwrap rule, and every shape where
- * the two rules differed produced either a 500 from the handler or a 401 from
- * the resolver, because hints were read from the outer envelope where no
- * `company` exists.
+ * disagree. They did: hints were read from the outer envelope, so an enveloped
+ * per-company webhook (`{name, payload: {company: {...}}}`) offered no tenant,
+ * produced no candidate secret, and failed closed with 401 on every delivery.
  *
  * Precedence mirrors `eventOf` exactly, in the same order.
  */
@@ -166,7 +187,10 @@ export const effectivePayload = (body: unknown): unknown => {
   // its `event`-only fallback.
   if (nestedIsObject) {
     const inner = nested as Record<string, unknown>;
-    if (typeof inner["resource"] === "string" || typeof inner["event"] === "string") {
+    if (
+      typeof inner["resource"] === "string" ||
+      typeof inner["event"] === "string"
+    ) {
       return nested;
     }
   }
@@ -177,10 +201,6 @@ export const effectivePayload = (body: unknown): unknown => {
 const readHints = (
   body: unknown,
 ): Omit<WebhookRoutingHints, "payload" | "headers"> => {
-  // Hints come from the effective payload, not the outer envelope. An
-  // enveloped per-company webhook carries `company` inside `payload`, so
-  // reading the outer object found no tenant, offered no candidate secret, and
-  // failed closed with 401 for every such delivery.
   const payload = effectivePayload(body);
   if (!payload || typeof payload !== "object") return {};
   const record = payload as Record<string, unknown>;
@@ -217,6 +237,8 @@ export function withFluidWebhook<Principal>(
       Response.json({ error: "unauthorized" }, { status: 401 }),
     onInvalidBody = () =>
       Response.json({ error: "invalid request" }, { status: 400 }),
+    onResolveError = () =>
+      Response.json({ error: "resolver unavailable" }, { status: 503 }),
     onHandlerError = () =>
       Response.json({ error: "internal error" }, { status: 500 }),
   } = config;
@@ -251,6 +273,9 @@ export function withFluidWebhook<Principal>(
     let principal: Principal | null = null;
     let authFailure: string | null = null;
 
+    let resolveThrew = false;
+    let resolveError: unknown;
+
     const resolved = await resolve({
       payload,
       headers: request.headers,
@@ -258,24 +283,42 @@ export function withFluidWebhook<Principal>(
       fluidShop:
         request.headers.get(HEADER_SHOP) ?? readHints(payload).fluidShop,
     }).catch((error) => {
+      resolveThrew = true;
+      resolveError = error;
       log("error", "resolve threw", describeError(error));
       return null;
     });
 
-    // A bootstrap-eligible event accepts the SHARED secret and nothing else.
+    // A resolver that threw did not answer "no such tenant" — it failed to
+    // answer at all, and the difference is the whole point. Treating it as an
+    // auth failure is what silently loses installs: Fluid records any 4xx as a
+    // permanent rejection and never redelivers, so one unreachable database
+    // during `droplet.installed` costs that company its row for good, with
+    // nothing but a 401 in the log to say so. A 5xx is retried.
     //
-    // Fluid signs lifecycle events with `fluid_webhook.auth_token`, never with
-    // a company's token, so a per-company secret is not a legitimate signer
-    // here — and accepting one was a cross-tenant takeover. The install handler
-    // selects the company from `fluid_shop` in the payload, so anyone holding
-    // ANY company's webhook_verification_token could sign a `droplet.installed`
-    // naming ANOTHER company's shop and overwrite that company's
+    // Verification is skipped rather than attempted against the bootstrap
+    // secret alone. It could pass, but the handler would then run with a null
+    // principal and read a reinstall as a first install — writing a duplicate
+    // tenant off the back of a failed lookup.
+    if (resolveThrew) {
+      log("warn", "unavailable", { reason: "resolve_failed", event });
+      return onResolveError(resolveError);
+    }
+
+    // A bootstrap-eligible event accepts the SHARED secret and NOTHING else.
+    //
+    // Fluid signs lifecycle events with the droplet's own `webhook_secret`,
+    // never with a company's token, so a per-company secret is not a legitimate
+    // signer here — and accepting one was a cross-tenant takeover. The install
+    // handler picks the company out of the payload (`fluid_shop`), while the
+    // resolver picks the candidate secret out of the routing hints. An attacker
+    // holding ANY company's `webhook_verification_token` could point those two
+    // at DIFFERENT companies: hints naming their own company so the signature
+    // verified, payload naming the victim so the handler overwrote the victim's
     // authentication_token, webhook_verification_token, DRI and active flag.
-    // The signature verified — against the attacker's own company — and the
-    // handler then wrote to the victim's row.
     //
-    // Offering only the bootstrap secret for these events closes that: a
-    // company token cannot sign a lifecycle event at all.
+    // Offering only the bootstrap secret for these events closes it: a company
+    // token cannot sign a lifecycle event at all.
     const candidates: Array<{ label: string; secret: string }> = [];
     const isBootstrapEvent = bootstrapEvents.includes(event);
 
@@ -288,9 +331,14 @@ export function withFluidWebhook<Principal>(
     }
 
     if (candidates.length === 0) {
-      // Covers both "no company found" and "resolver returned a blank secret",
-      // which must never be used as an HMAC key.
-      authFailure = resolved ? "blank_secret" : "unresolved_company";
+      // Each of these is a different operator problem and they must not be
+      // reported as one: a lifecycle event with no shared secret CONFIGURED is
+      // a deployment gap, not an unknown tenant.
+      authFailure = isBootstrapEvent
+        ? "no_bootstrap_secret"
+        : resolved
+          ? "blank_secret"
+          : "unresolved_company";
     } else {
       let matched: string | null = null;
       let lastReason = "mismatch";
