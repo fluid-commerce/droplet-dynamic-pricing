@@ -3,7 +3,7 @@ module AdminApi
   #
   #   POST /admin_api/data_reset
   #     Authorization: Bearer $DATA_RESET_TOKEN
-  #     { fluid_company_id:, confirm:, dry_run: }
+  #     { fluid_company_id: | id:, confirm:, dry_run: }
   #
   # Written for the Yoli production cutover. The Fluid company does not change
   # there — same fluid_company_id, same installation, same callback
@@ -19,7 +19,10 @@ module AdminApi
   #   - `confirm` must equal the target's fluid_shop, so a mistyped
   #     fluid_company_id is refused rather than resetting a company the caller
   #     never named.
-  #   - `dry_run` defaults to true. Deleting requires sending false on purpose.
+  #   - `dry_run` is on unless the request carries an explicit false. Not
+  #     "unless it carries something falsy" — see the cast below.
+  #
+  # Target the company by `fluid_company_id`, or by `id` when that is ambiguous.
   class DataResetsController < ActionController::API
     before_action :authenticate_data_reset_token
 
@@ -43,10 +46,14 @@ module AdminApi
     ].freeze
 
     # No company_id at all, so a per-company reset cannot filter them and must
-    # not pretend to. `fluid_callback_registrations` is doubly untouchable: it
+    # not pretend to.
+    #
+    # `fluid_callback_registrations` is listed even though nothing in THIS app
+    # reads it. It is created by db/migrate/20260903000001 and written by the
+    # Next port, which serves the same company out of this same database: it
     # holds the token_digest each inbound callback signature is verified
-    # against, and dropping it would make every callback fail verification with
-    # nothing logged as an error.
+    # against. A delete here would break callbacks over there, with the symptom
+    # being "the prices are wrong" and nothing logged as an error.
     OUT_OF_SCOPE_TABLES = %w[
       callbacks
       webhooks
@@ -81,7 +88,13 @@ module AdminApi
         return
       end
 
-      dry_run = params[:dry_run].nil? || ActiveModel::Type::Boolean.new.cast(params[:dry_run])
+      # Only an explicit false disarms this. `.nil? || cast(...)` looked
+      # equivalent and was not: ActiveModel::Type::Boolean#cast("") is nil, not
+      # false, so an empty string — an untouched form field, a
+      # --data-urlencode with an unset variable, a client that serialises
+      # blanks — skipped the nil branch, cast to nil, and fell through to a
+      # real delete. Anything that is not false now leaves the dry run on.
+      dry_run = ActiveModel::Type::Boolean.new.cast(params[:dry_run]) != false
       deleted = {}
 
       ActiveRecord::Base.transaction do
@@ -130,7 +143,21 @@ module AdminApi
     # added one — so a reinstall can leave two rows for the same Fluid company.
     # An ambiguous answer is refused rather than resolved by picking one:
     # resetting a single row would clear half the data and report success.
+    #
+    # `id` is the way out of that refusal, matching
+    # AdminApi::CompaniesController. It has to exist: this lookup deliberately
+    # does NOT filter by `active`, so deactivating the stale row changes nothing
+    # and a retry would hit the same 409 — telling an operator to deactivate and
+    # retry would be sending them in a circle at the worst possible moment.
     def resolve_company
+      if params[:id].present?
+        company = Company.find_by(id: params[:id])
+        if company.nil?
+          render json: { error: "Company not found for id: #{params[:id]}" }, status: :not_found
+        end
+        return company
+      end
+
       matches = Company.where(fluid_company_id: params[:fluid_company_id]).order(:created_at)
 
       if matches.empty?
@@ -143,7 +170,7 @@ module AdminApi
       if matches.size > 1
         render json: {
           error: "#{matches.size} installations share fluid_company_id " \
-                 "#{params[:fluid_company_id]}. Deactivate the stale one before resetting.",
+                 "#{params[:fluid_company_id]}. Re-call with an explicit `id`.",
           company_ids: matches.map(&:id),
         }, status: :conflict
         return nil

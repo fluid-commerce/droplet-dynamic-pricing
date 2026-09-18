@@ -90,6 +90,53 @@ describe AdminApi::DataResetsController do
       _(company.events.count).must_be :>, 0
     end
 
+    it "accepts an explicit id to break a tie" do
+      # The 409 tells the operator to disambiguate. It has to be possible:
+      # resolve_company does not filter by `active`, so deactivating the stale
+      # row changes nothing and a retry hits the same 409. `id` is the way out,
+      # matching AdminApi::CompaniesController.
+      original = companies(:acme)
+      stale = Company.create!(
+        name: "Acme (stale install)", fluid_shop: original.fluid_shop,
+        authentication_token: "acme_token_stale",
+        fluid_company_id: original.fluid_company_id,
+        company_droplet_uuid: "acme-uuid-123",
+        droplet_installation_uuid: "acme-installation-uuid-stale",
+        active: false,
+      )
+      _(original.events.count).must_be :>, 0
+
+      post admin_api_data_reset_url,
+           params: { id: original.id, confirm: original.fluid_shop, dry_run: false },
+           headers: auth_headers,
+           as: :json
+
+      _(response.status).must_equal 200
+      _(original.events.count).must_equal 0
+      _(Company.find_by(id: stale.id)).wont_be_nil
+    end
+
+    it "still checks confirm when resolving by id" do
+      company = companies(:acme)
+
+      post admin_api_data_reset_url,
+           params: { id: company.id, confirm: "wrong_shop", dry_run: false },
+           headers: auth_headers,
+           as: :json
+
+      _(response.status).must_equal 422
+      _(company.events.count).must_be :>, 0
+    end
+
+    it "404s on an id that matches nothing" do
+      post admin_api_data_reset_url,
+           params: { id: 999_999_999, confirm: "nobody", dry_run: false },
+           headers: auth_headers,
+           as: :json
+
+      _(response.status).must_equal 404
+    end
+
     it "refuses when two installations share a fluid_company_id" do
       # `fluid_company_id` carries no unique index on this table — Rails never
       # added one. A reinstall can leave two rows for the same Fluid company,
@@ -116,6 +163,43 @@ describe AdminApi::DataResetsController do
   end
 
   describe "the dry run" do
+    # ActiveModel::Type::Boolean#cast("") is nil, not false. The first version
+    # read `params[:dry_run].nil? || cast(...)`, so an empty string skipped the
+    # nil branch, cast to nil, and fell through to a real delete — with
+    # "dry_run": null in the response, so the JSON did not give it away either.
+    # Only an explicit false may disarm this.
+    [ "", " ", "null", "nil", "maybe" ].each do |value|
+      it "stays on when dry_run is #{value.inspect}" do
+        company = companies(:acme)
+        before_count = company.events.count
+        _(before_count).must_be :>, 0
+
+        post admin_api_data_reset_url,
+             params: reset_params(company, dry_run: value),
+             headers: auth_headers,
+             as: :json
+
+        _(response.status).must_equal 200
+        _(JSON.parse(response.body)["dry_run"]).must_equal true
+        _(company.events.count).must_equal before_count
+      end
+    end
+
+    [ false, "false", "0" ].each do |value|
+      it "turns off only for #{value.inspect}" do
+        company = companies(:acme)
+        _(company.events.count).must_be :>, 0
+
+        post admin_api_data_reset_url,
+             params: reset_params(company, dry_run: value),
+             headers: auth_headers,
+             as: :json
+
+        _(JSON.parse(response.body)["dry_run"]).must_equal false
+        _(company.events.count).must_equal 0
+      end
+    end
+
     it "is on when the body does not mention it" do
       company = companies(:acme)
       before_count = company.events.count
@@ -325,6 +409,29 @@ describe AdminApi::DataResetsController do
         AdminApi::DataResetsController::OUT_OF_SCOPE_TABLES
 
       _(tables - classified).must_equal []
+    end
+
+    it "declares no table that does not exist" do
+      # The other direction. Without this, a name in one of the three lists that
+      # matches no table passes unnoticed and the response advertises it to the
+      # operator as if it were real.
+      schema = File.read(Rails.root.join("db/schema.rb"))
+      tables = schema.scan(/create_table "([a-z_]+)"/).flatten
+
+      classified =
+        AdminApi::DataResetsController::PURGED_TABLES +
+        AdminApi::DataResetsController::PRESERVED_TABLES +
+        AdminApi::DataResetsController::OUT_OF_SCOPE_TABLES
+
+      _(classified - tables).must_equal []
+    end
+
+    it "has a scope for every table it claims to purge" do
+      # PURGED_TABLES is what the response reports; PURGE_SCOPES is what runs.
+      # Nothing but this ties them, so a name added to one and not the other
+      # would be announced as purged and never touched.
+      _(AdminApi::DataResetsController::PURGE_SCOPES.keys)
+        .must_equal AdminApi::DataResetsController::PURGED_TABLES
     end
 
     it "never classifies a table twice" do
