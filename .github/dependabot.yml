@@ -10,3 +10,29 @@ updates:
   schedule:
     interval: daily
   open-pull-requests-limit: 10
+
+# Keeps this droplet on the current @fluid-app/droplet-sdk.
+#
+# The SDK is pinned to an exact version, and the publish pipeline in `fluid`
+# auto-bumps and publishes it on merge to master. Without an npm entry here the
+# pin just goes quietly stale — this repo has run Dependabot for bundler and
+# github-actions since the start, but never for npm, so the SDK dependency has
+# never been watched by anything.
+#
+# Scoped to @fluid-app on purpose. An unscoped npm entry would open a pull
+# request for every JavaScript dependency in a repo that is already running two
+# stacks, and unread dependency PRs are worse than none.
+- package-ecosystem: npm
+  directory: "/"
+  schedule:
+    interval: weekly
+    day: monday
+  allow:
+  - dependency-name: "@fluid-app/*"
+  groups:
+    fluid-app:
+      patterns:
+      - "@fluid-app/*"
+  open-pull-requests-limit: 3
+  commit-message:
+    prefix: chore(deps)
