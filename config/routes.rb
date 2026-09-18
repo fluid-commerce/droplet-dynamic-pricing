@@ -42,8 +42,14 @@ Rails.application.routes.draw do
   # company/installation's mutable fields (name, fluid_shop, active). Auth is a
   # global ADMIN_API_TOKEN bearer, distinct from the per-company webhook token
   # and the Devise-protected admin/* UI.
+  #
+  # POST /admin_api/data_reset clears one company's operational data for the
+  # production cutover. It has its OWN bearer, DATA_RESET_TOKEN, rather than
+  # sharing ADMIN_API_TOKEN with the rename above — a destructive endpoint
+  # should not be reachable with a credential handed out for a rename.
   namespace :admin_api do
     resource :company, only: :update, controller: "companies"
+    resource :data_reset, only: :create, controller: "data_resets"
   end
 
   resources :price_types, except: %i[ show ]
