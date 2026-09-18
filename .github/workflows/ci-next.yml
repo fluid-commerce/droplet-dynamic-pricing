@@ -34,9 +34,9 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
-      # No registry auth is needed: the droplet SDK is a `link:` dependency on
-      # the vendored copy in ./vendor/droplet-sdk, because it is not published
-      # yet. See vendor/droplet-sdk/README.md.
+      # No registry auth is needed: @fluid-app/droplet-sdk is public on npmjs.
+      # That was the point of choosing that scope — GitHub Packages requires a
+      # token for every install, including of public packages.
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

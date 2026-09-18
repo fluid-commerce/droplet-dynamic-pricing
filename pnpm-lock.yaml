@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@fluid-app/droplet-sdk':
-        specifier: link:./vendor/droplet-sdk
-        version: link:vendor/droplet-sdk
+        specifier: 0.2.4
+        version: 0.2.4(typescript@5.9.3)
       '@fortawesome/fontawesome-svg-core':
         specifier: ^6.7.2
         version: 6.7.2
@@ -977,6 +977,14 @@ packages:
 
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
+
+  '@fluid-app/droplet-sdk@0.2.4':
+    resolution: {integrity: sha512-Qs0YB5WyFKLLzix0yMAUG2ICV9x7SWgY0UbQ7+4uxoyvufMRU9+aGkBjEON3FwSK1sRq5Rcf4NHg3HzbSYQfxQ==}
+    peerDependencies:
+      typescript: ^5
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   '@fortawesome/fontawesome-common-types@6.7.2':
     resolution: {integrity: sha512-Zs+YeHUC5fkt7Mg1l6XTniei3k4bwG/yo3iFUtZWd/pMx9g3fdvkSK9E0FOC+++phXOka78uJcYb8JaFkW52Xg==}
@@ -4895,6 +4903,9 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
+  zod@4.3.5:
+    resolution: {integrity: sha512-k7Nwx6vuWx1IJ9Bjuf4Zt1PEllcwe7cls3VNzm4CQ1/hgtFUK2bRNG3rvnpPUhFjmqJKAKtjV576KnUkHocg/g==}
+
 snapshots:
 
   '@alloc/quick-lru@5.3.0': {}
@@ -5582,6 +5593,12 @@ snapshots:
       react-dom: 19.2.8(react@19.2.8)
 
   '@floating-ui/utils@0.2.12': {}
+
+  '@fluid-app/droplet-sdk@0.2.4(typescript@5.9.3)':
+    dependencies:
+      zod: 4.3.5
+    optionalDependencies:
+      typescript: 5.9.3
 
   '@fortawesome/fontawesome-common-types@6.7.2': {}
 
@@ -10039,3 +10056,5 @@ snapshots:
   yocto-queue@0.1.0: {}
 
   zod@3.25.76: {}
+
+  zod@4.3.5: {}

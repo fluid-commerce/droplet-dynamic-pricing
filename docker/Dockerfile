@@ -59,10 +59,8 @@ RUN bundle install && \
     rm -rf ~/.bundle/ "${BUNDLE_PATH}"/ruby/*/cache "${BUNDLE_PATH}"/ruby/*/bundler/gems/*/.git && \
     bundle exec bootsnap precompile --gemfile
 
-# Install node modules. vendor/droplet-sdk is a `link:` dependency, so it has to
 # be present before pnpm can resolve the lockfile.
 COPY package.json pnpm-lock.yaml ./
-COPY vendor/droplet-sdk ./vendor/droplet-sdk
 RUN pnpm install --frozen-lockfile
 
 # Copy application code
