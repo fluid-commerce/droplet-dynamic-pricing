@@ -196,6 +196,123 @@ describe AdminApi::DataResetsController do
     end
   end
 
+  describe "cross-tenant safety" do
+    # Populate every purged table for BOTH companies, then assert on GLOBAL row
+    # counts rather than on `company.events.count`. An association count would
+    # also read zero if the rows had merely been orphaned, and it can say
+    # nothing at all about the other tenant's rows.
+    def seed_all_tables(company, suffix)
+      company.events.create!(
+        identifier: "evt-#{suffix}", name: "order_completed",
+        payload: { "a" => 1 }, timestamp: Time.current, status: 0,
+      )
+      company.cart_pricing_events.create!(cart_id: 1, event_type: "item_added")
+      company.customer_type_transactions.create!(new_type: "preferred", source: "webhook")
+      ExigoAutoshipSnapshot.create!(
+        company: company, external_ids: [ "x-#{suffix}" ], synced_at: Time.current,
+      )
+      company.price_types.create!(name: "Preferred #{suffix}")
+      company.create_integration_setting!(enabled: true, credentials: { "user" => suffix })
+    end
+
+    it "deletes the target's rows and leaves every other company's alone" do
+      acme = companies(:acme)
+      globex = companies(:globex)
+      seed_all_tables(acme, "acme")
+      seed_all_tables(globex, "globex")
+
+      purged = [ Event, CartPricingEvent, CustomerTypeTransaction, ExigoAutoshipSnapshot ]
+      globex_before = purged.to_h { |m| [ m, m.where(company_id: globex.id).count ] }
+      globex_before.each_value { |count| _(count).must_be :>, 0 }
+
+      post admin_api_data_reset_url,
+           params: reset_params(acme, dry_run: false),
+           headers: auth_headers,
+           as: :json
+
+      _(response.status).must_equal 200
+
+      purged.each do |model|
+        # Gone for the target — and really gone, not orphaned with a null FK.
+        _(model.where(company_id: acme.id).count).must_equal 0
+        # Untouched for everyone else.
+        _(model.where(company_id: globex.id).count).must_equal globex_before[model]
+        # And no row was left behind pointing at nothing.
+        _(model.where(company_id: nil).count).must_equal 0
+      end
+    end
+
+    it "leaves the other company's configuration alone too" do
+      acme = companies(:acme)
+      globex = companies(:globex)
+      seed_all_tables(acme, "acme")
+      seed_all_tables(globex, "globex")
+
+      post admin_api_data_reset_url,
+           params: reset_params(acme, dry_run: false),
+           headers: auth_headers,
+           as: :json
+
+      _(PriceType.where(company_id: globex.id).count).must_equal 1
+      _(IntegrationSetting.where(company_id: globex.id).count).must_equal 1
+      # ...and the target's own configuration survives as well.
+      _(PriceType.where(company_id: acme.id).count).must_equal 1
+      _(IntegrationSetting.where(company_id: acme.id).count).must_equal 1
+      _(Company.count).must_be :>=, 2
+    end
+
+    it "counts only the target's rows on a dry run" do
+      acme = companies(:acme)
+      globex = companies(:globex)
+      seed_all_tables(acme, "acme")
+      seed_all_tables(globex, "globex")
+      acme_events = Event.where(company_id: acme.id).count
+      total_events = Event.count
+      _(total_events).must_be :>, acme_events
+
+      post admin_api_data_reset_url,
+           params: reset_params(acme),
+           headers: auth_headers,
+           as: :json
+
+      _(JSON.parse(response.body)["deleted"]["events"]).must_equal acme_events
+      _(Event.count).must_equal total_events
+    end
+
+    it "never touches the tables shared by every company" do
+      # callbacks, webhooks, settings and users have no company_id at all: they
+      # are global. Deleting from them would not just cross a tenant boundary,
+      # it would break every tenant at once.
+      acme = companies(:acme)
+      seed_all_tables(acme, "acme")
+      before = {
+        Callback => Callback.count,
+        Webhook => Webhook.count,
+        Setting => Setting.count,
+        User => User.count,
+      }
+      before.each_value { |count| _(count).must_be :>, 0 }
+
+      post admin_api_data_reset_url,
+           params: reset_params(acme, dry_run: false),
+           headers: auth_headers,
+           as: :json
+
+      _(response.status).must_equal 200
+      before.each { |model, count| _(model.count).must_equal count }
+    end
+
+    it "matches no company when fluid_company_id is absent" do
+      # `Company.where(fluid_company_id: nil)` must not resolve to a tenant.
+      post admin_api_data_reset_url,
+           params: { confirm: "acme_shop", dry_run: false },
+           headers: auth_headers,
+           as: :json
+
+      _(response.status).must_equal 404
+    end
+  end
+
   describe "the table classification" do
     it "covers every table in the schema" do
       schema = File.read(Rails.root.join("db/schema.rb"))
