@@ -24,7 +24,7 @@
     "cutover": "tsx scripts/cutover.ts"
   },
   "dependencies": {
-    "@fluid-app/droplet-sdk": "link:./vendor/droplet-sdk",
+    "@fluid-app/droplet-sdk": "0.2.4",
     "@fortawesome/fontawesome-svg-core": "^6.7.2",
     "@fortawesome/free-regular-svg-icons": "^6.7.2",
     "@fortawesome/free-solid-svg-icons": "^6.7.2",
