@@ -11,7 +11,7 @@ This repository now contains **two** applications against **one** database.
 - The **Rails** app is everything under `app/`, `config/`, `db/` and `test/`.
   It is live, it owns the schema, and nothing about it has changed.
 - The **Next.js** app lives under `src/`, with `prisma/`, `scripts/`,
-  `vendor/droplet-sdk`, `Dockerfile.next` and `cloudbuild-next.yml`. It maps
+  `Dockerfile.next` and `cloudbuild-next.yml`. It maps
   onto the same Rails tables with `@@map` and performs no migrations of its own.
 
 Nothing points at the Next app. Fluid calls whatever url is recorded in each

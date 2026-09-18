@@ -339,7 +339,8 @@ model ExigoAutoshipSnapshot {
 
 // ---------------------------------------------------------------------------
 // Owned by @fluid-app/droplet-sdk. Copied verbatim from
-// vendor/droplet-sdk/schema/callback-registrations.prisma — keep it identical
+// the SDK's schema/callback-registrations.prisma (shipped in the published
+// package) — keep it identical
 // across the fleet so the shape survives the eventual Prisma -> Drizzle move.
 //
 // Only the digest is stored: Fluid presents the plaintext token on every
