@@ -232,18 +232,21 @@ updates the `fluid-droplet-dynamic-pricing-next` Cloud Run service. Nothing
 points at it, so this changes nothing — that is the property worth having.
 
 The service is created **once, by hand**, before the first run:
-`cloudbuild-next.yml` does `run services update`, not `deploy`, so it cannot
-invent configuration. It needs the same `DATABASE_URL` and
-`FLUID_WEBHOOK_AUTH_TOKEN` as the Rails service — it takes over the same droplet
-record — plus:
+`cloudbuild-next.yml` does `run services update`, not `deploy`. Its three
+SECRET mappings — `DATABASE_URL` and `FLUID_WEBHOOK_AUTH_TOKEN` (the same as the
+Rails service's) and `FLUID_DROPLET_WEBHOOK_SECRET` — are declared in that file
+and applied on every deploy, so each secret must exist first. The rest is set
+on the service by hand:
 
 - `FLUID_DROPLET_URL`, its own origin. Every callback it registers is built on
   it, from `droplet.config.ts` and CALLBACK_ROUTES.
-- `FLUID_DROPLET_WEBHOOK_SECRET`, the droplet record's `webhook_secret`, which
-  is what Fluid signs `droplet.installed` / `droplet.uninstalled` with. It is a
-  different value from `FLUID_WEBHOOK_AUTH_TOKEN` (STU2-3356 compared them by
-  hash). Unset, the app falls back to the auth token and every install that
-  reaches it after step 6 401s.
+- `DROPLET_UUID`, the droplet's uuid. Unset turns the install guard off; a
+  WRONG value silently ignores every install.
+
+`FLUID_DROPLET_WEBHOOK_SECRET` (secret `DYNAMIC_PRICING_NEXT_DROPLET_WEBHOOK_SECRET`)
+is the droplet record's `webhook_secret`, which is what Fluid signs
+`droplet.installed` / `droplet.uninstalled` with — a different value from
+`FLUID_WEBHOOK_AUTH_TOKEN` (STU2-3356 compared them by hash).
 - `LEGACY_RAILS_ORIGIN`, the Rails service's origin. Uninstall uses it to delete
   the five Rails-host subscription webhooks of a company Rails installed, and
   `pnpm backfill:callbacks` to find the registrations Rails created.

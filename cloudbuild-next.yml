@@ -64,10 +64,24 @@ steps:
     id: push latest
 
   # `services update` rather than `deploy`: the service is created once, by
-  # hand, carrying the same DATABASE_URL and Fluid credentials as the Rails
-  # service plus its own FLUID_DROPLET_URL. Keeping creation out of the pipeline
-  # means this step cannot invent configuration, and a service that does not
-  # exist yet fails loudly here instead of coming up misconfigured.
+  # hand, and a service that does not exist yet fails loudly here instead of
+  # coming up misconfigured.
+  #
+  # The SECRET mappings are declared here, not left on the service, so every
+  # deploy carries them and a recreated service cannot silently lose one.
+  # `--update-secrets` merges: it adds or repoints these three and leaves
+  # everything else on the service alone. Each secret must exist before the
+  # deploy runs, or Cloud Run rejects the revision.
+  #
+  #   DATABASE_URL                  the SAME database as the Rails service
+  #   FLUID_WEBHOOK_AUTH_TOKEN      the same token as the Rails service
+  #   FLUID_DROPLET_WEBHOOK_SECRET  the Next droplet record's `webhook_secret`,
+  #                                 what Fluid signs droplet.installed /
+  #                                 droplet.uninstalled with
+  #
+  # Plain values stay on the service, set by hand: FLUID_DROPLET_URL (this
+  # service's own url), DROPLET_UUID (the Next droplet's uuid), and optionally
+  # LEGACY_RAILS_ORIGIN and ADMIN_API_TOKEN. See .env.example.
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     args:
       [
@@ -79,6 +93,7 @@ steps:
         "--image=europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA",
         "--region=europe-west1",
         "--revision-suffix=${COMMIT_SHA}-${_TIMESTAMP}",
+        "--update-secrets=DATABASE_URL=DYNAMIC_PRICING_DATABASE_URL:latest,FLUID_WEBHOOK_AUTH_TOKEN=DYNAMIC_PRICING_FLUID_WEBHOOK_AUTH_TOKEN:latest,FLUID_DROPLET_WEBHOOK_SECRET=DYNAMIC_PRICING_NEXT_DROPLET_WEBHOOK_SECRET:latest",
       ]
     id: deploy next
     entrypoint: gcloud
