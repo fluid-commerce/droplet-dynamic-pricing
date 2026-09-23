@@ -14,6 +14,24 @@ on:
     branches: [main]
 
 jobs:
+  # Which app this push changed. Push to main only: on a pull request nothing
+  # deploys, so there is nothing to decide. See .github/scripts/changed-areas.sh.
+  changes:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      rails: ${{ steps.areas.outputs.rails }}
+      next: ${{ steps.areas.outputs.next }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: areas
+        env:
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: bash .github/scripts/changed-areas.sh
+
   next:
     name: Lint, typecheck, test, build
     runs-on: ubuntu-latest
@@ -139,3 +157,19 @@ jobs:
             exit 1
           fi
           echo "/api/webhooks is mounted (unsigned POST answered $code)"
+
+  # Deploys the Next app once its checks pass on main, and only when the push
+  # changed something its image is built from. Same shape as ci.yml ->
+  # deploy-production.yml: chained here rather than on `push` in the deploy
+  # workflow, so it can never deploy a commit whose checks are still running or
+  # red.
+  #
+  # This service prices live carts for every company installed on the Next
+  # droplet. Once one is, a merge that reaches here IS a production pricing
+  # change, and its callbacks fail open — a bad deploy answers 200 and silently
+  # stops repricing. Verify by comparing prices, not by looking for errors.
+  deploy-next:
+    if: github.ref == 'refs/heads/main' && needs.changes.outputs.next == 'true'
+    needs: [changes, next, docker]
+    uses: ./.github/workflows/deploy-next.yml
+    secrets: inherit

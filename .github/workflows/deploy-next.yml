@@ -1,14 +1,20 @@
 # Deploys the Next app to its own Cloud Run service.
 #
-# workflow_dispatch only, like the Rails deploy. Deliberate: this service takes
-# no traffic until an installation's registrations are repointed at it, so
-# deploying it is safe — but that also means an automatic deploy on merge would
-# quietly move the thing a cutover is measured against. Cutovers are decided,
-# not triggered.
+# Called by ci-next.yml once the Next checks pass on main and the push changed
+# something the Next image is built from — the same shape as ci.yml calling
+# deploy-production.yml. Kept dispatchable for redeploys and rollbacks.
 name: deploy next
 
 on:
+  workflow_call:
   workflow_dispatch:
+
+# One Next deploy at a time: two merges in quick succession would otherwise
+# submit two Cloud Builds racing to update the same service, and the loser can
+# leave the older image serving. Never cancelled mid-build.
+concurrency:
+  group: deploy-next
+  cancel-in-progress: false
 
 env:
   PROJECT_ID: fluid-417204

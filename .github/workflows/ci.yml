@@ -11,6 +11,24 @@ on:
     branches: [ main ]
 
 jobs:
+  # Which app this push changed. Push to main only: on a pull request nothing
+  # deploys, so there is nothing to decide. See .github/scripts/changed-areas.sh.
+  changes:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      rails: ${{ steps.areas.outputs.rails }}
+      next: ${{ steps.areas.outputs.next }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: areas
+        env:
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: bash .github/scripts/changed-areas.sh
+
   system-setup:
     runs-on: ubuntu-latest
     outputs:
@@ -201,8 +219,13 @@ jobs:
   #
   # Skipped on pull requests (github.ref is refs/pull/N/merge there), so it shows
   # up as skipped rather than pending on a PR.
+  #
+  # And skipped when the push changed only the Next app or documentation: the
+  # Next app deploys through ci-next.yml, and a Rails redeploy of identical code
+  # is a production deploy nobody asked for. `changes` decides by denylist, so a
+  # path it does not know about still deploys Rails, as every merge did before.
   deploy-production:
-    if: github.ref == 'refs/heads/main'
-    needs: [tests, rubocop, rails-security-scan]
+    if: github.ref == 'refs/heads/main' && needs.changes.outputs.rails == 'true'
+    needs: [changes, tests, rubocop, rails-security-scan]
     uses: ./.github/workflows/deploy-production.yml
     secrets: inherit

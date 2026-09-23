@@ -227,9 +227,17 @@ reads a raising store as an auth failure, and every genuine callback is refused
 
 Verify: `SELECT to_regclass('fluid_callback_registrations');` is not null.
 
-**1. Deploy.** Run the `deploy next` workflow. It builds `Dockerfile.next` and
-updates the `fluid-droplet-dynamic-pricing-next` Cloud Run service. Nothing
-points at it, so this changes nothing — that is the property worth having.
+**1. Deploy.** A merge to `main` that changes the Next app deploys it: once
+`ci-next.yml` passes, it calls `deploy next`, which builds `Dockerfile.next` and
+updates the `fluid-droplet-dynamic-pricing-next` Cloud Run service. The workflow
+stays dispatchable for redeploys. Until an installation points at it, this
+changes nothing — that is the property worth having. After one does, every such
+merge is a production pricing change.
+
+Deploys are split by what changed (`.github/scripts/changed-areas.sh`): a push
+touching only the Next app or documentation does not redeploy Rails, and one
+touching only Rails does not redeploy Next. `package.json` and `pnpm-lock.yaml`
+deploy both, since the Rails image builds its Vite assets from them.
 
 The service is created **once, by hand**, before the first run:
 `cloudbuild-next.yml` does `run services update`, not `deploy`. Its three
