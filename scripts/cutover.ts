@@ -38,8 +38,7 @@
 import { prisma } from "@/lib/db";
 import { createFluidClient, type FluidClient } from "@/lib/fluid";
 import { callbackStore } from "@/lib/callbacks";
-import { activeCallbacks } from "@/lib/callbacks/registration";
-import { dropletConfig, RAILS_WEBHOOK_PATHS } from "@/lib/config";
+import { dropletConfig, filterEnabled, RAILS_WEBHOOK_PATHS } from "@/lib/config";
 import { CALLBACK_ROUTES, RAILS_CALLBACK_PATHS } from "@/lib/pricing/routes-table";
 import { tokenDigest } from "@fluid-app/droplet-sdk";
 
@@ -335,6 +334,49 @@ function selectDefinitions<T extends { name: string }>(
   return all.filter((row) => only.includes(row.name));
 }
 
+/**
+ * The callbacks this droplet serves, by name and timeout, from
+ * `droplet.config.ts`.
+ *
+ * This used to be `activeCallbacks({ enforceServes: false })`, reading the
+ * Rails `callbacks` table. The Next app no longer maps that table — its
+ * callbacks are declared in config and registered at install — and the
+ * cutover only needs names and timeouts: it computes every destination itself,
+ * from the definition name and the target url. Read without FLUID_DROPLET_URL,
+ * which `status` must work without.
+ */
+function configuredCallbacks(): Array<{ name: string; timeoutInSeconds: number }> {
+  return filterEnabled(dropletConfig.callbacks).map((callback) => ({
+    name: callback.definition_name,
+    timeoutInSeconds: callback.timeoutInSeconds,
+  }));
+}
+
+/**
+ * definition name -> the url the Rails `callbacks` table stores for it.
+ *
+ * Only for RECOGNITION. That url is operator-typed and can sit at a path
+ * neither routes table knows; a live registration there that is not
+ * recognised as ours makes the plan CREATE a second registration instead of
+ * updating it, and two registrations for one definition both reprice the cart.
+ * The table is Rails', still present in the database this app shares with it,
+ * so it is read with raw SQL rather than re-adding a Prisma model for it — and
+ * an absent table (a database that never had Rails) simply contributes
+ * nothing.
+ */
+async function railsStoredUrls(): Promise<Map<string, string>> {
+  try {
+    const rows = await prisma.$queryRaw<
+      Array<{ name: string | null; url: string | null }>
+    >`SELECT name, url FROM callbacks WHERE url IS NOT NULL`;
+    return new Map(
+      rows.flatMap((row) => (row.name && row.url ? [[row.name, row.url]] : [])),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
 async function status(handle: string) {
   const company = await loadCompany(handle);
   const dri = company.dropletInstallationUuid!;
@@ -343,10 +385,7 @@ async function status(handle: string) {
   const [live, stored, active] = await Promise.all([
     fluidRegistrations(client),
     storedFor(dri),
-    // `enforceServes: false`: status must SHOW the rows that still hold the
-    // Rails urls, since "which rows are still on a Rails path" is one of the
-    // questions it exists to answer.
-    activeCallbacks({ enforceServes: false }),
+    configuredCallbacks(),
   ]);
   const storedByUuid = new Map(stored.map((row) => [row.uuid, row]));
 
@@ -511,7 +550,8 @@ async function repoint(
   // `enforceServes: false`: during a Rails -> Next move these rows still hold
   // the Rails urls, which the registration-time guard would reject. The
   // destination is computed from the definition name below, not from the row.
-  const allActive = await activeCallbacks({ enforceServes: false });
+  const allActive = configuredCallbacks();
+  const storedUrls = await railsStoredUrls();
 
   // `--only` is what makes the phased rollout in CUTOVER.md real. Without it
   // every repoint moved all nine definitions, so the documented
@@ -555,8 +595,14 @@ async function repoint(
           new URL(callbackPathFor(callback.name, d), origin).toString(),
         ),
       ),
-      destinationFor(callback.url, targetUrl),
-      ...(fromUrl ? [destinationFor(callback.url, fromUrl)] : []),
+      ...(storedUrls.has(callback.name)
+        ? [
+            destinationFor(storedUrls.get(callback.name)!, targetUrl),
+            ...(fromUrl
+              ? [destinationFor(storedUrls.get(callback.name)!, fromUrl)]
+              : []),
+          ]
+        : []),
     ];
     const candidates = live.filter((r) => r.definition_name === callback.name);
     const current = ourRegistration(candidates, heldUuids, expected);
@@ -827,7 +873,7 @@ async function reconcile(
   // urls, and the registration-time guard would filter every one of them out —
   // so reconcile would report "Nothing to fix" for exactly the half-moved state
   // it exists to repair.
-  const allActive = await activeCallbacks({ enforceServes: false });
+  const allActive = configuredCallbacks();
   const active = selectDefinitions(allActive, only);
 
   // Resolved per definition against its EXACT expected destination, using the

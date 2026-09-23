@@ -50,7 +50,9 @@ const createWebhookSchema = z.object({
   active: z.boolean().default(true),
   auth_token: z.string(),
   event: z.string(),
-  http_method: z.enum(["post", "get", "put", "delete", "patch"]).default("post"),
+  http_method: z
+    .enum(["post", "get", "put", "delete", "patch"])
+    .default("post"),
 });
 
 export type CreateWebhookPayload = z.input<typeof createWebhookSchema>;
@@ -120,7 +122,10 @@ export class FluidClient {
     ).replace(/\/$/, "");
   }
 
-  private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  private async request<T>(
+    path: string,
+    options: RequestInit = {},
+  ): Promise<T> {
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...options,
       headers: {
@@ -238,7 +243,8 @@ export class FluidClient {
     const query = new URLSearchParams();
     if (params?.page) query.set("page", String(params.page));
     if (params?.per_page) query.set("per_page", String(params.per_page));
-    if (params?.active !== undefined) query.set("active", String(params.active));
+    if (params?.active !== undefined)
+      query.set("active", String(params.active));
     if (params?.definition_name) {
       query.set("definition_name", params.definition_name);
     }
@@ -352,6 +358,13 @@ export class FluidClient {
   async listCustomers(params: {
     email?: string;
     search_query?: string;
+    /**
+     * Fluid filters on customer metadata with a JSON-encoded object. Port of
+     * the `by_metadata` branch in app/clients/fluid/customers.rb: the value is
+     * serialised then URL-encoded, so `{customer_type: "Wholesale"}` arrives as
+     * one parameter rather than as bracketed keys.
+     */
+    by_metadata?: Record<string, string>;
     page?: number;
     per_page?: number;
   }): Promise<{ customers?: Array<Record<string, unknown>> }> {
@@ -364,6 +377,9 @@ export class FluidClient {
       query.set("search_query", params.search_query);
     }
     if (params.email !== undefined) query.set("search_query", params.email);
+    if (params.by_metadata !== undefined) {
+      query.set("by_metadata", JSON.stringify(params.by_metadata));
+    }
     const suffix = query.size > 0 ? `?${query}` : "";
 
     return this.request(`/api/customers${suffix}`);
@@ -521,9 +537,10 @@ export class FluidClient {
       );
     }
 
-    const query = new URLSearchParams({
-      [keys[0]]: String(identifier[keys[0]]),
-    });
+    // Read once into a local: the length check above proves this is defined,
+    // but `noUncheckedIndexedAccess` cannot see that through the array index.
+    const key = keys[0] as keyof typeof identifier;
+    const query = new URLSearchParams({ [key]: String(identifier[key]) });
     return this.request(`/api/v2025-06/members/find?${query}`);
   }
 
@@ -572,7 +589,9 @@ export interface MetafieldWritePayload {
  * than sent: Fluid answers `value cannot be blank`, and the Ruby raised
  * ArgumentError for the same reason.
  */
-function metafieldBody(payload: MetafieldWritePayload): Record<string, unknown> {
+function metafieldBody(
+  payload: MetafieldWritePayload,
+): Record<string, unknown> {
   const blank =
     payload.value === null ||
     payload.value === undefined ||

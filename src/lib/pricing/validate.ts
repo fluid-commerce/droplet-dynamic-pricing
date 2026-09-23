@@ -29,7 +29,11 @@ export class MissingParameterError extends Error {
  * Note this is `blank?`, not "key exists" — `cart.require(:email)` on a cart
  * whose email is `""` raised in Rails, and the route answered 400.
  */
-function requireValue(record: Json | undefined, key: string, path: string): unknown {
+function requireValue(
+  record: Json | undefined,
+  key: string,
+  path: string,
+): unknown {
   const value = record?.[key];
   const blank =
     value === null ||

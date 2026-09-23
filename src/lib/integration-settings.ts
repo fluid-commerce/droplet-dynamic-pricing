@@ -104,7 +104,11 @@ export class IntegrationSettings {
   get exigoCredentials(): ExigoCredentials {
     const s = (key: string): string => {
       const value = this.credentials[key];
-      return typeof value === "string" ? value : value == null ? "" : String(value);
+      return typeof value === "string"
+        ? value
+        : value == null
+          ? ""
+          : String(value);
     };
     return {
       dbHost: s("exigo_db_host"),
@@ -153,7 +157,10 @@ export class IntegrationSettings {
   }
 
   get preferredSource(): string {
-    return orDefault(this.settings["preferred_source"], DEFAULT_PREFERRED_SOURCE);
+    return orDefault(
+      this.settings["preferred_source"],
+      DEFAULT_PREFERRED_SOURCE,
+    );
   }
 
   /**

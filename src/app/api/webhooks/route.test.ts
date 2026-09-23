@@ -39,7 +39,11 @@ vi.mock("@/lib/handlers/droplet-uninstalled", () => ({
 
 const { POST } = await import("./route");
 
-const BOOTSTRAP = "test-webhook-token";
+/** What Fluid actually signs a lifecycle event with: the droplet row's `webhook_secret`. */
+const BOOTSTRAP = "test-droplet-webhook-secret";
+
+/** The OTHER value — the `auth_token` this app registers its webhooks with. */
+const SHARED_TOKEN = "test-webhook-token";
 
 const installBody = {
   resource: "droplet",
@@ -140,6 +144,19 @@ describe("POST /api/webhooks", () => {
     expect(response.status).toBe(500);
   });
 
+  it("refuses an install signed with the shared webhook auth token", async () => {
+    // Fluid signs lifecycle events with `droplets.webhook_secret`, never with
+    // the `auth_token` this app registers its webhooks with. Reading the wrong
+    // one 401s every install and uninstall — silently, because a 4xx lifecycle
+    // delivery is never retried and reports to nobody (STU2-3356, STU2-3348).
+    const response = await POST(
+      signedWebhookRequest({ secret: SHARED_TOKEN, body: installBody }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(handleInstalled).not.toHaveBeenCalled();
+  });
+
   it("refuses a replayed signature that is older than the freshness window", async () => {
     const response = await POST(
       signedWebhookRequest({
@@ -172,7 +189,10 @@ describe("POST /api/webhooks — lifecycle events accept only the shared secret"
     const response = await POST(
       signedWebhookRequest({
         secret: "wvt_attacker",
-        body: { ...installBody, company: { ...installBody.company, fluid_shop: "victim.fluid.app" } },
+        body: {
+          ...installBody,
+          company: { ...installBody.company, fluid_shop: "victim.fluid.app" },
+        },
       }),
     );
 

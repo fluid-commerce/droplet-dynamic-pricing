@@ -19,11 +19,8 @@ import type { FluidClient } from "@/lib/fluid";
 import { prisma } from "@/lib/db";
 // Imported from the table module rather than from @/lib/pricing, which
 // re-exports the route factory and would make this a cycle.
-import {
-  CALLBACK_ROUTES,
-  RAILS_CALLBACK_PATHS,
-} from "@/lib/pricing/routes-table";
-import { hostServerBaseUrl } from "@/lib/settings";
+import { CALLBACK_ROUTES } from "@/lib/pricing/routes-table";
+import { dropletConfig, filterEnabled } from "@/lib/config";
 import { callbackStore } from "./store";
 
 export interface CallbackRegistrationResults {
@@ -56,148 +53,65 @@ async function rollbackRegistration(
   }
 }
 
-/**
- * Whether a callback registered at `url` will actually be ANSWERED.
- *
- * Port of `Callback.serves?` (app/models/callback.rb), widened by one case that
- * only exists during the migration.
- *
- * `CallbackSyncService` imports EVERY definition Fluid offers, so the admin
- * list contains names this droplet has no handler for; enabling one registered
- * a URL that 404s on arrival, and Fluid alerted on every dispatch until
- * somebody noticed. That is how TM3's `verify_email_success` registration
- * (Fluid reg 1410) came to exist.
- *
- * Two shapes are accepted, and the second is the migration-only one:
- *
- *  1. one of THIS app's paths on THIS app's host, and
- *  2. one of the RAILS paths on the RAILS host.
- *
- * (2) matters at exactly one moment. Once the droplet-level `droplet.installed`
- * webhook points here but the `callbacks` table rows still hold the Rails urls,
- * a new installation is registered by THIS app from rows describing the OTHER
- * one. Refusing them would register nothing at all: the company would look
- * installed and active while receiving no pricing callbacks, with the only
- * trace a log line on a service nobody is watching yet. Accepting them
- * registers urls Rails is still serving — which is correct, because Rails IS
- * still serving them — and the digest is stored here ready for the repoint.
- *
- * The Rails host is not guessed: it is `Setting.host_server.base_url`, the same
- * value the Rails install job built those urls from.
- *
- * That does mean an actor who can write BOTH the `host_server` setting AND a
- * `callbacks` row could have callbacks delivered to a host of their choosing.
- * It is not an expansion of trust: `Callback.serves?` on the Rails side derives
- * its single permitted host from exactly the same setting, both are behind the
- * Devise-guarded `/admin` tree, and either capability alone is insufficient.
- * Worth knowing if a less-privileged operator role is ever added.
- */
-export function servesCallbackUrl(
-  url: string,
-  hosts: { own?: string; rails?: string } = {},
-): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(url.trim());
-  } catch {
-    return false;
-  }
-
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
-  if (!parsed.host) return false;
-
-  const path = parsed.pathname.replace(/\/$/, "");
-
-  const ours = new Set(Object.values(CALLBACK_ROUTES));
-  if (ours.has(path) && (!hosts.own || parsed.hostname === hosts.own)) {
-    return true;
-  }
-
-  const rails = new Set(Object.values(RAILS_CALLBACK_PATHS));
-  if (rails.has(path) && hosts.rails && parsed.hostname === hosts.rails) {
-    return true;
-  }
-
-  return false;
-}
-
-/** The hostname of a configured base url, or undefined if it is unusable. */
-function hostOf(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  try {
-    return new URL(value).hostname;
-  } catch {
-    return undefined;
-  }
-}
-
-/** The host Fluid must dispatch to for a callback to reach THIS app. */
-export function servedHost(): string | undefined {
-  return hostOf(process.env.FLUID_DROPLET_URL);
+/** One callback, resolved to the URL it is registered at. */
+export interface ActiveCallback {
+  name: string;
+  url: string;
+  timeoutInSeconds: number;
 }
 
 /**
- * The callbacks this droplet registers: every row in the `callbacks` table that
- * an operator has marked active AND whose url is one this app serves.
+ * The callbacks this droplet registers, from `droplet.config.ts`.
  *
- * The Rails model refused to activate a row without both a url and a timeout,
- * so both are present by construction — but this filters again rather than
- * trusting it, because rows activated before that validation existed are still
- * in the table and the row could have been written directly.
+ * This used to read the `callbacks` table and filter it through a port of
+ * `Callback.serves?` — a guard against registering a URL this app has no route
+ * for, which was necessary because the table was populated by syncing EVERY
+ * definition Fluid offers and then edited by hand. Both the table and the guard
+ * are gone: a URL is now built from CALLBACK_ROUTES rather than typed, so
+ * "serves it" holds by construction, and the only way to get it wrong is to
+ * name a definition the table has no entry for — which is checked here and
+ * refused, rather than registered and left to 404 on every dispatch.
+ *
+ * `FLUID_DROPLET_URL` is the host, the same env var the webhook registration
+ * uses. Unset, this registers nothing at all and says so: a registration built
+ * on a missing base would point at a path with no origin, and Fluid would
+ * accept it and then never reach it.
  */
-export async function activeCallbacks({
-  // `false` for scripts/cutover.ts ONLY. During a Rails -> Next move these rows
-  // still hold the RAILS urls, so the serves-check — which is correct at
-  // registration time — would filter every one of them out and the cutover tool
-  // would report nothing to move. The tool computes its own destination from
-  // the definition name, so it does not need the check.
-  enforceServes = true,
-}: { enforceServes?: boolean } = {}) {
-  const rows = await prisma.callback.findMany({
-    where: { active: true },
-    orderBy: { name: "asc" },
-  });
+export function activeCallbacks(): ActiveCallback[] {
+  const base = (process.env.FLUID_DROPLET_URL ?? "").trim().replace(/\/$/, "");
 
-  const hosts = enforceServes
-    ? {
-        own: servedHost(),
-        rails: hostOf(await hostServerBaseUrl().catch(() => undefined)),
-      }
-    : {};
+  if (!base) {
+    console.error(
+      "[Registration] FLUID_DROPLET_URL is not set; refusing to register any " +
+        "callback. Fluid would accept a registration with no host and then " +
+        "never deliver to it, and nothing on this side would error.",
+    );
+    return [];
+  }
 
-  return rows.flatMap((row) => {
-    if (!row.name || !row.url || !row.timeoutInSeconds) return [];
+  return filterEnabled(dropletConfig.callbacks).flatMap((callback) => {
+    const path = CALLBACK_ROUTES[callback.definition_name];
 
-    if (enforceServes && !servesCallbackUrl(row.url, hosts)) {
+    if (!path) {
       console.error(
-        `[Registration] Refusing to register callback ${row.name}: ` +
-          `${JSON.stringify(row.url)} is not a callback URL this droplet serves`,
+        `[Registration] Refusing to register ${callback.definition_name}: ` +
+          "it is not in CALLBACK_ROUTES, so this droplet serves no route for " +
+          "it. Add the route and its entry in the table, or remove it from " +
+          "droplet.config.ts.",
       );
       return [];
     }
 
-    if (hosts.own && new URL(row.url).hostname !== hosts.own) {
-      console.warn(
-        `[Registration] ${row.name} is being registered at ${row.url}, which is ` +
-          "the RAILS app. That is expected only while the callbacks table has " +
-          "not yet been repointed — see CUTOVER.md step 6.",
-      );
-    }
-
     return [
-      { name: row.name, url: row.url, timeoutInSeconds: row.timeoutInSeconds },
+      {
+        name: callback.definition_name,
+        url: `${base}${path}`,
+        timeoutInSeconds: callback.timeoutInSeconds,
+      },
     ];
   });
 }
 
-/**
- * Registers every active callback for one installation, storing a digest of
- * each returned verification token.
- *
- * @param dri - the installation's `droplet_installation_uuid`. Required: it is
- *              the only thing that later binds a verified signature to a
- *              tenant, so a blank one would store rows nothing can resolve.
- */
 export async function registerCallbacksForCompany(
   client: FluidClient,
   dri: string,
@@ -217,7 +131,7 @@ export async function registerCallbacksForCompany(
     return results;
   }
 
-  for (const callback of await activeCallbacks()) {
+  for (const callback of activeCallbacks()) {
     try {
       console.log(`[Registration] Registering callback: ${callback.name}`);
 

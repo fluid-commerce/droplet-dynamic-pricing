@@ -168,7 +168,10 @@ describe("POST /api/callbacks/cart-email-on-create", () => {
       if (href.includes("/api/v2/metafields?")) {
         return Response.json({
           metafields: [
-            { key: "customer_type", value: { customer_type: "preferred_customer" } },
+            {
+              key: "customer_type",
+              value: { customer_type: "preferred_customer" },
+            },
           ],
         });
       }

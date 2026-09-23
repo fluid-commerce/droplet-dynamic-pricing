@@ -18,9 +18,11 @@
  * before this migration; the UNINSTALL filter still lists `updated` so that any
  * registration left over from before is cleaned up.
  *
- * Callbacks live in the `callbacks` table, not here — an operator turns one on
- * in the admin UI without a deploy. See src/lib/callbacks and
- * CALLBACK_ROUTES in src/lib/pricing.
+ * Callbacks are declared here too, alongside the webhooks. They used to live in
+ * the `callbacks` table, synced from Fluid and edited in the admin UI; see
+ * src/lib/config/schema.ts for why that stopped. The path each one is served at
+ * comes from CALLBACK_ROUTES in src/lib/pricing, which stays the single owner
+ * of the definition-name -> path mapping.
  */
 
 import type { DropletConfig } from "./schema";
@@ -31,7 +33,8 @@ export const dropletConfig: DropletConfig = {
       enabled: true,
       resource: "subscription",
       event: "started",
-      description: "A customer's subscription began — promote them to preferred",
+      description:
+        "A customer's subscription began — promote them to preferred",
       path: "/api/webhooks/subscription-started",
     },
     {
@@ -64,6 +67,72 @@ export const dropletConfig: DropletConfig = {
       description:
         "A cancelled subscription was reactivated — promote back to preferred",
       path: "/api/webhooks/subscription-reactivated",
+    },
+  ],
+
+  /**
+   * The nine callbacks this droplet serves, in the order CALLBACK_ROUTES lists
+   * them. Every one is registered at install against the path that table gives
+   * it, on FLUID_DROPLET_URL.
+   *
+   * There is no tenth: a definition Fluid offers but this droplet has no route
+   * for cannot be named here, because `activeCallbacks` resolves the path
+   * through CALLBACK_ROUTES and refuses a name that is not in it.
+   */
+  callbacks: [
+    {
+      enabled: true,
+      definition_name: "cart_item_added",
+      description: "Price a line as it is added to the cart",
+      timeoutInSeconds: 20,
+    },
+    {
+      enabled: true,
+      definition_name: "cart_item_updated",
+      description: "Re-price a line whose quantity or variant changed",
+      timeoutInSeconds: 20,
+    },
+    {
+      enabled: true,
+      definition_name: "cart_subscription_added",
+      description: "Re-price the cart once a line becomes a subscription",
+      timeoutInSeconds: 20,
+    },
+    {
+      enabled: true,
+      definition_name: "cart_subscription_removed",
+      description: "Re-price the cart once a line stops being a subscription",
+      timeoutInSeconds: 20,
+    },
+    {
+      enabled: true,
+      definition_name: "cart_email_on_create",
+      description: "Resolve the buyer from the email typed at checkout",
+      timeoutInSeconds: 20,
+    },
+    {
+      enabled: true,
+      definition_name: "cart_customer_logged_in",
+      description: "Re-price once a customer authenticates mid-cart",
+      timeoutInSeconds: 20,
+    },
+    {
+      enabled: true,
+      definition_name: "cart_customer_attached",
+      description: "Re-price once a customer is attached to the cart",
+      timeoutInSeconds: 20,
+    },
+    {
+      enabled: true,
+      definition_name: "cart_customer_detached",
+      description: "Re-price back to retail once the customer is removed",
+      timeoutInSeconds: 20,
+    },
+    {
+      enabled: true,
+      definition_name: "cart_country_changed",
+      description: "Re-price for the destination country's price list",
+      timeoutInSeconds: 20,
     },
   ],
 };

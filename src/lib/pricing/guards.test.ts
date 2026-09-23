@@ -174,11 +174,29 @@ describe('"unknown" is never read as "not preferred" (CURRENT-3361)', () => {
     // This is the assertion the guard exists for. Without it, one transient
     // Fluid failure rewrites every line to retail and the shopper is charged
     // full price.
+    //
+    // The failure is injected on the subscriptions lookup: on the default
+    // exigo source it is the first Fluid read the preferred decision makes,
+    // now that the metafield is only consulted where preferred is permanent.
+    const deps = recordingDeps();
+    deps.fluid.listSubscriptionsByCustomer = async () => {
+      throw new Error("Fluid timed out");
+    };
+
+    const ctx = new PricingContext({ cart: stampedCart() }, deps);
+    await customerLoggedIn(ctx);
+
+    expect(deps.callsTo("appendCartMetadata")).toHaveLength(0);
+    expect(deps.callsTo("updateCartItemsPrices")).toHaveLength(0);
+  });
+
+  it("does NOT strip the discount when the metafield read failed where it is still read", async () => {
+    // Where preferred is permanent (STU2-3247) the metafield IS the answer, so
+    // a failure reading it has to be "unknown", never "retail".
     const deps = recordingDeps({
+      settings: { promote_member_type_on_first_subscription: true },
       fluid: { subscriptions: { subscriptions: [] } },
     });
-    // Make the metafield read throw, which is what
-    // notePreferredLookupFailure keys off.
     deps.fluid.getMetafieldByKey = async () => {
       throw new Error("Fluid timed out");
     };
@@ -280,7 +298,13 @@ describe("cart_customer_detached only rolls back pricing this droplet applied", 
       {
         cart: cartPayload({
           metadata: { price_type: "preferred_customer" },
-          items: [{ ...priced(1, "10.0"), subscription: true, subscription_price: "8.0" }],
+          items: [
+            {
+              ...priced(1, "10.0"),
+              subscription: true,
+              subscription_price: "8.0",
+            },
+          ],
         }),
       },
       deps,
@@ -428,7 +452,10 @@ describe("the preferred-lookup cache is namespaced by the VERIFIED tenant", () =
       fluid: { subscriptions: { subscriptions: [{ id: 1 }] } },
     });
     const one = new PricingContext({ cart: cartPayload() }, deps);
-    const two = new PricingContext({ cart: cartPayload({ cart_token: "crt_2" }) }, deps);
+    const two = new PricingContext(
+      { cart: cartPayload({ cart_token: "crt_2" }) },
+      deps,
+    );
 
     expect(await one.hasActiveSubscriptions("cust-1")).toBe(true);
     expect(await two.hasActiveSubscriptions("cust-1")).toBe(true);

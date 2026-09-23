@@ -15,7 +15,11 @@
  * produces the `rejected` log line an alert can be built on.
  */
 
-import { callbackRoute, requireCallbackShape, cartCountryChanged } from "@/lib/pricing";
+import {
+  callbackRoute,
+  requireCallbackShape,
+  cartCountryChanged,
+} from "@/lib/pricing";
 
 export const POST = callbackRoute({
   definition: "cart_country_changed",

@@ -7,7 +7,11 @@
  * response.
  */
 
-import { callbackRoute, requireCallbackShape, cartCustomerDetached } from "@/lib/pricing";
+import {
+  callbackRoute,
+  requireCallbackShape,
+  cartCustomerDetached,
+} from "@/lib/pricing";
 
 export const POST = callbackRoute({
   definition: "cart_customer_detached",

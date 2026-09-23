@@ -1,6 +1,129 @@
+/* The droplet's own stylesheet, carried over verbatim from
+ * app/frontend/entrypoints/application.css in the standalone repo, where Vite
+ * served it through the Rails layout.
+ *
+ * It is NOT @fluid-studios/ui. The shared package's palette is a different one,
+ * and swapping it in made the droplet look like its neighbours instead of like
+ * itself — a blue `--primary`, this radius, this border colour, are what the
+ * merchants using this droplet already see. Parity with the original screen is
+ * the point of the port.
+ *
+ * The `@source` line that pointed at Rails' ERB tree is dropped; there are no
+ * .erb templates here. Nothing else changed.
+ */
 @import "tailwindcss";
+@plugin "tailwindcss-animate";
 
-/* Matches the Rails admin layout's gradient panel. */
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.141 0.005 285.823);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.141 0.005 285.823);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.141 0.005 285.823);
+  --primary: oklch(0.546 0.245 262.881);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.968 0.007 247.896);
+  --secondary-foreground: oklch(0.208 0.042 265.755);
+  --muted: oklch(0.968 0.007 247.896);
+  --muted-foreground: oklch(0.554 0.046 257.417);
+  --accent: oklch(0.968 0.007 247.896);
+  --accent-foreground: oklch(0.208 0.042 265.755);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --border: oklch(0.929 0.013 255.508);
+  --input: oklch(0.929 0.013 255.508);
+  --ring: oklch(0.704 0.04 256.788);
+  --radius: 0.625rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+.gradient-background::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background-image:
+    radial-gradient(
+      oklab(99.999999% 0 0 / 0.25),
+      oklab(99.999999% 0 0 / 0) 40%
+    ),
+    radial-gradient(
+      oklab(87.835683% 0.003366 0.14967) 30%,
+      oklab(67.83255% 0.157095 -0.003474),
+      oklab(67.83255% 0.157095 -0.003474 / 0.4) 41%,
+      oklab(67.83255% 0.157095 -0.003474 / 0) 52%
+    ),
+    radial-gradient(
+      oklab(58.984582% 0.14704 -0.231127) 37%,
+      oklab(58.984582% 0.14704 -0.231127 / 0) 46%
+    ),
+    linear-gradient(
+      155deg,
+      oklab(76.355294% -0.174894 0.102381 / 0) 65%,
+      oklab(76.355294% -0.174894 0.102381 / 1) 95%
+    ),
+    linear-gradient(
+      45deg,
+      oklab(53.548175% -0.040251 -0.199701),
+      oklab(63.951656% -0.055073 -0.189536)
+    );
+  opacity: 0.06;
+  filter: blur(30px);
+  background-size:
+    200% 200%,
+    285% 500%,
+    285% 500%,
+    cover,
+    cover;
+  background-position:
+    bottom left,
+    109% 68%,
+    109% 68%,
+    center,
+    center;
+  z-index: -1;
+  pointer-events: none;
+}
+
 .gradient-background {
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  position: relative;
+  isolation: isolate;
+}
+
+a {
+  text-decoration: none;
+  @apply text-white hover:text-white;
+}
+
+.error-field {
+  @apply text-red-500;
 }

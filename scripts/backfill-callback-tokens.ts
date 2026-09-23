@@ -27,6 +27,7 @@
 import { prisma } from "../src/lib/db";
 import { createFluidClient } from "../src/lib/fluid";
 import { activeCallbacks, backfillInstallation } from "../src/lib/callbacks";
+import { RAILS_CALLBACK_PATHS } from "../src/lib/pricing/routes-table";
 
 async function main() {
   const dropletUrl = process.env.FLUID_DROPLET_URL;
@@ -38,23 +39,44 @@ async function main() {
     process.exit(1);
   }
 
-  // The callbacks this droplet registers come from the `callbacks` table, which
-  // is where an operator turns them on. `url` is stored absolute there, so it is
-  // already the exact string that was registered with Fluid.
-  // `enforceServes: false`: the backfill ADOPTS registrations that already
-  // exist, matching them by the url stored on the row. Before the global
-  // callbacks configuration is changed those rows hold the RAILS urls — which
-  // is exactly the state the backfill is run in — and the registration-time
-  // guard would filter every one of them out, exiting zero with "nothing to
-  // backfill" while every token stayed unstored.
-  const enabled = await activeCallbacks({ enforceServes: false });
+  // Which registrations to adopt, matched by exact url.
+  //
+  // This came from the Rails `callbacks` table, whose rows held the RAILS urls
+  // before the cutover and the Next urls once repointed. The Next app no longer
+  // maps that table — its callbacks are declared in droplet.config.ts — so both
+  // halves are built, and a registration is adopted wherever it points now:
+  //
+  //   - the Next url, from `activeCallbacks()` on FLUID_DROPLET_URL
+  //   - the Rails url, LEGACY_RAILS_ORIGIN + RAILS_CALLBACK_PATHS, the state
+  //     this backfill is normally run in. `Callback.serves?` on the Rails side
+  //     only ever allowed those paths on that host, so the pair is exactly what
+  //     Rails registered.
+  const enabled = activeCallbacks();
   if (enabled.length === 0) {
     console.log("No active callbacks configured; nothing to backfill.");
     await prisma.$disconnect();
     return;
   }
 
-  const ownUrls = enabled.map((callback) => callback.url);
+  const railsOrigin = (process.env.LEGACY_RAILS_ORIGIN ?? "")
+    .trim()
+    .replace(/\/$/, "");
+  if (!railsOrigin) {
+    console.warn(
+      "LEGACY_RAILS_ORIGIN is unset: adopting only registrations already on " +
+        "the Next urls. Registrations Rails created are still on the Rails " +
+        "host and will NOT be backfilled until it is set.",
+    );
+  }
+
+  const railsUrls = railsOrigin
+    ? enabled.flatMap((callback) => {
+        const path = RAILS_CALLBACK_PATHS[callback.name];
+        return path ? [`${railsOrigin}${path}`] : [];
+      })
+    : [];
+
+  const ownUrls = [...enabled.map((callback) => callback.url), ...railsUrls];
   const enabledDefinitions = enabled.map((callback) => callback.name);
 
   const companies = await prisma.company.findMany({

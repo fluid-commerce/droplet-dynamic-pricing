@@ -5,7 +5,7 @@
 # The Rails app keeps its own ./Dockerfile. When Rails is removed in the
 # follow-up PR this file becomes ./Dockerfile.
 #
-# No secrets are build args. DATABASE_URL, AUTH_SECRET, FLUID_WEBHOOK_AUTH_TOKEN
+# No secrets are build args. DATABASE_URL, FLUID_WEBHOOK_AUTH_TOKEN
 # and FLUID_DROPLET_URL are injected at deploy time and never baked in — the
 # Next build compiles route handlers without evaluating runtime env, and
 # `prisma generate` needs no live database.

@@ -18,7 +18,9 @@ import {
 import { cartPayload, recordingDeps } from "@/test/pricing";
 import type { Json, VariantBaseVolumes } from "./types";
 
-const base = (overrides: Partial<VariantBaseVolumes> = {}): VariantBaseVolumes => ({
+const base = (
+  overrides: Partial<VariantBaseVolumes> = {},
+): VariantBaseVolumes => ({
   cv: 100,
   qv: 100,
   pcCv: 60,
@@ -42,7 +44,9 @@ describe("subscriptionValueRatio", () => {
   });
 
   it("clamps above 1, so a subscription priced higher than retail never inflates volume", () => {
-    expect(subscriptionValueRatio(base({ subscriptionPrice: "200.0" }))).toBe(1);
+    expect(subscriptionValueRatio(base({ subscriptionPrice: "200.0" }))).toBe(
+      1,
+    );
   });
 });
 
@@ -65,13 +69,15 @@ describe("scaledUnitVolume", () => {
 
 describe("cartItemVolumes", () => {
   it("scales retail volumes by the discount under the default price_ratio source", () => {
-    expect(cartItemVolumes(base(), "subscription", 1, "price_ratio", silent, "c")).toEqual(
-      { cv: 80, qv: 80 },
-    );
+    expect(
+      cartItemVolumes(base(), "subscription", 1, "price_ratio", silent, "c"),
+    ).toEqual({ cv: 80, qv: 80 });
   });
 
   it("restores the retail base volumes in regular mode", () => {
-    expect(cartItemVolumes(base(), "regular", 1, "price_ratio", silent, "c")).toEqual({
+    expect(
+      cartItemVolumes(base(), "regular", 1, "price_ratio", silent, "c"),
+    ).toEqual({
       cv: 100,
       qv: 100,
     });
@@ -79,7 +85,14 @@ describe("cartItemVolumes", () => {
 
   it("writes pc_cv/pc_qv directly under the preferred_customer source, with NO ratio", () => {
     expect(
-      cartItemVolumes(base(), "subscription", 1, "preferred_customer", silent, "c"),
+      cartItemVolumes(
+        base(),
+        "subscription",
+        1,
+        "preferred_customer",
+        silent,
+        "c",
+      ),
     ).toEqual({ cv: 60, qv: 60 });
   });
 
@@ -200,8 +213,20 @@ describe("updateCartItemsVolumes", () => {
       fluid: {
         variants: {
           v1: [
-            { country_code: "AU", cv: 50, qv: 50, price: "100.0", subscription_price: "100.0" },
-            { country_code: "US", cv: 100, qv: 100, price: "100.0", subscription_price: "100.0" },
+            {
+              country_code: "AU",
+              cv: 50,
+              qv: 50,
+              price: "100.0",
+              subscription_price: "100.0",
+            },
+            {
+              country_code: "US",
+              cv: 100,
+              qv: 100,
+              price: "100.0",
+              subscription_price: "100.0",
+            },
           ],
         },
       },

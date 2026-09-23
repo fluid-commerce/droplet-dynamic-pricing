@@ -7,7 +7,11 @@
  * Fails CLOSED. `ManageSubscriptionAction` discards the response.
  */
 
-import { callbackRoute, requireCallbackShape, subscriptionRemoved } from "@/lib/pricing";
+import {
+  callbackRoute,
+  requireCallbackShape,
+  subscriptionRemoved,
+} from "@/lib/pricing";
 
 export const POST = callbackRoute({
   definition: "cart_subscription_removed",

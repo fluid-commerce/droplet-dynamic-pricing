@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Fluid Droplets",
-  description: "Droplet template for the Fluid platform",
+  title: "Dynamic Pricing",
+  description: "Customer-type and price-type pricing for Fluid carts",
   icons: { icon: "/icon.svg", apple: "/icon.png" },
 };
 

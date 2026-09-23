@@ -143,7 +143,9 @@ describe("handleDropletInstalled", () => {
     await handleDropletInstalled(installPayload);
 
     expect(deleteForInstallation).not.toHaveBeenCalled();
-    expect(mockPrisma.fluidCallbackRegistration.deleteMany).toHaveBeenCalledWith({
+    expect(
+      mockPrisma.fluidCallbackRegistration.deleteMany,
+    ).toHaveBeenCalledWith({
       where: { dri: "dri_acme", uuid: { notIn: ["cbr_1"] } },
     });
   });
@@ -219,6 +221,10 @@ describe("handleDropletUninstalled", () => {
   });
 });
 
+// `payloadForHandler` was the route's re-export of `effectivePayload`. Next
+// rejects a route module exporting anything that is not a route field, so the
+// rule now lives in @/lib/webhooks/effective-payload and is imported from
+// there. The local alias keeps these cases reading as they did.
 describe("payloadForHandler — the shape Fluid actually sent", () => {
   // Asserted on the FUNCTION the route calls, not on the handler. The previous
   // version of this test called the handler directly with an already-unwrapped
@@ -227,14 +233,18 @@ describe("payloadForHandler — the shape Fluid actually sent", () => {
   const company = { fluid_shop: "acme", name: "Acme" };
 
   it("passes the inner object for the {name, payload} envelope", async () => {
-    const { payloadForHandler } = await import("@/app/api/webhooks/route");
+    const { effectivePayload: payloadForHandler } = await import(
+      "@/lib/webhooks/effective-payload"
+    );
     expect(
       payloadForHandler({ name: "droplet_installed", payload: { company } }),
     ).toEqual({ company });
   });
 
   it("passes the inner object when the envelope nests resource/event", async () => {
-    const { payloadForHandler } = await import("@/app/api/webhooks/route");
+    const { effectivePayload: payloadForHandler } = await import(
+      "@/lib/webhooks/effective-payload"
+    );
     expect(
       payloadForHandler({
         payload: { resource: "droplet", event: "installed", company },
@@ -247,7 +257,9 @@ describe("payloadForHandler — the shape Fluid actually sent", () => {
     // broke: the SDK recognised the event from the root fields, so the root
     // object is the payload, and unwrapping would have handed the handler
     // `{metadata:{}}` and thrown.
-    const { payloadForHandler } = await import("@/app/api/webhooks/route");
+    const { effectivePayload: payloadForHandler } = await import(
+      "@/lib/webhooks/effective-payload"
+    );
     const body = {
       resource: "droplet",
       event: "installed",
@@ -258,7 +270,9 @@ describe("payloadForHandler — the shape Fluid actually sent", () => {
   });
 
   it("leaves anything it cannot classify alone", async () => {
-    const { payloadForHandler } = await import("@/app/api/webhooks/route");
+    const { effectivePayload: payloadForHandler } = await import(
+      "@/lib/webhooks/effective-payload"
+    );
     const body = { company };
     expect(payloadForHandler(body)).toBe(body);
     expect(payloadForHandler(null)).toBeNull();
@@ -274,7 +288,9 @@ describe("effectivePayload — agreement with the SDK's eventOf", () => {
   const company = { fluid_shop: "acme" };
 
   it("gives `name` precedence over a root resource/event pair, as eventOf does", async () => {
-    const { payloadForHandler } = await import("@/app/api/webhooks/route");
+    const { effectivePayload: payloadForHandler } = await import(
+      "@/lib/webhooks/effective-payload"
+    );
     expect(
       payloadForHandler({
         name: "droplet_installed",
@@ -286,7 +302,9 @@ describe("effectivePayload — agreement with the SDK's eventOf", () => {
   });
 
   it("follows eventOf's nested `event`-only fallback", async () => {
-    const { payloadForHandler } = await import("@/app/api/webhooks/route");
+    const { effectivePayload: payloadForHandler } = await import(
+      "@/lib/webhooks/effective-payload"
+    );
     expect(
       payloadForHandler({ payload: { event: "droplet.installed", company } }),
     ).toEqual({ event: "droplet.installed", company });

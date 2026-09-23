@@ -1,64 +1,53 @@
 // droplet-dynamic-pricing — Prisma schema
 //
-// This schema describes the SAME PostgreSQL database the Rails app owns
-// (db/schema.rb, version 2026_01_26_194025). Every model is mapped back to the
-// Rails table and column names with @@map / @map, so pointing this app at the
-// existing production database changes nothing about it. There is no data
-// migration and no renamed column.
+// Ported from the standalone repo, where this same file described the database
+// the Rails app owns. Here the droplet gets its OWN database on the shared
+// fluid-studioz instance, so `db push` is applied rather than forbidden — but
+// the SHAPE is kept, deliberately, and should not be "tidied" into the
+// template's shape.
 //
-// db/schema.rb and db/migrate/ were reconciled table-by-table before this file
-// was written — every `create_table`, `add_column` and index in the migrations
-// is accounted for in schema.rb, and the schema version equals the timestamp of
-// the newest migration. `prisma db pull` was therefore not needed here;
-// translating schema.rb is safe. (Other droplets in the fleet HAVE needed the
-// pull — this one genuinely does not.)
+// Why keep Rails' shape against a fresh database:
 //
-// Consequences that are deliberate and should not be "tidied":
+//   * STU2-2942 calls for porting the live per-company `settings`,
+//     `integration_settings`, `price_types` and `exigo_autoship_snapshots` out
+//     of the old Cloud SQL. Identical column names and types make that a table
+//     copy instead of a transformation, and a transformation is where a
+//     migration loses a customer's pricing.
+//   * The 9,792 lines of application code being ported alongside this file are
+//     written against these names and types, and their parity against the Rails
+//     original is already recorded (PARITY-AUDIT.md in the standalone repo).
+//     Reshaping the schema would mean re-verifying all of it for no behavioural
+//     gain.
+//
+// Consequences that are deliberate:
 //
 //   * Primary keys are `BigInt`, because Rails 8 creates `bigserial` ids. They
 //     surface in TypeScript as `bigint`; convert with `String(id)` before
-//     handing one to a client component or to JSON.
+//     handing one to a client component or to JSON. The template uses `cuid()`
+//     strings; this droplet cannot, without rewriting every ported query and
+//     discarding the ids the copied rows arrive with.
+//   * `companies.fluid_company_id`, `companies.fluid_shop`,
+//     `companies.company_droplet_uuid` and `integration_settings.company_id`
+//     are NOT unique — look them up with findFirst, never findUnique. The
+//     template declares `fluid_company_id @unique`; Rails does not, because a
+//     company that reinstalls legitimately gets a SECOND row. The ops endpoint
+//     at /api/admin-api/company refuses with a 409 and lists the candidates
+//     rather than guessing, and that guard only means anything while the column
+//     stays non-unique.
 //   * Booleans Rails left nullable are `Boolean?`. Prisma throws
-//     `Inconsistent column data` when it reads a NULL into a required Boolean,
-//     so a single legacy row would break every read of that table.
-//   * Nullability, defaults and indexes mirror db/schema.rb EXACTLY, including
-//     which indexes are unique AND what they are named (`map:` on every index).
-//     `cloudbuild-next.yml` deliberately has no migration step, so nothing here
-//     is ever applied — but `pnpm db:push` run by hand would happily reshape a
-//     live Rails schema, and a `@unique` Rails does not have would then be an
-//     ALTER against a live table. In particular `companies.fluid_company_id`,
-//     `companies.fluid_shop`, `companies.company_droplet_uuid` and
-//     `integration_settings.company_id` are NOT unique — look them up with
-//     findFirst, never findUnique.
-//   * `exigo_autoship_snapshots.external_ids` is `@db.Json`, because Rails
-//     declared `t.json` (not `t.jsonb`) there. Prisma's `Json` defaults to
-//     `jsonb`, and without the attribute `db push` would try to retype a live
-//     column.
+//     `Inconsistent column data` reading a NULL into a required Boolean, so a
+//     single copied legacy row would break every read of that table.
+//   * `exigo_autoship_snapshots.external_ids` is `@db.Json`, not jsonb,
+//     matching the Rails `t.json` the rows are copied from.
 //
-// Two differences that are NOT reconciled, deliberately, because nothing here
-// is ever applied to the database:
+// `events` and `webhooks` are mapped but DEAD — `grep` finds no read or write
+// of either in the Rails app. They are kept so a copy of the old database lands
+// whole and so `companies` keeps its foreign key. Do not build an audit trail
+// on them; there never was one.
 //
-//   * Prisma renders `String` as `text` and `DateTime` as `timestamp(3)`, while
-//     Rails created `varchar` and `timestamp`. `prisma migrate diff` will
-//     therefore report those columns as changed. They are not: both are read
-//     and written identically through the driver.
-//   * `@default(now())` is declared on columns whose Rails counterparts have no
-//     DATABASE default. That is fine because Prisma Client generates the
-//     timestamp itself and sends it in the INSERT — verified against a
-//     Rails-shaped table (`created_at timestamp NOT NULL`, no default) with a
-//     `create()` that omitted both timestamps; the row was written with both
-//     populated. It is NOT relying on a database default that does not exist.
-//
-// Both are further reasons `pnpm db:push` must never be run against a live
-// database: it would rewrite column types Rails owns.
-//
-// The one table NOT in db/schema.rb at the time of writing is
-// FluidCallbackRegistration. It is owned by @fluid-app/droplet-sdk and is
-// additive — the Rails app neither reads nor writes it, so both apps can run
-// against this database at once. It is created by a RAILS migration
-// (db/migrate/20260903000001_create_fluid_callback_registrations.rb), because
-// Rails owns this schema and a table that exists only as a Prisma model exists
-// nowhere at all.
+// FluidCallbackRegistration is owned by @fluid-app/droplet-sdk. In the
+// standalone repo it had to be created by a Rails migration because Rails owned
+// that schema; here Prisma owns the database outright and `db push` creates it.
 
 generator client {
   provider = "prisma-client-js"
@@ -99,7 +88,6 @@ model Company {
   integrationSettings      IntegrationSetting[]
   cartPricingEvents        CartPricingEvent[]
   customerTypeTransactions CustomerTypeTransaction[]
-  exigoAutoshipSnapshots   ExigoAutoshipSnapshot[]
   priceTypes               PriceType[]
 
   @@index([active], map: "index_companies_on_active")
@@ -107,30 +95,6 @@ model Company {
   @@index([fluidCompanyId], map: "index_companies_on_fluid_company_id")
   @@index([fluidShop], map: "index_companies_on_fluid_shop")
   @@map("companies")
-}
-
-/// Rails: `callbacks`. The droplet's local catalogue of Fluid callback
-/// definitions, synced from GET /api/callback/definitions. A row is registered
-/// with Fluid on install only when it is `active` and has a url + timeout.
-///
-/// `name` is NOT unique in the database, despite the Rails model declaring
-/// `validates :name, uniqueness: true`. That is a real Rails-side gap (two
-/// concurrent syncs can create duplicates) but it is not this migration's to
-/// fix: adding @unique here would make `db push` add a constraint to a live
-/// table that may already violate it.
-model Callback {
-  id BigInt @id @default(autoincrement())
-
-  name             String?
-  description      String?
-  url              String?
-  timeoutInSeconds Int?     @map("timeout_in_seconds")
-  active           Boolean?
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@map("callbacks")
 }
 
 /// Rails: `events`. Scoped to a company.
@@ -186,60 +150,6 @@ model IntegrationSetting {
   @@map("integration_settings")
 }
 
-/// Rails: `settings`. Droplet-wide configuration, each row a JSON Schema plus
-/// the values validated against it. See src/lib/settings.
-model Setting {
-  id BigInt @id @default(autoincrement())
-
-  name        String  @unique(map: "index_settings_on_name")
-  description String?
-  values      Json?   @default("{}")
-  schema      Json
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@map("settings")
-}
-
-/// Rails: `users`, created by Devise. `encrypted_password` is a plain bcrypt
-/// digest (devise.rb leaves `config.pepper` commented out, stretches 12), so
-/// Auth.js verifies existing rows directly and no user needs a password reset.
-model User {
-  id BigInt @id @default(autoincrement())
-
-  email             String @unique(map: "index_users_on_email") @default("")
-  encryptedPassword String @default("") @map("encrypted_password")
-
-  resetPasswordToken  String?   @unique(map: "index_users_on_reset_password_token") @map("reset_password_token")
-  resetPasswordSentAt DateTime? @map("reset_password_sent_at")
-  rememberCreatedAt   DateTime? @map("remember_created_at")
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  /// Rails `t.string array: true` — a Postgres text[].
-  permissionSets String[] @default([]) @map("permission_sets")
-
-  @@map("users")
-}
-
-/// Rails: `webhooks`. `app/models/webhook.rb` is an empty class and nothing in
-/// the Rails app references it. Mapped so the table is accounted for and
-/// `db push` leaves it alone; no behaviour is ported.
-model Webhook {
-  id BigInt @id @default(autoincrement())
-
-  resource String?
-  event    String?
-  active   Boolean? @default(true)
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@map("webhooks")
-}
-
 /// Rails: `price_types`. Per-company price type names, managed from the
 /// dropzone UI.
 model PriceType {
@@ -264,9 +174,9 @@ model PriceType {
 model CartPricingEvent {
   id BigInt @id @default(autoincrement())
 
-  companyId BigInt @map("company_id")
+  companyId BigInt  @map("company_id")
   /// `t.integer`, NOT bigint — Fluid cart ids are recorded as a plain int here.
-  cartId    Int?   @map("cart_id")
+  cartId    Int?    @map("cart_id")
   email     String?
   /// ActiveRecord string-backed enum. A plain nullable String, not a Postgres
   /// enum: creating a type would be a `db push` DDL against a live database.
@@ -316,31 +226,9 @@ model CustomerTypeTransaction {
   @@map("customer_type_transactions")
 }
 
-/// Rails: `exigo_autoship_snapshots`. One row per nightly Exigo reconciliation
-/// run, holding the external ids that had an active autoship at that moment.
-model ExigoAutoshipSnapshot {
-  id BigInt @id @default(autoincrement())
-
-  companyId BigInt @map("company_id")
-  /// `t.json`, NOT `t.jsonb`. Prisma's `Json` maps to jsonb by default, so
-  /// without @db.Json a `db push` would ALTER a live column's type.
-  externalIds Json     @default("[]") @map("external_ids") @db.Json
-  syncedAt    DateTime @map("synced_at")
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  company Company @relation(fields: [companyId], references: [id])
-
-  @@index([companyId, syncedAt], map: "index_exigo_autoship_snapshots_on_company_id_and_synced_at")
-  @@index([companyId], map: "index_exigo_autoship_snapshots_on_company_id")
-  @@map("exigo_autoship_snapshots")
-}
-
 // ---------------------------------------------------------------------------
 // Owned by @fluid-app/droplet-sdk. Copied verbatim from
-// the SDK's schema/callback-registrations.prisma (shipped in the published
-// package) — keep it identical
+// vendor/droplet-sdk/schema/callback-registrations.prisma — keep it identical
 // across the fleet so the shape survives the eventual Prisma -> Drizzle move.
 //
 // Only the digest is stored: Fluid presents the plaintext token on every

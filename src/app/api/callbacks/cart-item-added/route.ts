@@ -13,7 +13,11 @@
  * src/lib/pricing/route.ts.
  */
 
-import { callbackRoute, requireCallbackShape, cartItemAdded } from "@/lib/pricing";
+import {
+  callbackRoute,
+  requireCallbackShape,
+  cartItemAdded,
+} from "@/lib/pricing";
 
 export const POST = callbackRoute({
   definition: "cart_item_added",

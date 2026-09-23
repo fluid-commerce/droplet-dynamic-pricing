@@ -12,7 +12,11 @@
  * the response.
  */
 
-import { callbackRoute, requireCallbackShape, subscriptionAdded } from "@/lib/pricing";
+import {
+  callbackRoute,
+  requireCallbackShape,
+  subscriptionAdded,
+} from "@/lib/pricing";
 
 export const POST = callbackRoute({
   definition: "cart_subscription_added",

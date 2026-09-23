@@ -189,7 +189,7 @@ describe("POST /api/callbacks/cart-item-added", () => {
     // table is missing, the store throws, and the SDK reads that as an auth
     // failure rather than as "unverified but probably fine".
     mockPrisma.fluidCallbackRegistration.findUnique.mockRejectedValue(
-      new Error("relation \"fluid_callback_registrations\" does not exist"),
+      new Error('relation "fluid_callback_registrations" does not exist'),
     );
     mockPrisma.company.findFirst.mockResolvedValue(companyFixture());
 
