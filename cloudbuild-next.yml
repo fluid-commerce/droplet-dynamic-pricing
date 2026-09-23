@@ -79,6 +79,14 @@ steps:
   #                                 what Fluid signs droplet.installed /
   #                                 droplet.uninstalled with
   #
+  # The STARTUP probe hits /api/ready, which answers 200 only once the database
+  # does. Cloud Run's default is a TCP check that passes ~1.5s after the
+  # container starts — before the Cloud SQL socket exists — so a new instance
+  # was taking pricing callbacks it could not serve, and the first one timed
+  # out on Fluid's side. Up to 40 x 3s for the database to appear; a probe that
+  # never passes keeps the new revision from taking traffic and leaves the old
+  # one serving. See src/app/api/ready/route.ts.
+  #
   # Plain values stay on the service, set by hand: FLUID_DROPLET_URL (this
   # service's own url), DROPLET_UUID (the Next droplet's uuid), and optionally
   # LEGACY_RAILS_ORIGIN and ADMIN_API_TOKEN. See .env.example.
@@ -94,6 +102,7 @@ steps:
         "--region=europe-west1",
         "--revision-suffix=${COMMIT_SHA}-${_TIMESTAMP}",
         "--update-secrets=DATABASE_URL=DYNAMIC_PRICING_DATABASE_URL:latest,FLUID_WEBHOOK_AUTH_TOKEN=DYNAMIC_PRICING_FLUID_WEBHOOK_AUTH_TOKEN:latest,FLUID_DROPLET_WEBHOOK_SECRET=DYNAMIC_PRICING_NEXT_DROPLET_WEBHOOK_SECRET:latest",
+        "--startup-probe=httpGet.path=/api/ready,initialDelaySeconds=0,periodSeconds=3,timeoutSeconds=3,failureThreshold=40",
       ]
     id: deploy next
     entrypoint: gcloud
