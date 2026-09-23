@@ -18,6 +18,11 @@ import {
   installPayloadSchema,
   resolveInstallCredentials,
 } from "@/lib/handlers/install-credentials";
+import {
+  previousInstallationOf,
+  stringIds,
+  takeOverPreviousInstallation,
+} from "@/lib/handlers/takeover";
 
 /**
  * Fluid nests the company under `company` and names the droplet's own uuid
@@ -101,6 +106,10 @@ export async function handleDropletInstalled(payload: unknown): Promise<void> {
   const existing = await prisma.company.findFirst({
     where: { fluidShop: data.fluid_shop },
   });
+
+  // Read BEFORE the row is overwritten: once this install writes its own dri
+  // and token, nothing left on the row says another droplet was serving it.
+  const previous = previousInstallationOf(existing, data);
 
   // v1 reads the tokens off the payload; v2 spends a single-use exchange token.
   // Done BEFORE the write, so a failed exchange leaves no half-installed row.
@@ -220,7 +229,25 @@ export async function handleDropletInstalled(payload: unknown): Promise<void> {
     }
   }
 
-  if (results.registeredUuids.length > 0) {
+  if (previous && results.failed === 0 && results.registeredUuids.length > 0) {
+    // Only after a clean registration, so a company is never left without a
+    // droplet answering its pricing callbacks. See ./takeover.ts.
+    const { undeletedCallbackIds } = await takeOverPreviousInstallation(
+      client,
+      previous,
+    );
+    // The previous installation's ids are dropped rather than merged: they
+    // are deleted now. Any that could not be are kept, so this app's own
+    // uninstall still tries them.
+    await prisma.company.update({
+      where: { id: company.id },
+      data: {
+        installedCallbackIds: Array.from(
+          new Set([...results.registeredUuids, ...undeletedCallbackIds]),
+        ),
+      },
+    });
+  } else if (results.registeredUuids.length > 0) {
     // MERGED, not replaced. Delivery is at-least-once and registration is
     // per-callback, so a retry after a partial success registers only what
     // failed the first time — replacing the list would drop the uuid of the
@@ -228,11 +255,7 @@ export async function handleDropletInstalled(payload: unknown): Promise<void> {
     // this list, so that callback would then be left live at Fluid while its
     // digest is deleted and its company deactivated: every one of its calls
     // refused behind a 200, with nothing pointing at the cause.
-    const existing = Array.isArray(company.installedCallbackIds)
-      ? (company.installedCallbackIds as unknown[]).filter(
-          (id): id is string => typeof id === "string",
-        )
-      : [];
+    const existing = stringIds(company.installedCallbackIds);
     const merged = Array.from(
       new Set([...existing, ...results.registeredUuids]),
     );

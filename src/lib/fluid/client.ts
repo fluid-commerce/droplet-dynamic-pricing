@@ -184,6 +184,20 @@ export class FluidClient {
     return this.request(`/api/droplets/${uuid}`, { method: "DELETE" });
   }
 
+  // --- Droplet installations -----------------------------------------------
+
+  /**
+   * DELETE /api/droplet_installations/:uuid — uninstalls an installation of
+   * ANY droplet on this company. Core checks only the company, not which
+   * droplet is asking. It sends that droplet its `droplet_uninstalled` event
+   * and deletes the registrations and webhooks the installation owns.
+   */
+  async uninstallDropletInstallation(uuid: string): Promise<void> {
+    return this.request(`/api/droplet_installations/${uuid}`, {
+      method: "DELETE",
+    });
+  }
+
   // --- Webhooks -----------------------------------------------------------
 
   async listWebhooks(): Promise<{ webhooks: FluidWebhook[] }> {
