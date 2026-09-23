@@ -1,18 +1,19 @@
 /**
- * /price_types — port of PriceTypesController.
+ * GET /price_types — PriceTypesController#index, plus #destroy.
  *
- * Index, create, rename and delete on one page. Rails had separate `new` and
- * `edit` screens; the list is short (a handful of rows per company) and the
- * only field is a name, so inline forms replace the round trips without
- * changing what can be done.
+ * Port of app/views/price_types/index.html.erb in the `application` layout,
+ * which is the one with the Price Types / Customers tabs and the flash. Create
+ * and edit are their own screens (./new, ./[id]/edit), as they were.
  *
- * Rename and delete both ask Fluid whether the type is in use first, and BOTH
- * fail closed. See src/lib/dashboard/price-types.ts.
+ * Every link and redirect carries `?dri=`. Rails kept the dri in the session
+ * after the first request; the cookie that port relies on is read but never
+ * written, so without it the next screen would not know the company.
  */
 
-import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
-import { DropzoneTabs } from "@/components/dashboard/dropzone-tabs";
+import { ApplicationLayout } from "@/components/layouts/rails-layouts";
+import { ConfirmSubmit } from "@/components/price-types/confirm-submit";
 import { resolveTenant } from "@/lib/dashboard/dropzone-tenant";
 import { assertNotInUse, listPriceTypes } from "@/lib/dashboard/price-types";
 import { firstValue, type RawSearchParams } from "@/lib/dashboard/searchparams";
@@ -21,8 +22,8 @@ import { createFluidClient } from "@/lib/fluid";
 
 export const dynamic = "force-dynamic";
 
-const INPUT =
-  "rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
+/** `created_at.strftime("%Y-%m-%d")`, in UTC like the Rails app. */
+const ymd = (iso: string) => iso.slice(0, 10);
 
 export default async function PriceTypesPage({
   searchParams,
@@ -32,7 +33,7 @@ export default async function PriceTypesPage({
   const params = await searchParams;
   const tenant = await resolveTenant(firstValue(params, "dri"));
 
-  if (tenant.error || !tenant.company) {
+  if (tenant.error || !tenant.company || !tenant.dri) {
     return (
       <div className="p-6 font-mono text-sm text-muted-foreground">
         {tenant.error?.message}
@@ -41,131 +42,113 @@ export default async function PriceTypesPage({
   }
 
   const company = tenant.company;
+  const dri = tenant.dri;
+  const q = new URLSearchParams({ dri }).toString();
   const priceTypes = await listPriceTypes(company.id);
-  const notice = firstValue(params, "notice");
-  const alert = firstValue(params, "alert");
-
-  async function create(formData: FormData) {
-    "use server";
-    const name = String(formData.get("name") ?? "").trim();
-    if (!name) return;
-
-    await prisma.priceType.create({ data: { companyId: company.id, name } });
-    revalidatePath("/price_types");
-  }
-
-  async function rename(formData: FormData) {
-    "use server";
-    const id = BigInt(String(formData.get("id")));
-    const name = String(formData.get("name") ?? "").trim();
-
-    const existing = await prisma.priceType.findFirst({
-      where: { id, companyId: company.id },
-    });
-    if (!existing) return;
-
-    // The CURRENT name is what customers carry, so that is what is checked.
-    const client = createFluidClient(company.authenticationToken);
-    const inUse = await assertNotInUse(existing.name ?? "", (p) =>
-      client.listCustomers(p),
-    );
-    if (inUse) {
-      revalidatePath("/price_types");
-      return;
-    }
-
-    await prisma.priceType.update({ where: { id }, data: { name } });
-    revalidatePath("/price_types");
-  }
 
   async function remove(formData: FormData) {
     "use server";
-    const id = BigInt(String(formData.get("id")));
+    const back = (flash: Record<string, string>) =>
+      redirect(`/price_types?${new URLSearchParams({ dri, ...flash })}`);
 
+    const id = BigInt(String(formData.get("id")));
     const existing = await prisma.priceType.findFirst({
       where: { id, companyId: company.id },
     });
-    if (!existing) return;
+    if (!existing) back({ alert: `Price type not found: ${String(id)}` });
 
+    // PriceTypeUseCases::Delete — refuse while any customer carries the name.
     const client = createFluidClient(company.authenticationToken);
-    const inUse = await assertNotInUse(existing.name ?? "", (p) =>
+    const problem = await assertNotInUse(existing!.name ?? "", (p) =>
       client.listCustomers(p),
     );
-    if (inUse) {
-      revalidatePath("/price_types");
-      return;
+    if (problem) {
+      back({
+        alert: problem.startsWith("Failed")
+          ? problem
+          : `Cannot delete price type: ${problem}`,
+      });
     }
 
     await prisma.priceType.delete({ where: { id } });
-    revalidatePath("/price_types");
+    back({ notice: "Price type deleted" });
   }
 
   return (
-    <main className="mx-auto max-w-4xl p-6">
-      <DropzoneTabs active="/price_types" />
+    <ApplicationLayout
+      active="price_types"
+      dri={dri}
+      notice={firstValue(params, "notice")}
+      alert={firstValue(params, "alert")}
+    >
+      <div className="max-w-7xl mx-auto">
+        <div className="flex justify-end mb-4">
+          <a
+            href={`/price_types/new?${q}`}
+            className="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:ring-offset-2"
+          >
+            New Price Type
+          </a>
+        </div>
 
-      <h1 className="mb-1 text-2xl font-bold tracking-tight">Price Types</h1>
-      <p className="mb-6 text-sm text-muted-foreground">{company.name}</p>
-
-      {notice ? (
-        <p className="mb-4 rounded-md bg-green-50 px-4 py-2 text-sm text-green-800">
-          {notice}
-        </p>
-      ) : null}
-      {alert ? (
-        <p className="mb-4 rounded-md bg-red-50 px-4 py-2 text-sm text-red-800">
-          {alert}
-        </p>
-      ) : null}
-
-      <form action={create} className="mb-8 flex gap-2">
-        <input
-          name="name"
-          placeholder="New price type"
-          className={INPUT}
-          required
-        />
-        <button
-          type="submit"
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-        >
-          Add
-        </button>
-      </form>
-
-      {priceTypes.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No price types yet.</p>
-      ) : (
-        <ul className="divide-y rounded-lg border">
-          {priceTypes.map((priceType) => (
-            <li key={priceType.id} className="flex items-center gap-2 p-3">
-              <form action={rename} className="flex flex-1 gap-2">
-                <input type="hidden" name="id" value={priceType.id} />
-                <input
-                  name="name"
-                  defaultValue={priceType.name}
-                  className={`${INPUT} flex-1`}
-                />
-                <button
-                  type="submit"
-                  className="text-sm text-indigo-600 hover:underline"
-                >
-                  Save
-                </button>
-              </form>
-              <form action={remove}>
-                <input type="hidden" name="id" value={priceType.id} />
-                <button
-                  type="submit"
-                  className="text-sm text-red-600 hover:underline"
-                >
-                  Delete
-                </button>
-              </form>
-            </li>
-          ))}
-        </ul>
-      )}
-    </main>
+        <div className="overflow-x-auto bg-white shadow rounded">
+          {priceTypes.length > 0 ? (
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Date
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {priceTypes.map((priceType) => (
+                  <tr key={priceType.id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-gray-900 font-medium">
+                      {priceType.name}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-gray-500">
+                      {ymd(priceType.createdAt)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <a
+                        href={`/price_types/${priceType.id}/edit?${q}`}
+                        className="text-blue-600 hover:text-blue-800"
+                      >
+                        Edit
+                      </a>
+                      <form action={remove} className="inline">
+                        <input type="hidden" name="id" value={priceType.id} />
+                        <ConfirmSubmit
+                          message="Are you sure you want to delete this price type?"
+                          className="ml-4 text-red-600 hover:text-red-800"
+                        >
+                          Delete
+                        </ConfirmSubmit>
+                      </form>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="text-center py-8">
+              <h3 className="text-base font-medium text-gray-900 mb-1">
+                No price types found
+              </h3>
+              <p className="text-sm text-gray-500">
+                Create a price type to get started.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </ApplicationLayout>
   );
 }

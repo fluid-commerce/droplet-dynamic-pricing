@@ -54,7 +54,49 @@ export async function listPriceTypes(companyId: bigint) {
     orderBy: { name: "asc" },
   });
 
-  return rows.map((row) => ({ id: String(row.id), name: row.name ?? "" }));
+  return rows.map((row) => ({
+    id: String(row.id),
+    name: row.name ?? "",
+    createdAt: row.createdAt.toISOString(),
+  }));
+}
+
+/**
+ * `PriceType`'s validations, with Rails' full messages:
+ *
+ *   validates :name, presence: true
+ *   validates :name, uniqueness: { scope: :company_id, case_sensitive: false }
+ *
+ * `excludeId` is the row being edited, which must not collide with itself.
+ */
+export async function priceTypeNameErrors(
+  companyId: bigint,
+  name: string,
+  excludeId?: bigint,
+): Promise<string[]> {
+  if (name.trim() === "") return ["Name can't be blank"];
+
+  const clash = await prisma.priceType.findFirst({
+    where: {
+      companyId,
+      name: { equals: name, mode: "insensitive" },
+      ...(excludeId === undefined ? {} : { id: { not: excludeId } }),
+    },
+    select: { id: true },
+  });
+  return clash ? ["Name has already been taken"] : [];
+}
+
+/** ActiveSupport's `pluralize(count, "error")`. */
+export function pluralizeErrors(count: number): string {
+  return `${count} ${count === 1 ? "error" : "errors"}`;
+}
+
+/** ActiveSupport's `Array#to_sentence`. */
+export function toSentence(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
 }
 
 /**

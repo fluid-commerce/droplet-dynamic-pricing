@@ -367,7 +367,11 @@ export class FluidClient {
     by_metadata?: Record<string, string>;
     page?: number;
     per_page?: number;
-  }): Promise<{ customers?: Array<Record<string, unknown>> }> {
+  }): Promise<{
+    customers?: Array<Record<string, unknown>>;
+    /** Fluid's pagination block: current_page, total_pages, … */
+    meta?: Record<string, unknown>;
+  }> {
     const query = new URLSearchParams();
     if (params.page !== undefined) query.set("page", String(params.page));
     if (params.per_page !== undefined) {
