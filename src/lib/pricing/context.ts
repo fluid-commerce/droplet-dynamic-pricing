@@ -540,8 +540,7 @@ export class PricingContext {
     const foreign = this.foreignPricedRow(rows, payloadPrice);
     if (foreign === null) return toF(payloadPrice);
 
-    const priceField =
-      kind === "subscription" ? "subscription_price" : "price";
+    const priceField = kind === "subscription" ? "subscription_price" : "price";
     const ownRow = await this.variantCountryRow(variantId);
     const authoritative = toF(field(ownRow ?? undefined, priceField));
     if (authoritative > 0) return authoritative;
@@ -585,9 +584,8 @@ export class PricingContext {
     }
 
     return (
-      foreign.find((row) =>
-        rowPrices(row).some((p) => sameMoney(p, amount)),
-      ) ?? null
+      foreign.find((row) => rowPrices(row).some((p) => sameMoney(p, amount))) ??
+      null
     );
   }
 
@@ -694,7 +692,8 @@ export class PricingContext {
 
     return (
       rows.find((row) => {
-        if (field(row, "country_code") !== this.cartPricingCountry) return false;
+        if (field(row, "country_code") !== this.cartPricingCountry)
+          return false;
         const active = field(row, "active");
         return active === undefined || active === null || Boolean(active);
       }) ?? null
@@ -716,7 +715,9 @@ export class PricingContext {
       const response = await this.deps.fluid.getVariant(key);
       const variant = field<Json>(response, "variant");
       const rows = field(variant, "variant_countries");
-      const value = Array.isArray(rows) ? (rows.filter(isObject) as Json[]) : [];
+      const value = Array.isArray(rows)
+        ? (rows.filter(isObject) as Json[])
+        : [];
       this.variantCountryRowsCache.set(key, value);
       return value;
     } catch (error) {
@@ -869,7 +870,11 @@ export class PricingContext {
       // customerLoggedIn, which rewrites every line to retail. Caching that
       // would spread one degenerate response across every cart of this customer
       // for the whole window, so it is returned but never written.
-      if (response && typeof response === "object" && "subscriptions" in response) {
+      if (
+        response &&
+        typeof response === "object" &&
+        "subscriptions" in response
+      ) {
         this.writePreferredLookup(key, answer);
       } else {
         this.deps.log.warn(
@@ -943,7 +948,9 @@ export class PricingContext {
   ): Promise<boolean> {
     const customerType = await exigo.customerTypeByEmail(email);
     if (customerType === null || customerType === undefined) return false;
-    return String(customerType) === String(this.settings.preferredCustomerTypeId);
+    return (
+      String(customerType) === String(this.settings.preferredCustomerTypeId)
+    );
   }
 
   async isPreferredCustomer(email: string | undefined): Promise<boolean> {
@@ -960,7 +967,10 @@ export class PricingContext {
     // with a new autoship yet.
     if (this.settings.preferredFromFluidMemberType) {
       if (await this.fluidMemberPreferred(customerId, email)) return true;
-      if (isPresent(customerId) && (await this.hasActiveSubscriptions(customerId))) {
+      if (
+        isPresent(customerId) &&
+        (await this.hasActiveSubscriptions(customerId))
+      ) {
         return true;
       }
       // No Exigo fallback: the whole point of this source is that the
@@ -969,8 +979,24 @@ export class PricingContext {
     }
 
     if (isPresent(customerId)) {
-      const customerType = await this.getCustomerTypeFromMetafields(customerId);
-      if (customerType === PREFERRED_CUSTOMER_TYPE) return true;
+      // The metafield is read ONLY where preferred is permanent by design
+      // (`promote_member_type_on_first_subscription`, STU2-3247): there a
+      // cancelled subscription deliberately does not demote, so the stored
+      // value is the answer and no live signal can replace it.
+      //
+      // Everywhere else it was a cache that only the nightly reconciliation
+      // kept honest in the DEMOTE direction — the cart-side writer and the
+      // subscription webhooks only promote, or demote on a Fluid
+      // pause/cancel. That job does not exist in this droplet, so trusting the
+      // cached value first would keep a customer whose Exigo autoship lapsed
+      // at preferred pricing indefinitely. Skipping it costs nothing on the
+      // retail path (it was one more Fluid call before the same Exigo lookup),
+      // and the Exigo answer is cached for PREFERRED_LOOKUP_TTL either way.
+      if (this.settings.promoteMemberTypeOnFirstSubscription) {
+        const customerType =
+          await this.getCustomerTypeFromMetafields(customerId);
+        if (customerType === PREFERRED_CUSTOMER_TYPE) return true;
+      }
       if (await this.hasActiveSubscriptions(customerId)) return true;
     }
 
@@ -1139,7 +1165,8 @@ export class PricingContext {
     try {
       return this.cartItems.reduce(
         (total, item) =>
-          total + toF(field(item, "price")) * Math.max(toI(field(item, "quantity")), 1),
+          total +
+          toF(field(item, "price")) * Math.max(toI(field(item, "quantity")), 1),
         0,
       );
     } catch {
@@ -1155,10 +1182,7 @@ export class PricingContext {
    * went unnoticed. This surfaces the swallowed failures instead. Best-effort:
    * it never raises itself.
    */
-  reportException(
-    error: unknown,
-    context: Record<string, unknown> = {},
-  ): void {
+  reportException(error: unknown, context: Record<string, unknown> = {}): void {
     const { message, ...extra } = context as { message?: string } & Record<
       string,
       unknown
@@ -1216,7 +1240,10 @@ export class PricingContext {
     return response;
   }
 
-  handleCallbackError(error: CallbackError, serviceName: string): CallbackResult {
+  handleCallbackError(
+    error: CallbackError,
+    serviceName: string,
+  ): CallbackResult {
     this.deps.log.error(`[${serviceName}] ${error.message}`);
     return { success: false, message: error.message };
   }

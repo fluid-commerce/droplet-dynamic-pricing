@@ -26,14 +26,11 @@
  *    that company's own `webhook_verification_token`.
  */
 
-import {
-  withFluidWebhook,
-  INSTALL_EVENT,
-  effectivePayload,
-} from "@fluid-app/droplet-sdk/next";
+import { withFluidWebhook, INSTALL_EVENT } from "@fluid-app/droplet-sdk/next";
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { effectivePayload, eventOf } from "@/lib/webhooks/effective-payload";
 import { routeEvent, hasHandler } from "@/lib/events";
 import { initializeHandlers } from "@/lib/handlers";
 
@@ -52,6 +49,41 @@ initializeHandlers();
 const BOOTSTRAP_EVENTS = [INSTALL_EVENT, "droplet.uninstalled"];
 
 /**
+ * The key Fluid signs `droplet.installed` / `droplet.uninstalled` with.
+ *
+ * It is the `webhook_secret` column on the DROPLET row — not
+ * FLUID_WEBHOOK_AUTH_TOKEN, which is the `auth_token` this app registers its
+ * webhooks with. The two are different values (STU2-3356 verified it by hash
+ * comparison against droplet 165).
+ *
+ * That is not a loud failure. `Droplet::WebhookDispatcher` HMACs
+ * `{timestamp}.{body}` with `droplets.webhook_secret`; verified against the
+ * shared token instead, every install and uninstall 401s. A 4xx lifecycle
+ * delivery is never retried, `Droplet::LifecycleWebhookJob` discards the
+ * dispatcher's failure result, and Sidekiq records success — so the only
+ * evidence is a `webhook_events` row nobody reads. ShipStation sat like that
+ * for eight months while four merchants installed it into nothing (STU2-3348).
+ *
+ * The fallback exists so an environment not yet given the new secret behaves
+ * as it did rather than refusing every install outright. It is not a safe
+ * resting place, so taking it says so on the way past — and it matters more
+ * here than it did upstream, because `resolve` below deliberately offers no
+ * company candidate for these events, leaving this as the only key tried.
+ */
+const dropletWebhookSecret = process.env.FLUID_DROPLET_WEBHOOK_SECRET?.trim();
+
+if (!dropletWebhookSecret) {
+  console.warn(
+    "[Webhook] FLUID_DROPLET_WEBHOOK_SECRET is unset; falling back to " +
+      "FLUID_WEBHOOK_AUTH_TOKEN for lifecycle events. Fluid does not sign " +
+      "droplet.installed/uninstalled with that token, so installs will 401.",
+  );
+}
+
+const BOOTSTRAP_SECRET =
+  dropletWebhookSecret || process.env.FLUID_WEBHOOK_AUTH_TOKEN;
+
+/**
  * The object a handler should run on.
  *
  * Delegates to the SDK's `effectivePayload`, which is the same function
@@ -60,14 +92,15 @@ const BOOTSTRAP_EVENTS = [INSTALL_EVENT, "droplet.uninstalled"];
  * disagreed became either a 500 from the handler or a 401 from the resolver.
  * One rule, three consumers.
  */
-// Re-exported under the old name so the route's tests keep a stable handle
-// on the rule the route actually applies.
-export { effectivePayload as payloadForHandler };
+// NOT re-exported. The standalone repo exposed this as `payloadForHandler` so
+// the route's tests had a handle on it; Next rejects any export from a route
+// module that is not a route field, and the rule now lives in
+// @/lib/webhooks/effective-payload, which tests import directly.
 
 export const POST = withFluidWebhook(
   {
     name: "droplet",
-    bootstrapSecret: process.env.FLUID_WEBHOOK_AUTH_TOKEN,
+    bootstrapSecret: BOOTSTRAP_SECRET,
     bootstrapEvents: BOOTSTRAP_EVENTS,
 
     /**
@@ -78,7 +111,35 @@ export const POST = withFluidWebhook(
      * null means no candidate — which for a bootstrap event is fine, the shared
      * secret is tried next, and for anything else is an auth failure.
      */
-    async resolve({ dri, fluidShop, companyId }) {
+    async resolve({ payload, dri, fluidShop, companyId }) {
+      // A lifecycle event gets NO company candidate, ever.
+      //
+      // The monorepo's SDK offers the resolved company's secret FIRST and only
+      // then the bootstrap secret, for every event including the lifecycle
+      // ones. The vendored SDK this app ran on refused company secrets there
+      // outright, and that difference is a cross-tenant takeover for THIS
+      // droplet's handler shape: `resolve` finds the company by `dri`, while
+      // `handleDropletInstalled` selects it by `fluid_shop` from the payload.
+      // Both fields are attacker-controlled and they are different fields, so
+      // anyone holding ANY company's webhook_verification_token could sign a
+      // `droplet.installed` naming ANOTHER company's shop. The signature
+      // verified against the attacker's own company and the handler then
+      // overwrote the victim's authentication_token, webhook_verification_token,
+      // DRI and active flag.
+      //
+      // Returning null here means "no such tenant", which leaves the bootstrap
+      // secret as the only candidate — exactly what the vendored SDK did. Fluid
+      // signs lifecycle events with the droplet-level secret and never with a
+      // company token, so no legitimate delivery is refused.
+      //
+      // Done in the app rather than by hardening the shared SDK so this
+      // migration changes no behaviour for droplet-exigo-widgets or
+      // droplet-yoli-plus-membership. The SDK weakness is real and is filed
+      // separately.
+      if (BOOTSTRAP_EVENTS.includes(eventOf(effectivePayload(payload)))) {
+        return null;
+      }
+
       const company = dri
         ? await prisma.company.findFirst({
             where: { dropletInstallationUuid: dri },
@@ -131,14 +192,14 @@ export const POST = withFluidWebhook(
       );
       // A 5xx is a retry signal to Fluid, which is what a transient database or
       // Fluid API failure deserves.
-      return NextResponse.json(
-        { error: "internal error" },
-        { status: 500 },
-      );
+      return NextResponse.json({ error: "internal error" }, { status: 500 });
     }
   },
 );
 
 export function GET() {
-  return NextResponse.json({ status: "ok", service: "droplet-dynamic-pricing-webhooks" });
+  return NextResponse.json({
+    status: "ok",
+    service: "droplet-dynamic-pricing-webhooks",
+  });
 }

@@ -12,7 +12,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { tokenDigest } from "@fluid-app/droplet-sdk";
 
 const mockPrisma = vi.hoisted(() => ({
-  callback: { findMany: vi.fn() },
   company: { update: vi.fn() },
   fluidCallbackRegistration: {
     findUnique: vi.fn(),
@@ -24,7 +23,9 @@ const mockPrisma = vi.hoisted(() => ({
 
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma, default: mockPrisma }));
 
-const { registerCallbacksForCompany } = await import("./registration");
+const { registerCallbacksForCompany, activeCallbacks } = await import(
+  "./registration"
+);
 type FluidClientLike = Parameters<typeof registerCallbacksForCompany>[0];
 
 function mockClient() {
@@ -34,20 +35,37 @@ function mockClient() {
   };
 }
 
-const CALLBACK_ROW = {
-  id: 1n,
-  name: "cart_item_added",
-  description: "…",
-  url: "https://droplet.test/api/callbacks/cart-item-added",
-  timeoutInSeconds: 20,
-  active: true,
-  createdAt: new Date(),
-  updatedAt: new Date(),
-};
+/**
+ * The url `activeCallbacks()` builds for the first configured callback, from
+ * `FLUID_DROPLET_URL` (set in src/test/setup.ts) and CALLBACK_ROUTES.
+ */
+const CALLBACK_URL = "https://droplet.test/api/callbacks/cart-item-added";
+
+/**
+ * The callbacks are read from `droplet.config.ts` now, not the database, so
+ * these cases narrow it to one entry rather than stubbing a table. The real
+ * nine are asserted separately, in `activeCallbacks`.
+ */
+vi.mock("@/lib/config", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/config")>();
+  return {
+    ...actual,
+    dropletConfig: {
+      ...actual.dropletConfig,
+      callbacks: [
+        {
+          enabled: true,
+          definition_name: "cart_item_added",
+          description: "…",
+          timeoutInSeconds: 20,
+        },
+      ],
+    },
+  };
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockPrisma.callback.findMany.mockResolvedValue([CALLBACK_ROW]);
 });
 
 describe("registerCallbacksForCompany", () => {
@@ -57,7 +75,7 @@ describe("registerCallbacksForCompany", () => {
       callback_registration: {
         uuid: "cbr_1",
         definition_name: "cart_item_added",
-        url: CALLBACK_ROW.url,
+        url: CALLBACK_URL,
         active: true,
         verification_token: "cvt_secret",
       },
@@ -84,7 +102,7 @@ describe("registerCallbacksForCompany", () => {
       callback_registration: {
         uuid: "cbr_orphan",
         definition_name: "cart_item_added",
-        url: CALLBACK_ROW.url,
+        url: CALLBACK_URL,
         active: true,
         // no verification_token
       },
@@ -108,7 +126,7 @@ describe("registerCallbacksForCompany", () => {
       callback_registration: {
         uuid: "cbr_2",
         definition_name: "cart_item_added",
-        url: CALLBACK_ROW.url,
+        url: CALLBACK_URL,
         active: true,
         verification_token: "cvt_secret",
       },
@@ -156,20 +174,98 @@ describe("registerCallbacksForCompany", () => {
     expect(results.success).toBe(0);
   });
 
-  it("skips rows that are active but have no url or timeout", async () => {
-    mockPrisma.callback.findMany.mockResolvedValue([
-      { ...CALLBACK_ROW, url: null },
-      { ...CALLBACK_ROW, id: 2n, timeoutInSeconds: null },
-    ]);
+  it("registers the configured callback at the path the table gives it", async () => {
     const client = mockClient();
+    client.createCallback.mockResolvedValue({
+      callback_registration: {
+        uuid: "cbr_1",
+        definition_name: "cart_item_added",
+        url: CALLBACK_URL,
+        active: true,
+        verification_token: "cvt_secret",
+      },
+    });
 
-    const results = await registerCallbacksForCompany(
+    await registerCallbacksForCompany(
       client as unknown as FluidClientLike,
       "dri_acme",
     );
 
-    expect(client.createCallback).not.toHaveBeenCalled();
-    expect(results.success).toBe(0);
-    expect(results.failed).toBe(0);
+    expect(client.createCallback).toHaveBeenCalledWith({
+      definition_name: "cart_item_added",
+      url: CALLBACK_URL,
+      timeout_in_seconds: 20,
+      active: true,
+    });
+  });
+});
+
+/**
+ * `activeCallbacks` against the REAL config, which is the parity check that
+ * replaced the deleted `serves.test.ts`.
+ *
+ * The table-era guard asked "is this typed url one we serve?". There are no
+ * typed urls any more, so the question becomes "does every configured
+ * definition have a route, and does every route this droplet serves have a
+ * registration?" — the second half being the one that catches a callback
+ * silently not registered, which no error would ever reveal.
+ */
+describe("activeCallbacks", () => {
+  it("resolves every configured callback against CALLBACK_ROUTES", async () => {
+    const { CALLBACK_ROUTES } = await import("@/lib/pricing/routes-table");
+    const { dropletConfig: real } = await vi.importActual<
+      typeof import("@/lib/config")
+    >("@/lib/config");
+
+    for (const callback of real.callbacks) {
+      expect(
+        Object.keys(CALLBACK_ROUTES),
+        `${callback.definition_name} is configured but this droplet serves no ` +
+          "route for it; Fluid would accept the registration and 404 on every " +
+          "dispatch",
+      ).toContain(callback.definition_name);
+    }
+  });
+
+  it("configures every route this droplet serves", async () => {
+    const { CALLBACK_ROUTES } = await import("@/lib/pricing/routes-table");
+    const { dropletConfig: real } = await vi.importActual<
+      typeof import("@/lib/config")
+    >("@/lib/config");
+
+    const configured = new Set(
+      real.callbacks.map((callback) => callback.definition_name),
+    );
+
+    for (const definition of Object.keys(CALLBACK_ROUTES)) {
+      expect(
+        configured,
+        `${definition} has a route but no entry in droplet.config.ts, so it is ` +
+          "never registered — pricing for it silently never runs",
+      ).toContain(definition);
+    }
+  });
+
+  it("builds each url from FLUID_DROPLET_URL", () => {
+    // The mocked single-entry config; the real nine are covered above.
+    expect(activeCallbacks()).toEqual([
+      {
+        name: "cart_item_added",
+        url: CALLBACK_URL,
+        timeoutInSeconds: 20,
+      },
+    ]);
+  });
+
+  it("registers nothing when FLUID_DROPLET_URL is unset", () => {
+    // A registration built on a missing host is one Fluid accepts and never
+    // delivers to, with nothing on this side to error.
+    const saved = process.env.FLUID_DROPLET_URL;
+    delete process.env.FLUID_DROPLET_URL;
+    try {
+      expect(activeCallbacks()).toEqual([]);
+    } finally {
+      process.env.FLUID_DROPLET_URL = saved;
+    }
   });
 });

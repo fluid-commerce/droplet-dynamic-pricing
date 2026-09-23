@@ -90,7 +90,9 @@ describe("countrySafePrice", () => {
 
     expect(price).toBeNull();
     expect(deps.reported).toHaveLength(1);
-    expect((deps.reported[0].error as Error).name).toBe("CrossCountryPriceError");
+    expect((deps.reported[0].error as Error).name).toBe(
+      "CrossCountryPriceError",
+    );
     expect(deps.reported[0].context).toMatchObject({
       cart_country: "PH",
       foreign_country: "CA",
@@ -143,7 +145,11 @@ describe("countrySafePrice", () => {
     // A bundle's master variant may carry priced rows while its lines price at
     // 0.0, so reading the row would overwrite Fluid's bundle total and lock it.
     const { ctx, deps } = context(
-      { v1: [row({ country_code: "CA", currency_code: "CAD", price: "113.85" })] },
+      {
+        v1: [
+          row({ country_code: "CA", currency_code: "CAD", price: "113.85" }),
+        ],
+      },
       { country_code: "PH" },
     );
 
@@ -165,7 +171,9 @@ describe("countrySafePrice", () => {
       { country_code: null, country: null },
     );
 
-    expect(await ctx.countrySafePrice(item(), "113.85", "regular")).toBe(113.85);
+    expect(await ctx.countrySafePrice(item(), "113.85", "regular")).toBe(
+      113.85,
+    );
     expect(deps.callsTo("getVariant")).toHaveLength(0);
     expect(deps.logs.warn.join("\n")).toContain(
       "Cannot resolve the pricing country",
@@ -179,25 +187,33 @@ describe("countrySafePrice", () => {
       deps,
     );
 
-    expect(await ctx.countrySafePrice(item(), "113.85", "regular")).toBe(113.85);
+    expect(await ctx.countrySafePrice(item(), "113.85", "regular")).toBe(
+      113.85,
+    );
     expect(deps.logs.error.join("\n")).toContain("Failed to fetch variant v1");
   });
 
   it("reads the subscription column for a subscription price and the base column otherwise", async () => {
     const variants = {
       v1: [
-        row({ country_code: "PH", price: "2499.0", subscription_price: "1999.0" }),
+        row({
+          country_code: "PH",
+          price: "2499.0",
+          subscription_price: "1999.0",
+        }),
         row({ country_code: "CA", currency_code: "CAD", price: "113.85" }),
       ],
     };
 
     const a = context(variants, { country_code: "PH" });
-    expect(
-      await a.ctx.countrySafePrice(item(), "113.85", "subscription"),
-    ).toBe(1999);
+    expect(await a.ctx.countrySafePrice(item(), "113.85", "subscription")).toBe(
+      1999,
+    );
 
     const b = context(variants, { country_code: "PH" });
-    expect(await b.ctx.countrySafePrice(item(), "113.85", "regular")).toBe(2499);
+    expect(await b.ctx.countrySafePrice(item(), "113.85", "regular")).toBe(
+      2499,
+    );
   });
 
   it("memoizes the variant lookup across items sharing a variant", async () => {
@@ -235,19 +251,25 @@ describe("countrySafePrice", () => {
     expect(ctx.cartCountry).toBe("CA");
   });
 
-  it('treats an EMPTY country_code as unresolvable, not as absent (Ruby `||`)', async () => {
+  it("treats an EMPTY country_code as unresolvable, not as absent (Ruby `||`)", async () => {
     // `"" || cart.country.iso` is `""` in Ruby, and `"".blank?` is true — so
     // the payload price is forwarded unchecked. Falling through to
     // `country.iso` instead would run the cross-country guard against a country
     // the payload never claimed, and could substitute or refuse a price where
     // Rails forwarded it.
     const { ctx, deps } = context(
-      { v1: [row({ country_code: "CA", currency_code: "CAD", price: "113.85" })] },
+      {
+        v1: [
+          row({ country_code: "CA", currency_code: "CAD", price: "113.85" }),
+        ],
+      },
       { country_code: "", country: { iso: "PH" } },
     );
 
     expect(ctx.cartPricingCountry).toBe("");
-    expect(await ctx.countrySafePrice(item(), "113.85", "regular")).toBe(113.85);
+    expect(await ctx.countrySafePrice(item(), "113.85", "regular")).toBe(
+      113.85,
+    );
     expect(deps.callsTo("getVariant")).toHaveLength(0);
   });
 });

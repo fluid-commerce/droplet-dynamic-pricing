@@ -157,7 +157,9 @@ export async function subscriptionAdded(
 
     await ctx.updateCartMetadata({ price_type: PREFERRED_CUSTOMER_TYPE });
     if (ctx.cartItems.length > 0) {
-      await ctx.updateCartItemsPrices(await ctx.cartItemsWithSubscriptionPrice());
+      await ctx.updateCartItemsPrices(
+        await ctx.cartItemsWithSubscriptionPrice(),
+      );
       await ctx.updateCartItemsVolumes(ctx.cartItems, "subscription");
     }
 
@@ -342,7 +344,10 @@ export async function cartEmailOnCreate(
       });
     }
 
-    return { success: true, message: "Regular customer, no special pricing needed" };
+    return {
+      success: true,
+      message: "Regular customer, no special pricing needed",
+    };
   } catch (error) {
     if (error instanceof CallbackError) {
       return ctx.handleCallbackError(error, "CartEmailOnCreateService");

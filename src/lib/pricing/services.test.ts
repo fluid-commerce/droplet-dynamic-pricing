@@ -103,7 +103,10 @@ describe("cart_item_added", () => {
   it("does nothing for a cart that qualifies for nothing", async () => {
     const deps = recordingDeps();
     const ctx = new PricingContext(
-      { cart: cartPayload({ metadata: {}, items: [line(1)] }), cart_item: line(1) },
+      {
+        cart: cartPayload({ metadata: {}, items: [line(1)] }),
+        cart_item: line(1),
+      },
       deps,
     );
 
@@ -275,10 +278,11 @@ describe("cart_subscription_added / removed", () => {
 
 describe("cart_email_on_create", () => {
   it("answers the metadata-carrying body ONLY on the genuine preferred path", async () => {
+    // An active subscription, not the metafield: on the default exigo source
+    // the metafield is no longer a preferred signal on its own (see
+    // preferred-exigo-source.test.ts), and a live one is what this asserts on.
     const deps = recordingDeps({
-      fluid: {
-        metafield: { key: "customer_type", value: { customer_type: "preferred_customer" } },
-      },
+      fluid: { subscriptions: { subscriptions: [{ id: 1 }] } },
     });
     const ctx = new PricingContext(
       { cart: cartPayload({ customer_id: 555 }) },
@@ -315,7 +319,10 @@ describe("cart_email_on_create", () => {
     // checked first, so no lookup is spent either.
     const deps = recordingDeps({
       fluid: {
-        metafield: { key: "customer_type", value: { customer_type: "preferred_customer" } },
+        metafield: {
+          key: "customer_type",
+          value: { customer_type: "preferred_customer" },
+        },
       },
     });
     const ctx = new PricingContext(
@@ -466,7 +473,10 @@ describe("preferred status via Exigo", () => {
     const deps = recordingDeps({
       enabled: true,
       credentials: CREDENTIALS,
-      settings: { exigo_preferred_signal: "customer_type", preferred_customer_type_id: "2" },
+      settings: {
+        exigo_preferred_signal: "customer_type",
+        preferred_customer_type_id: "2",
+      },
       exigo: exigoStub({ customerTypeByEmail: 2 }),
     });
     const ctx = new PricingContext({ cart: cartPayload() }, deps);
@@ -478,7 +488,9 @@ describe("preferred status via Exigo", () => {
     const deps = recordingDeps({
       enabled: true,
       credentials: CREDENTIALS,
-      exigo: exigoStub({ autoshipByEmail: new Error("SQL Server unreachable") }),
+      exigo: exigoStub({
+        autoshipByEmail: new Error("SQL Server unreachable"),
+      }),
     });
     const ctx = new PricingContext({ cart: cartPayload() }, deps);
 

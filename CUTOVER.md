@@ -227,15 +227,41 @@ reads a raising store as an auth failure, and every genuine callback is refused
 
 Verify: `SELECT to_regclass('fluid_callback_registrations');` is not null.
 
-**1. Deploy.** Run the `deploy next` workflow. It builds `Dockerfile.next` and
-updates the `fluid-droplet-dynamic-pricing-next` Cloud Run service. Nothing
-points at it, so this changes nothing — that is the property worth having.
+**1. Deploy.** A merge to `main` that changes the Next app deploys it: once
+`ci-next.yml` passes, it calls `deploy next`, which builds `Dockerfile.next` and
+updates the `fluid-droplet-dynamic-pricing-next` Cloud Run service. The workflow
+stays dispatchable for redeploys. Until an installation points at it, this
+changes nothing — that is the property worth having. After one does, every such
+merge is a production pricing change.
+
+Deploys are split by what changed (`.github/scripts/changed-areas.sh`): a push
+touching only the Next app or documentation does not redeploy Rails, and one
+touching only Rails does not redeploy Next. `package.json` and `pnpm-lock.yaml`
+deploy both, since the Rails image builds its Vite assets from them.
 
 The service is created **once, by hand**, before the first run:
-`cloudbuild-next.yml` does `run services update`, not `deploy`, so it cannot
-invent configuration. It needs the same `DATABASE_URL` as the Rails service,
-plus its own `FLUID_DROPLET_URL`, `AUTH_SECRET` and `FLUID_WEBHOOK_AUTH_TOKEN`.
-See `.env.example`. **There are no Exigo environment variables** — every Exigo
+`cloudbuild-next.yml` does `run services update`, not `deploy`. Its three
+SECRET mappings — `DATABASE_URL` and `FLUID_WEBHOOK_AUTH_TOKEN` (the same as the
+Rails service's) and `FLUID_DROPLET_WEBHOOK_SECRET` — are declared in that file
+and applied on every deploy, so each secret must exist first. The rest is set
+on the service by hand:
+
+- `FLUID_DROPLET_URL`, its own origin. Every callback it registers is built on
+  it, from `droplet.config.ts` and CALLBACK_ROUTES.
+- `DROPLET_UUID`, the droplet's uuid. Unset turns the install guard off; a
+  WRONG value silently ignores every install.
+
+`FLUID_DROPLET_WEBHOOK_SECRET` (secret `DYNAMIC_PRICING_NEXT_DROPLET_WEBHOOK_SECRET`)
+is the droplet record's `webhook_secret`, which is what Fluid signs
+`droplet.installed` / `droplet.uninstalled` with — a different value from
+`FLUID_WEBHOOK_AUTH_TOKEN` (STU2-3356 compared them by hash).
+- `LEGACY_RAILS_ORIGIN`, the Rails service's origin. Uninstall uses it to delete
+  the five Rails-host subscription webhooks of a company Rails installed, and
+  `pnpm backfill:callbacks` to find the registrations Rails created.
+- `ADMIN_API_TOKEN` for `PATCH /api/admin-api/company`. Unset refuses everyone.
+
+There is no login and no `AUTH_SECRET`: every screen authenticates on the
+installation's `dri`. See `.env.example`. **There are no Exigo environment variables** — every Exigo
 credential is per company, in `integration_settings.credentials`.
 
 On boot the app logs whether `fluid_callback_registrations` is populated
@@ -339,41 +365,32 @@ correct.
 
 - the droplet-level lifecycle registrations, `droplet.installed` and
   `droplet.uninstalled`, which live on the droplet record rather than on any
-  installation; or
-- the `callbacks` table rows a NEW installation registers from.
+  installation.
 
-Nothing surfaces either. Every company can be fully cut over and working while
+Nothing surfaces that. Every company can be fully cut over and working while
 the next install still goes to Rails and registers its callbacks back onto
 Rails.
 
-So, once every company has been repointed — **and in this order**:
+So, once every company has been repointed:
 
 1. In Fluid's droplet settings, set `fluid_webhook.url` to
    `https://…-next-….run.app/api/webhooks` and press **Update Droplet**.
    Confirm an install arrives.
-2. On the admin **Callbacks** screen, change each of the nine rows' url to the
-   Next origin and the Next path from the table in §1.
-   `pnpm cutover status <shop>` prints these rows and flags any still on a
-   Rails path.
 
-Both are global, not per-tenant, and there is no partial version of either.
+That is the only global step. It used to have a second one — editing the nine
+rows on the admin **Callbacks** screen so a new installation registered at the
+Next urls — and an order between the two that failed silently when reversed.
+Both are gone: the Next app no longer reads the `callbacks` table. The callbacks
+it registers are declared in `droplet.config.ts`, and every url is built from
+`FLUID_DROPLET_URL` and CALLBACK_ROUTES, so an install it handles can only ever
+register the nine routes it serves, on its own origin.
 
-**The order matters, and the reverse of it is a silent failure.** Whichever app
-handles an install registers only the callbacks whose url it recognises as one
-it can answer — Rails through `Callback.serves?`, the Next app through
-`servesCallbackUrl`. Doing step 2 first would leave Rails receiving installs
-while the rows name the Next host, and Rails would refuse all nine: the company
-would look installed and active while receiving no pricing callbacks at all.
+**Leave the `callbacks` table as it is.** Rails still reads it, and Rails is
+where installs go again if step 1 is rolled back — its rows must keep naming the
+Rails urls for that to register anything. The Rails admin **Callbacks** screen
+still edits it; the Next app has no such screen.
 
-Between step 1 and step 2 there is no such gap, because `servesCallbackUrl`
-deliberately ALSO accepts a Rails path on the Rails host — read from
-`Setting.host_server.base_url`, the same value the Rails install job built those
-urls from. An installation landing in that window is registered at the Rails
-urls, which Rails is still serving, and its token digest is stored here ready
-for the repoint. It logs a warning saying exactly that. See
-`src/lib/callbacks/serves.test.ts`, which pins both halves.
-
-**Verify after both edits** with a real test install: it must produce nine
+**Verify after the edit** with a real test install: it must produce nine
 `fluid_callback_registrations` rows, all on the Next origin.
 
 ```sql
@@ -476,8 +493,8 @@ the callback path, and none blocks the cutover of any callback.
 
 | Not ported | Why, and what to do about it |
 |---|---|
-| `PreferredCustomerSyncService` + `PreferredCustomerSyncJob` (the nightly Exigo reconciliation, ~385 lines) | It is a background job on `recurring.yml`'s `0 0 * * *`, not a request path. It keeps running on Rails throughout the cutover and must keep running until it is ported. Follow-up PR: Cloud Scheduler against an `ADMIN_API_TOKEN`-guarded route, or a Cloud Run Job. `ExigoClient` — the part the callbacks need — IS ported. |
-| The dropzone UI (`/dashboard`, `/admin/{home,transactions,cart_pricing_events,integration_setting}`, `/customers`, `/price_types`) | Merchant-facing pages served from the Rails host. They are unaffected by a callback cutover: Fluid's dropzone config points at Rails and keeps doing so. They must NOT be ported as-is — every one of them is authenticated by a `dri` in the iframe URL and nothing else, and `/admin/integration_setting/edit` renders the Exigo DB password into a `value=` attribute. Porting them means fixing that first. |
-| `PATCH /admin_api/company` | Ops endpoint, `ADMIN_API_TOKEN` bearer with `secure_compare`. Correct as it stands; port it with the dropzone work. |
+| `PreferredCustomerSyncService` + `PreferredCustomerSyncJob` (the nightly Exigo reconciliation, ~385 lines) | **Not ported, deliberately.** `droplet-member-tier` now keeps the Fluid `preferred` member type current from Exigo — the same system slug this app's `PREFERRED_MEMBER_SLUG` compares against — so a second reconciliation would decide the same field twice. It was also the only thing that DEMOTED the `custom.customer_type` metafield, so on the `exigo` source the Next app no longer trusts that metafield as a preferred signal: it asks active Fluid subscriptions, then Exigo live. The one exception is `promote_member_type_on_first_subscription`, where preferred is permanent by design and the metafield is the answer. The Rails job can keep running until Rails is retired; nothing here races it. |
+| The dropzone UI | **Ported**, with the two defects that made it unsafe as-is fixed. Every screen authenticates on the `dri` and reads only rows scoped to that company — `callbacks` and `settings` have no `company_id`, so their screens were removed rather than moved (a `dri` any merchant can read would have edited every company's pricing), and a test parses `prisma/schema.prisma` to keep any screen off an unscoped model. `/admin/integration_setting/edit` renders the Exigo passwords EMPTY; a blank field keeps the stored value. Fluid's dropzone config still points at the Rails host until it is repointed. |
+| `PATCH /admin_api/company` | **Ported** as `PATCH /api/admin-api/company`, same `ADMIN_API_TOKEN` bearer, constant-time compare, and the body validated with zod as loosely as the Rails contract it mirrors. |
 | `ExigoClient#updateCustomerType` as a LIVE path | Ported, but dead — both Rails call sites are commented out and log `[EXIGO UPDATE DISABLED]`. Enabling it is a product decision, not a side effect of a migration. |
 | `DropletReinstalledJob` registration | `droplet.reinstalled` is never registered by either app. The handler exists on both sides; nothing dispatches to it. |

@@ -1,19 +1,27 @@
 /**
  * Droplet configuration schema.
  *
- * Declares the per-company webhooks this droplet registers on install.
+ * Declares the per-company webhooks AND callbacks this droplet registers on
+ * install, which is the fleet's pattern and now this droplet's.
  *
- * Two things that belong in a droplet config are deliberately NOT here:
+ * The Rails app this replaces kept its callback catalogue in the `callbacks`
+ * table: synced from Fluid's definition list, edited in the admin UI, and read
+ * by the install job, so an operator could turn a callback on without a deploy.
+ * That flexibility bought nothing and cost a lot. The sync imported every
+ * definition Fluid offers, including the ones this droplet has no handler for,
+ * and enabling one of those registered a URL that 404s on every dispatch —
+ * which is how TM3's `verify_email_success` registration came to exist. The row
+ * was also droplet-global with no `company_id`, so the screen that edited it
+ * changed every company's pricing at once.
  *
- *  - **Callbacks.** The Rails app this replaces kept its callback catalogue in
- *    the `callbacks` table — synced from Fluid's definition list and edited in
- *    the admin UI — and registration reads from that table so an operator can
- *    turn a callback on without a deploy. Duplicating the list in code would
- *    create two sources of truth that disagree the moment someone uses the UI.
- *    See src/lib/callbacks.
- *  - **Dropzones.** The Rails template never registered any, so nothing was
- *    ported. Fluid's `/api/drop_zones` endpoints are real and a droplet forked
- *    from this template can add them; they are just not invented here.
+ * Declared in code, none of that is expressible: the list cannot drift from the
+ * routes, a definition with no handler cannot be named, and changing a timeout
+ * is a reviewed commit rather than a text field.
+ *
+ * **Dropzones** are still not here. The Rails template never registered any,
+ * so nothing was ported. Fluid's `/api/drop_zones` endpoints are real and a
+ * droplet forked from this template can add them; they are just not invented
+ * here.
  */
 
 import { z } from "zod";
@@ -40,8 +48,34 @@ export const webhookConfigSchema = z.object({
 
 export type WebhookConfig = z.infer<typeof webhookConfigSchema>;
 
+export const callbackConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  /**
+   * Fluid's own name for the callback definition, which is what a registration
+   * is created against. It must be a key of CALLBACK_ROUTES — that table maps
+   * it to the path this droplet answers on, and is the single place the two are
+   * tied together.
+   */
+  definition_name: z.string(),
+  description: z.string().optional(),
+  /**
+   * How long Fluid waits before abandoning the call and serving the cart
+   * unchanged.
+   *
+   * Load-bearing, and not in the harmless direction: a pricing callback that
+   * times out does NOT fail closed. Fluid keeps the price already on the cart,
+   * so the shopper is served a stale price and nothing errors. Raising this
+   * makes checkout slower; lowering it makes wrong prices more likely. 20 is
+   * Fluid's own maximum and what the live Rails registrations use.
+   */
+  timeoutInSeconds: z.number().int().min(1).max(20).default(20),
+});
+
+export type CallbackConfig = z.infer<typeof callbackConfigSchema>;
+
 export const dropletConfigSchema = z.object({
   webhooks: z.array(webhookConfigSchema).default([]),
+  callbacks: z.array(callbackConfigSchema).default([]),
 });
 
 export type DropletConfig = z.infer<typeof dropletConfigSchema>;

@@ -48,7 +48,7 @@ export async function buildPricingDeps(company: Company): Promise<PricingDeps> {
   const fluid = pricingFluidApi(createFluidClient(company.authenticationToken));
 
   const exigo: ExigoReader | null = settings.exigoEnabled
-    ? new ExigoClient(settings.exigoCredentials, company.name)
+    ? new ExigoClient(settings.exigoCredentials)
     : null;
 
   return {
@@ -84,7 +84,9 @@ export async function buildPricingDeps(company: Company): Promise<PricingDeps> {
       // shopper's email and the company's tokens are.
       console.error(
         `[DynamicPricing] marker=exception ${
-          error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+          error instanceof Error
+            ? `${error.name}: ${error.message}`
+            : String(error)
         } context=${JSON.stringify(context)}`,
       );
     },
@@ -107,5 +109,9 @@ function asInt32(value: unknown): number | null {
 }
 
 function asString(value: unknown): string | null {
-  return typeof value === "string" ? value : value == null ? null : String(value);
+  return typeof value === "string"
+    ? value
+    : value == null
+      ? null
+      : String(value);
 }

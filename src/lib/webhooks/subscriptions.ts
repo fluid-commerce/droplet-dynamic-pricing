@@ -80,7 +80,7 @@ export async function buildSubscriptionWebhookDeps(
     settings,
     fluid: pricingFluidApi(client),
     exigo: settings.exigoEnabled
-      ? new ExigoClient(settings.exigoCredentials, company.name)
+      ? new ExigoClient(settings.exigoCredentials)
       : null,
     async recordTransaction(input) {
       await prisma.customerTypeTransaction.create({
@@ -120,7 +120,10 @@ export async function handleSubscriptionWebhook(
   try {
     const customerId = customerIdOf(payload);
     if (isBlank(customerId)) {
-      return { success: false, error: "Customer ID not found in webhook params" };
+      return {
+        success: false,
+        error: "Customer ID not found in webhook params",
+      };
     }
 
     if (event === "started" || event === "resumed" || event === "reactivated") {
@@ -135,7 +138,9 @@ export async function handleSubscriptionWebhook(
       field<Record<string, unknown>>(payload, "subscription"),
       "id",
     );
-    if (await shouldRemainPreferred(customerId, subscriptionId, payload, deps)) {
+    if (
+      await shouldRemainPreferred(customerId, subscriptionId, payload, deps)
+    ) {
       return {
         success: true,
         message:
@@ -284,7 +289,9 @@ async function setCustomerType(
       metadata: { webhook_params: slicePayload(payload) },
     });
   } catch (error) {
-    console.error(`Failed to log customer type transaction: ${describe(error)}`);
+    console.error(
+      `Failed to log customer type transaction: ${describe(error)}`,
+    );
   }
 }
 
@@ -448,7 +455,9 @@ async function shouldRemainPreferred(
 ): Promise<boolean> {
   if (deps.settings.promoteMemberTypeOnFirstSubscription) return true;
 
-  if (await hasOtherActiveSubscriptions(customerId, excludeSubscriptionId, deps)) {
+  if (
+    await hasOtherActiveSubscriptions(customerId, excludeSubscriptionId, deps)
+  ) {
     return true;
   }
 
@@ -499,7 +508,8 @@ async function hasExigoAutoship(
 function slicePayload(payload: unknown): Record<string, unknown> {
   const record = payload as Record<string, unknown> | undefined;
   const out: Record<string, unknown> = {};
-  if (record && "subscription" in record) out.subscription = record.subscription;
+  if (record && "subscription" in record)
+    out.subscription = record.subscription;
   if (record && "event_name" in record) out.event_name = record.event_name;
   return out;
 }
@@ -517,5 +527,9 @@ function asInt32(value: unknown): number | null {
 }
 
 function asString(value: unknown): string | null {
-  return typeof value === "string" ? value : value == null ? null : String(value);
+  return typeof value === "string"
+    ? value
+    : value == null
+      ? null
+      : String(value);
 }

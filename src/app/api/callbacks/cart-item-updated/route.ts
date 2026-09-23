@@ -7,7 +7,11 @@
  * same discarded return value.
  */
 
-import { callbackRoute, requireCallbackShape, cartItemUpdated } from "@/lib/pricing";
+import {
+  callbackRoute,
+  requireCallbackShape,
+  cartItemUpdated,
+} from "@/lib/pricing";
 
 export const POST = callbackRoute({
   definition: "cart_item_updated",

@@ -33,9 +33,9 @@ describe("boolean readers use ActiveModel::Type::Boolean", () => {
     [null, false],
     [undefined, false],
   ])("casts %o to %s", (value, expected) => {
-    expect(of({ yield_to_enrollment_wholesale: value }).yieldToEnrollmentWholesale).toBe(
-      expected,
-    );
+    expect(
+      of({ yield_to_enrollment_wholesale: value }).yieldToEnrollmentWholesale,
+    ).toBe(expected);
   });
 
   it('gets the string "false" right, which `Boolean(value)` does not', () => {
@@ -43,9 +43,10 @@ describe("boolean readers use ActiveModel::Type::Boolean", () => {
     // that turned this OFF through the admin form would have every enrollment
     // cart handed to a droplet it may not even run.
     expect(Boolean("false")).toBe(true);
-    expect(of({ adjust_volumes_for_subscription: "false" }).adjustVolumesForSubscription).toBe(
-      false,
-    );
+    expect(
+      of({ adjust_volumes_for_subscription: "false" })
+        .adjustVolumesForSubscription,
+    ).toBe(false);
   });
 });
 
@@ -54,16 +55,19 @@ describe("string readers use Ruby's `||`, not blank-coalescing", () => {
     expect(of({}).subscriptionVolumeSource).toBe(
       DEFAULT_SUBSCRIPTION_VOLUME_SOURCE,
     );
-    expect(of({ subscription_volume_source: "preferred_customer" }).subscriptionVolumeSource).toBe(
-      "preferred_customer",
-    );
+    expect(
+      of({ subscription_volume_source: "preferred_customer" })
+        .subscriptionVolumeSource,
+    ).toBe("preferred_customer");
   });
 
   it("keeps an empty string, because it is truthy in Ruby", () => {
     // `"" || "price_ratio"` is `""` in Ruby. Every call site compares against a
     // known slug, so `""` and the default behave identically — but reproducing
     // the truthiness keeps that true rather than nearly true.
-    expect(of({ subscription_volume_source: "" }).subscriptionVolumeSource).toBe("");
+    expect(
+      of({ subscription_volume_source: "" }).subscriptionVolumeSource,
+    ).toBe("");
   });
 });
 
@@ -71,21 +75,24 @@ describe("the source toggles are asked, never compared, so an unknown value fail
   it("keeps reading Exigo when preferred_source is a typo", () => {
     // The setting that would take a tenant OFF its working source is the one
     // that must fail safe.
-    expect(of({ preferred_source: "fluid_membertype" }).preferredFromFluidMemberType).toBe(
-      false,
-    );
-    expect(of({ preferred_source: "fluid_member_type" }).preferredFromFluidMemberType).toBe(
-      true,
-    );
+    expect(
+      of({ preferred_source: "fluid_membertype" }).preferredFromFluidMemberType,
+    ).toBe(false);
+    expect(
+      of({ preferred_source: "fluid_member_type" })
+        .preferredFromFluidMemberType,
+    ).toBe(true);
   });
 
   it("keeps the autoship signal when exigo_preferred_signal is a typo", () => {
-    expect(of({ exigo_preferred_signal: "customertype" }).exigoPreferredByCustomerType).toBe(
-      false,
-    );
-    expect(of({ exigo_preferred_signal: "customer_type" }).exigoPreferredByCustomerType).toBe(
-      true,
-    );
+    expect(
+      of({ exigo_preferred_signal: "customertype" })
+        .exigoPreferredByCustomerType,
+    ).toBe(false);
+    expect(
+      of({ exigo_preferred_signal: "customer_type" })
+        .exigoPreferredByCustomerType,
+    ).toBe(true);
   });
 });
 
@@ -121,7 +128,9 @@ describe("customer type ids are strings on both sides", () => {
   it("stringifies a number stored in JSONB, so `2 === '2'` never happens", () => {
     // Exigo returns CustomerTypeID as an integer; the admin form writes text.
     // Comparing them raw is false for every customer.
-    expect(of({ preferred_customer_type_id: 2 }).preferredCustomerTypeId).toBe("2");
+    expect(of({ preferred_customer_type_id: 2 }).preferredCustomerTypeId).toBe(
+      "2",
+    );
   });
 });
 
@@ -138,10 +147,12 @@ describe("exigoEnabled", () => {
 
   it("needs the flag AND a complete credential set", () => {
     expect(
-      new IntegrationSettings({ enabled: true, settings: {}, credentials }).exigoEnabled,
+      new IntegrationSettings({ enabled: true, settings: {}, credentials })
+        .exigoEnabled,
     ).toBe(true);
     expect(
-      new IntegrationSettings({ enabled: false, settings: {}, credentials }).exigoEnabled,
+      new IntegrationSettings({ enabled: false, settings: {}, credentials })
+        .exigoEnabled,
     ).toBe(false);
     expect(
       new IntegrationSettings({

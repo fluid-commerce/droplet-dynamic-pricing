@@ -73,17 +73,11 @@ export interface ExigoReader {
   customerHasActiveAutoshipByEmail(email: string): Promise<boolean>;
   customerTypeByEmail(email: string): Promise<number | string | null>;
   customerHasActiveAutoship(customerId: string | number): Promise<boolean>;
-  customersWithActiveAutoships(): Promise<Array<string | number>>;
-  customersByTypeId(typeId: string | number): Promise<Array<string | number>>;
   getCustomerType(customerId: string | number): Promise<number | string | null>;
-  findCustomerIdByEmail(email: string): Promise<string | number | null>;
 }
 
 export class ExigoClient implements ExigoReader {
-  constructor(
-    private readonly credentials: ExigoCredentials,
-    private readonly companyName: string,
-  ) {}
+  constructor(private readonly credentials: ExigoCredentials) {}
 
   /**
    * Opens a connection, runs one statement, closes it.
@@ -144,26 +138,8 @@ export class ExigoClient implements ExigoReader {
     }
   }
 
-  async customerTypes(): Promise<Array<Record<string, unknown>>> {
-    return this.query("SELECT * FROM dbo.CustomerTypes");
-  }
 
-  async customersByTypeId(
-    customerTypeId: string | number,
-  ): Promise<Array<string | number>> {
-    const rows = await this.query<{ CustomerID: string | number }>(
-      "SELECT CustomerID FROM dbo.Customers WHERE CustomerTypeID = @param0",
-      [{ name: "param0", type: "int", value: toInt(customerTypeId) }],
-    );
-    return rows.map((row) => row.CustomerID);
-  }
 
-  async customersWithActiveAutoships(): Promise<Array<string | number>> {
-    const rows = await this.query<{ CustomerID: string | number }>(
-      "SELECT * FROM dbo.AutoOrders WHERE AutoOrderStatusID = 0 AND NextRunDate >= GETDATE()",
-    );
-    return Array.from(new Set(rows.map((row) => row.CustomerID)));
-  }
 
   async customerHasActiveAutoship(
     customerId: string | number,
@@ -194,13 +170,6 @@ export class ExigoClient implements ExigoReader {
     return Number(rows[0]?.count ?? 0) > 0;
   }
 
-  async findCustomerIdByEmail(email: string): Promise<string | number | null> {
-    const rows = await this.query<{ CustomerID: string | number }>(
-      "SELECT CustomerID FROM dbo.Customers WHERE Email = @param0",
-      [{ name: "param0", type: "nvarchar", value: String(email) }],
-    );
-    return rows[0]?.CustomerID ?? null;
-  }
 
   /**
    * The by-email counterpart of `getCustomerType`, for the callback path, which
@@ -226,73 +195,6 @@ export class ExigoClient implements ExigoReader {
     return rows[0]?.CustomerTypeID ?? null;
   }
 
-  /**
-   * PATCH {api_base_url}/customers — the ONLY write.
-   *
-   * Ported dead: both Rails call sites are commented out. Enabling it is a
-   * separate decision.
-   */
-  async updateCustomerType(
-    customerId: string | number,
-    customerTypeId: string | number,
-  ): Promise<unknown> {
-    const { apiBaseUrl, apiUsername, apiPassword } = this.credentials;
-    if (!apiBaseUrl || !apiUsername || !apiPassword) {
-      throw new ExigoApiError(
-        `Exigo API credentials not configured for ${this.companyName}`,
-      );
-    }
-
-    const url = new URL("customers", ensureTrailingSlash(apiBaseUrl));
-    const auth = Buffer.from(`${apiUsername}:${apiPassword}`).toString("base64");
-
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Basic ${auth}`,
-        },
-        body: JSON.stringify({
-          customerID: toInt(customerId),
-          customerType: toInt(customerTypeId),
-        }),
-        signal: AbortSignal.timeout(30_000),
-      });
-    } catch (error) {
-      throw new ExigoApiError(
-        `Exigo API request failed: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
-
-    if (response.status === 401) {
-      throw new ExigoApiError("Exigo API authentication failed");
-    }
-    if (response.status === 404) {
-      throw new ExigoApiError(`Exigo customer not found: ${customerId}`);
-    }
-    const body = await response.text();
-    if (!response.ok) {
-      throw new ExigoApiError(`Exigo API error (${response.status}): ${body}`);
-    }
-    if (!body) return undefined;
-    try {
-      return JSON.parse(body);
-    } catch (error) {
-      throw new ExigoApiError(
-        `Invalid JSON response from Exigo API: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
-  }
-}
-
-function ensureTrailingSlash(url: string): string {
-  return url.endsWith("/") ? url : `${url}/`;
 }
 
 /** Ruby `to_i` for the ids that reach a bind. */

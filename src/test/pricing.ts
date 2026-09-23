@@ -44,18 +44,24 @@ export interface RecordingDeps extends PricingDeps {
   callsTo(method: string): RecordedCall[];
 }
 
-export function recordingDeps(options: {
-  settings?: Record<string, unknown>;
-  credentials?: Record<string, unknown>;
-  enabled?: boolean;
-  fluid?: FluidStubs;
-  exigo?: Partial<PricingDeps["exigo"]> | null;
-} = {}): RecordingDeps {
+export function recordingDeps(
+  options: {
+    settings?: Record<string, unknown>;
+    credentials?: Record<string, unknown>;
+    enabled?: boolean;
+    fluid?: FluidStubs;
+    exigo?: Partial<PricingDeps["exigo"]> | null;
+  } = {},
+): RecordingDeps {
   const calls: RecordedCall[] = [];
   const events: Array<Record<string, unknown>> = [];
   const reported: Array<{ error: unknown; context: Record<string, unknown> }> =
     [];
-  const logs = { info: [] as string[], warn: [] as string[], error: [] as string[] };
+  const logs = {
+    info: [] as string[],
+    warn: [] as string[],
+    error: [] as string[],
+  };
   const stubs = options.fluid ?? {};
 
   const record = (method: string, ...args: unknown[]) => {

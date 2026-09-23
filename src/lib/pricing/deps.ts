@@ -148,9 +148,7 @@ export function pricingFluidApi(client: FluidClient): PricingFluidApi {
         resource_type,
         resource_id,
       });
-      return (
-        (response.metafields ?? []).find((m) => m["key"] === key) ?? null
-      );
+      return (response.metafields ?? []).find((m) => m["key"] === key) ?? null;
     },
 
     async ensureMetafieldDefinition(params) {

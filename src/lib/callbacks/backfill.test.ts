@@ -100,7 +100,9 @@ describe("backfillInstallation", () => {
     expect(result.ok).toBe(false);
     expect(result.missing).toEqual(["update_cart_tax"]);
     expect(mockPrisma.$transaction).not.toHaveBeenCalled();
-    expect(mockPrisma.fluidCallbackRegistration.deleteMany).not.toHaveBeenCalled();
+    expect(
+      mockPrisma.fluidCallbackRegistration.deleteMany,
+    ).not.toHaveBeenCalled();
   });
 
   it("writes nothing when a registration came back without a token", async () => {
@@ -186,7 +188,9 @@ describe("stagingStore", () => {
     await store.deleteForInstallation("dri_acme");
 
     expect(collected).toHaveLength(1);
-    expect(mockPrisma.fluidCallbackRegistration.deleteMany).not.toHaveBeenCalled();
+    expect(
+      mockPrisma.fluidCallbackRegistration.deleteMany,
+    ).not.toHaveBeenCalled();
     // Nothing looks up by digest during a backfill.
     await expect(store.findByTokenDigest("digest")).resolves.toBeNull();
   });

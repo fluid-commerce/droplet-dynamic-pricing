@@ -9,13 +9,15 @@
  * token as a digest.
  */
 
-import { z } from "zod";
-
 import { prisma } from "@/lib/db";
 import { createFluidClient } from "@/lib/fluid";
 import { dropletConfig, registerAllFeatures } from "@/lib/config";
 import { registerCallbacksForCompany } from "@/lib/callbacks";
-import { dropletSettings } from "@/lib/settings";
+import { exchangeInstallToken } from "@/lib/fluid/exchange";
+import {
+  installPayloadSchema,
+  resolveInstallCredentials,
+} from "@/lib/handlers/install-credentials";
 
 /**
  * Fluid nests the company under `company` and names the droplet's own uuid
@@ -24,20 +26,42 @@ import { dropletSettings } from "@/lib/settings";
  * Permissive on purpose: Fluid adds fields to this payload over time, and a
  * strict schema would turn a new field into a failed install.
  */
-const installCompanySchema = z.object({
-  fluid_shop: z.string(),
-  name: z.string(),
-  fluid_company_id: z.union([z.number(), z.string()]),
-  droplet_uuid: z.string(),
-  droplet_installation_uuid: z.string().optional(),
-  authentication_token: z.string(),
-  webhook_verification_token: z.string().optional(),
-});
 
-const installPayloadSchema = z.object({ company: installCompanySchema });
+/**
+ * Field NAMES only — never values.
+ *
+ * An install payload carries `authentication_token` and
+ * `webhook_verification_token`, so it must never be logged. But when the schema
+ * rejects one, "expected string, received undefined" on its own does not say
+ * whether Fluid omitted the field, renamed it, or nested it somewhere else, and
+ * the only way to find out was to add a log that prints secrets. The key list
+ * answers the question and carries nothing.
+ */
+function describeShape(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return typeof payload;
+
+  const top = Object.keys(payload as Record<string, unknown>);
+  const company = (payload as { company?: unknown }).company;
+  const inner =
+    company && typeof company === "object"
+      ? Object.keys(company as Record<string, unknown>)
+      : null;
+
+  return inner
+    ? `top=[${top.join(", ")}] company=[${inner.join(", ")}]`
+    : `top=[${top.join(", ")}]`;
+}
 
 export async function handleDropletInstalled(payload: unknown): Promise<void> {
-  const { company: data } = installPayloadSchema.parse(payload);
+  const parsed = installPayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    // Names, not values — see describeShape.
+    console.error(
+      `[DropletInstalled] Payload did not match the expected shape. ${describeShape(payload)}`,
+    );
+    throw parsed.error;
+  }
+  const { company: data } = parsed.data;
 
   // Guard against cross-contamination. Fluid delivers install webhooks per
   // droplet, but several droplets can share a webhook endpoint during
@@ -47,7 +71,16 @@ export async function handleDropletInstalled(payload: unknown): Promise<void> {
   // Rails did this in the controller (validate_droplet_authorization) and
   // rejected with a 401. Doing it here instead means the check still applies
   // when the event arrives by any other route.
-  const expected = (await dropletSettings()).uuid ?? process.env.DROPLET_UUID;
+  //
+  // `DROPLET_UUID`, the env var CLAUDE.md documents for exactly this and every
+  // other droplet in the fleet uses. It was read from the `droplet` settings
+  // row first, falling back to env — but nothing ever wrote a uuid into that
+  // row: the shipped default has `name`, `embed_url` and `active` and no
+  // `uuid`, and its only writer was the "Create Droplet" admin screen this
+  // migration removed. So the fallback was the whole behaviour, and the lookup
+  // in front of it created seven placeholder rows on the way to returning
+  // undefined.
+  const expected = process.env.DROPLET_UUID;
   if (expected && data.droplet_uuid !== expected) {
     console.log(
       `[DropletInstalled] Ignoring — droplet_uuid ${data.droplet_uuid} is not ours (${expected})`,
@@ -69,12 +102,19 @@ export async function handleDropletInstalled(payload: unknown): Promise<void> {
     where: { fluidShop: data.fluid_shop },
   });
 
+  // v1 reads the tokens off the payload; v2 spends a single-use exchange token.
+  // Done BEFORE the write, so a failed exchange leaves no half-installed row.
+  const credentials = await resolveInstallCredentials(
+    data,
+    exchangeInstallToken,
+  );
+
   const attributes = {
     fluidShop: data.fluid_shop,
     name: data.name,
     fluidCompanyId,
-    authenticationToken: data.authentication_token,
-    webhookVerificationToken: data.webhook_verification_token ?? null,
+    authenticationToken: credentials.authenticationToken,
+    webhookVerificationToken: credentials.webhookVerificationToken,
     dropletInstallationUuid: data.droplet_installation_uuid ?? null,
     companyDropletUuid: data.droplet_uuid,
     active: true,

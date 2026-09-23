@@ -19,7 +19,7 @@ import {
   RAILS_WEBHOOK_PATHS,
   SUBSCRIPTION_CLEANUP_EVENTS,
 } from "@/lib/config";
-import { hostServerBaseUrl } from "@/lib/settings";
+
 import { cleanupCallbacksForCompany } from "@/lib/callbacks";
 import { findCompanyForPayload } from "./find-company";
 
@@ -89,10 +89,19 @@ export async function handleDropletUninstalled(
  * an uninstall handled by the Next app would leave all five behind, firing at a
  * droplet the company no longer has.
  *
- * The Rails origin is not guessed — it is `Setting.host_server.base_url`, the
- * exact value `DropletInstalledJob#build_subscription_webhook_events` built
+ * The Rails origin is not guessed — it is `LEGACY_RAILS_ORIGIN`, set to the
+ * same value `DropletInstalledJob#build_subscription_webhook_events` built
  * those urls from. Matching on origin AND path AND resource+event keeps the
  * "never delete another droplet's webhook" property intact.
+ *
+ * It was `Setting.host_server.base_url` until the settings table stopped being
+ * an editable config surface. Env, because that is where this droplet's other
+ * urls come from, and because a value that decides which webhooks get DELETED
+ * should not be a text field on a screen every merchant can reach.
+ *
+ * Unset, this does nothing — which is the right answer once every company has
+ * been installed by this app rather than by Rails, and the only answer for a
+ * fresh deploy that never had a Rails era.
  *
  * `updated` is in the event list even though nothing registers it any more:
  * installs used to register `subscription.updated` at
@@ -102,13 +111,12 @@ export async function handleDropletUninstalled(
 async function cleanupRailsSubscriptionWebhooks(
   client: ReturnType<typeof createFluidClient>,
 ): Promise<void> {
-  let railsOrigin: string;
-  try {
-    railsOrigin = (await hostServerBaseUrl()).replace(/\/$/, "");
-  } catch {
-    // No host_server row — nothing to reason about.
-    return;
-  }
+  const railsOrigin = (process.env.LEGACY_RAILS_ORIGIN ?? "")
+    .trim()
+    .replace(/\/$/, "");
+
+  // No Rails era to clean up after.
+  if (!railsOrigin) return;
 
   const railsPaths = new Set<string>([
     ...Object.values(RAILS_WEBHOOK_PATHS),
