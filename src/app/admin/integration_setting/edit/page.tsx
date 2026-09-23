@@ -16,6 +16,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { IntegrationSettingsForm } from "@/components/dashboard/integration-settings-form";
+import { PublicDashboardLayout } from "@/components/layouts/rails-layouts";
 import { CompanyNotFound } from "@/components/dashboard/not-found-notice";
 import {
   mergeCredentials,
@@ -111,20 +112,45 @@ export default async function IntegrationSettingEditPage({
     );
   }
 
+  const q = new URLSearchParams({ dri }).toString();
+
+  // app/views/admin/integration_settings/edit.html.erb, in the public_dashboard
+  // layout it rendered in.
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      <h1 className="text-3xl font-bold tracking-tight">
-        Integration Settings
-      </h1>
-      <p className="mt-1 mb-8 text-sm text-muted-foreground">{company.name}</p>
+    <PublicDashboardLayout>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col gap-1">
+          <h1 className="font-custom text-3xl font-bold text-gray-600">
+            Configure Integration
+          </h1>
+          <h3 className="text-gray-400">
+            Configure Exigo integration for {company.name}
+          </h3>
+        </div>
+        <a
+          href={`/admin/home?${q}`}
+          className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-md"
+        >
+          ← Back to Home
+        </a>
+      </div>
 
       <IntegrationSettingsForm
         action={save}
+        company={{
+          name: company.name ?? "",
+          fluidShop: company.fluidShop,
+          fluidCompanyId:
+            company.fluidCompanyId === null
+              ? null
+              : String(company.fluidCompanyId),
+          companyDropletUuid: company.companyDropletUuid,
+        }}
         enabled={row?.enabled ?? false}
         credentials={redactCredentials(asRecord(row?.credentials))}
         settings={asRecord(row?.settings)}
         dri={dri}
       />
-    </main>
+    </PublicDashboardLayout>
   );
 }

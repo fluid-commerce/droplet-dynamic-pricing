@@ -56,17 +56,28 @@ function Field({
   label,
   value,
   mono = false,
+  medium = false,
+  breakAll = false,
 }: {
   label: string;
   value: ReactNode;
   mono?: boolean;
+  /** The ERB's `font-medium`, on the company and settings values only. */
+  medium?: boolean;
+  breakAll?: boolean;
 }) {
+  const classes = [
+    "text-gray-900",
+    mono ? "font-mono text-xs" : medium ? "font-medium" : "",
+    "ml-2",
+    breakAll ? "break-all" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
     <div>
       <span className="text-gray-500">{label}:</span>
-      <span className={`ml-2 text-gray-900 ${mono ? "font-mono text-xs" : ""}`}>
-        {value}
-      </span>
+      <span className={classes}>{value}</span>
     </div>
   );
 }
@@ -92,7 +103,7 @@ export function IntegrationSettingsShow({
     <>
       <div className="mb-6 flex items-center justify-between">
         <div className="flex flex-col gap-1">
-          <h1 className="text-3xl font-bold text-gray-600">
+          <h1 className="font-custom text-3xl font-bold text-gray-600">
             Integration Settings
           </h1>
           <h3 className="text-gray-400">
@@ -117,18 +128,19 @@ export function IntegrationSettingsShow({
 
       <Card title="Company Information" className="mb-6">
         <div className="grid grid-cols-2 gap-4 text-sm">
-          <Field label="Name" value={company.name} />
-          <Field label="Shop" value={company.fluidShop ?? "-"} />
+          <Field label="Name" value={company.name} medium />
+          <Field label="Shop" value={company.fluidShop ?? "-"} medium />
           <Field
             label="Fluid Company ID"
             value={company.fluidCompanyId ?? "-"}
+            medium
           />
           <Field label="UUID" value={company.companyDropletUuid ?? "-"} mono />
         </div>
       </Card>
 
       <Card title="Integration Status" className="mb-6">
-        <div className="flex items-center gap-4 text-sm">
+        <div className="flex items-center gap-4">
           <div>
             <span className="text-gray-500">Status:</span>
             {settings.enabled ? (
@@ -170,7 +182,7 @@ export function IntegrationSettingsShow({
 
             <Card title="API Configuration">
               <div className="space-y-2 text-sm">
-                <Field label="Base URL" value={credential("api_base_url")} />
+                <Field label="Base URL" value={credential("api_base_url")} breakAll />
                 <Field label="Username" value={credential("api_username")} />
                 <Field
                   label="Password"
@@ -185,29 +197,35 @@ export function IntegrationSettingsShow({
               <Field
                 label="Preferred Customer Type ID"
                 value={settings.preferredCustomerTypeId}
+                medium
               />
               <Field
                 label="Retail Customer Type ID"
                 value={settings.retailCustomerTypeId}
+                medium
               />
-              <Field label="API Delay" value={`${settings.apiDelaySeconds}s`} />
+              <Field label="API Delay" value={`${settings.apiDelaySeconds}s`} medium />
               <Field
                 label="Snapshots to Keep"
                 value={settings.snapshotsToKeep}
+                medium
               />
               <Field
                 label="Daily Warmup Limit"
                 value={settings.dailyWarmupLimit.toLocaleString("en-US")}
+                medium
               />
               <Field
                 label="Adjust Volumes for Subscription"
                 value={
                   settings.adjustVolumesForSubscription ? "Enabled" : "Disabled"
                 }
+                medium
               />
               <Field
                 label="Subscription Volume Source"
                 value={settings.subscriptionVolumeSource}
+                medium
               />
             </div>
           </Card>

@@ -56,6 +56,8 @@ const SCREENS = [
   "page.tsx",
   "dashboard/page.tsx",
   "price_types/page.tsx",
+  "price_types/new/page.tsx",
+  "price_types/[id]/edit/page.tsx",
   "customers/page.tsx",
   "admin/home/page.tsx",
   "admin/transactions/page.tsx",

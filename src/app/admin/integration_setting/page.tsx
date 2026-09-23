@@ -7,6 +7,7 @@
  */
 
 import { CompanyNotFound } from "@/components/dashboard/not-found-notice";
+import { PublicDashboardLayout } from "@/components/layouts/rails-layouts";
 import {
   IntegrationSettingsShow,
   type ShowSettings,
@@ -60,7 +61,7 @@ export default async function IntegrationSettingPage({
   };
 
   return (
-    <main className="mx-auto max-w-6xl p-6">
+    <PublicDashboardLayout>
       <IntegrationSettingsShow
         company={{
           name: company.name ?? "",
@@ -74,6 +75,6 @@ export default async function IntegrationSettingPage({
         settings={view}
         dri={dri}
       />
-    </main>
+    </PublicDashboardLayout>
   );
 }
