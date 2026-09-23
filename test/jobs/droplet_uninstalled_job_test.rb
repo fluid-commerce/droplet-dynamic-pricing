@@ -217,5 +217,53 @@ describe DropletUninstalledJob do
 
       assert_equal company.authentication_token, captured_token
     end
+    it "cleans up as before when the uninstall is for the company's current installation" do
+      company = companies(:acme)
+      company.update(uninstalled_at: nil, installed_callback_ids: %w[cbr_test123])
+
+      payload = {
+        "company" => {
+          "fluid_company_id" => company.fluid_company_id,
+          "droplet_installation_uuid" => company.droplet_installation_uuid,
+        },
+      }
+
+      DropletUninstalledJob.perform_now(payload)
+
+      _(company.reload.uninstalled_at).wont_be_nil
+      _(company.installed_callback_ids).must_be_empty
+    end
+
+    it "leaves a company taken over by another installation untouched" do
+      company = companies(:acme)
+      company.update(
+        uninstalled_at: nil,
+        droplet_installation_uuid: "dri_next_installation",
+        installed_callback_ids: %w[cbr_next1 cbr_next2],
+      )
+
+      payload = {
+        "company" => {
+          "fluid_company_id" => company.fluid_company_id,
+          "droplet_installation_uuid" => "dri_old_rails_installation",
+        },
+      }
+
+      # Counted rather than raised: a raise inside the job is swallowed by
+      # retry_on and rolls the transaction back, which would pass this test
+      # without the guard.
+      fluid_clients_built = 0
+      client = Object.new
+      client.define_singleton_method(:callback_registrations) { Struct.new(:x) { def delete(*) = true }.new }
+      client.define_singleton_method(:webhooks) { Struct.new(:x) { def get = { "webhooks" => [] } }.new }
+      FluidClient.stub :new, ->(*) { fluid_clients_built += 1; client } do
+        DropletUninstalledJob.perform_now(payload)
+      end
+
+      _(fluid_clients_built).must_equal 0
+      company.reload
+      _(company.uninstalled_at).must_be_nil
+      _(company.installed_callback_ids).must_equal %w[cbr_next1 cbr_next2]
+    end
   end
 end

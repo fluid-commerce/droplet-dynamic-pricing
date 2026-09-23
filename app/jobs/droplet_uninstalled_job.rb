@@ -5,7 +5,14 @@ class DropletUninstalledJob < WebhookEventJob
     validate_payload_keys("company")
     company = get_company
 
-    if company.present?
+    if company.present? && superseded_installation?(company)
+      # The row now belongs to a newer installation, so this uninstall must not touch it.
+      Rails.logger.warn(
+        "[DropletUninstalledJob] Skipping cleanup for company #{company.id}: uninstall is for " \
+        "installation #{uninstalled_installation_uuid}, but the company is now on " \
+        "#{company.droplet_installation_uuid}"
+      )
+    elsif company.present?
       delete_installed_callbacks(company)
       delete_subscription_webhooks(company)
 
@@ -16,6 +23,28 @@ class DropletUninstalledJob < WebhookEventJob
   end
 
 private
+
+  # The installation this uninstall is for, when Fluid says.
+  def uninstalled_installation_uuid
+    get_payload.dig("company", "droplet_installation_uuid").presence
+  end
+
+  # True when the company row was taken over by a different installation after
+  # this one was installed — the Next droplet's install writes its own
+  # droplet_installation_uuid onto the same row (both apps share this
+  # database, matched on fluid_shop). The row's token, installed_callback_ids
+  # and the subscription webhooks listed with it then belong to that newer
+  # installation, and cleaning up here would delete ITS callbacks and webhooks
+  # and mark the company uninstalled under it.
+  #
+  # Both values must be present and differ. A payload without the field, or a
+  # row installed before the column was written, falls through to the
+  # original cleanup exactly as before.
+  def superseded_installation?(company)
+    uninstalled_installation_uuid.present? &&
+      company.droplet_installation_uuid.present? &&
+      uninstalled_installation_uuid != company.droplet_installation_uuid
+  end
 
   def delete_subscription_webhooks(company)
     client = FluidClient.new(company.authentication_token)
