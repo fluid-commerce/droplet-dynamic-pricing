@@ -192,6 +192,21 @@ export class FluidClient {
    * droplet is asking. It sends that droplet its `droplet_uninstalled` event
    * and deletes the registrations and webhooks the installation owns.
    */
+  /**
+   * GET /api/droplet_installations — this company's installations that are not
+   * uninstalled, of every droplet. One page of 100; a company does not have
+   * that many live droplets.
+   */
+  async listDropletInstallations(): Promise<{
+    droplet_installations?: Array<{
+      uuid: string;
+      droplet_uuid?: string;
+      active?: boolean;
+    }>;
+  }> {
+    return this.request("/api/droplet_installations?per_page=100");
+  }
+
   async uninstallDropletInstallation(uuid: string): Promise<void> {
     return this.request(`/api/droplet_installations/${uuid}`, {
       method: "DELETE",
