@@ -61,6 +61,14 @@ vi.mock("@/lib/config", () => ({
   })),
 }));
 
+const takeOverPreviousInstallation = vi.hoisted(() =>
+  vi.fn(async () => ({ undeletedCallbackIds: [] as string[] })),
+);
+vi.mock("@/lib/handlers/takeover", async () => ({
+  ...(await vi.importActual<object>("@/lib/handlers/takeover")),
+  takeOverPreviousInstallation,
+}));
+
 const { handleDropletInstalled } = await import("./droplet-installed");
 const { handleDropletUninstalled } = await import("./droplet-uninstalled");
 
@@ -179,6 +187,76 @@ describe("handleDropletInstalled", () => {
 
     expect(mockPrisma.company.create).not.toHaveBeenCalled();
     expect(registerCallbacksForCompany).not.toHaveBeenCalled();
+  });
+
+  describe("on a company the Rails droplet is still installed on", () => {
+    const railsRow = companyFixture({
+      companyDropletUuid: "drp_rails",
+      dropletInstallationUuid: "dri_rails",
+      authenticationToken: "dit_rails",
+      installedCallbackIds: ["cbr_rails_1", "cbr_rails_2"],
+    });
+
+    beforeEach(() => {
+      mockPrisma.company.findFirst.mockResolvedValue(railsRow);
+      // What the row looks like after this install overwrote it.
+      mockPrisma.company.update.mockResolvedValue({
+        ...railsRow,
+        companyDropletUuid: "drp_test",
+        dropletInstallationUuid: "dri_acme",
+        authenticationToken: "cat_acme",
+      });
+    });
+
+    it("takes over the previous installation, read from the row before it was overwritten", async () => {
+      await handleDropletInstalled(installPayload);
+
+      expect(takeOverPreviousInstallation).toHaveBeenCalledWith(
+        expect.anything(),
+        {
+          dri: "dri_rails",
+          authenticationToken: "dit_rails",
+          installedCallbackIds: ["cbr_rails_1", "cbr_rails_2"],
+        },
+      );
+      // Not merged with the Rails ids: those were just deleted.
+      const update = mockPrisma.company.update.mock.calls.at(-1)![0];
+      expect(update.data.installedCallbackIds).toEqual(["cbr_1"]);
+    });
+
+    it("keeps the Rails ids it could not delete", async () => {
+      takeOverPreviousInstallation.mockResolvedValueOnce({
+        undeletedCallbackIds: ["cbr_rails_2"],
+      });
+
+      await handleDropletInstalled(installPayload);
+
+      const update = mockPrisma.company.update.mock.calls.at(-1)![0];
+      expect(update.data.installedCallbackIds).toEqual(["cbr_1", "cbr_rails_2"]);
+    });
+
+    it("leaves Rails serving when this install's own registration did not complete", async () => {
+      registerCallbacksForCompany.mockResolvedValueOnce({
+        success: 0,
+        failed: 1,
+        registeredUuids: [],
+        errors: [],
+      });
+
+      await handleDropletInstalled(installPayload);
+
+      expect(takeOverPreviousInstallation).not.toHaveBeenCalled();
+    });
+  });
+
+  it("does not take over on a reinstall of this droplet", async () => {
+    mockPrisma.company.findFirst.mockResolvedValue(
+      companyFixture({ dropletInstallationUuid: "dri_acme_old" }),
+    );
+
+    await handleDropletInstalled(installPayload);
+
+    expect(takeOverPreviousInstallation).not.toHaveBeenCalled();
   });
 
   it("rejects a payload with no authentication token", async () => {
