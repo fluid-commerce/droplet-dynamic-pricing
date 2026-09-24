@@ -77,13 +77,13 @@ check "unsigned install event is refused" 401 \
       -H 'content-type: application/json' \
       -d '{"name":"droplet_installed","payload":{"company":{"fluid_shop":"smoke"}}}')"
 
-# All eight fail-closed callbacks, individually. Checking one would not catch a
+# All seven fail-closed callbacks, individually. Checking one would not catch a
 # route that was never created, and a missing route is the failure this droplet
 # cannot see any other way: Fluid stops calling and the symptom is "prices are
 # wrong", not an error. A 404 here is exactly that, caught before cutover.
 for path in cart-item-added cart-item-updated cart-subscription-added \
-            cart-subscription-removed cart-customer-logged-in \
-            cart-customer-attached cart-customer-detached cart-country-changed; do
+            cart-subscription-removed cart-customer-attached \
+            cart-customer-detached cart-country-changed; do
   check "callback $path refuses unsigned" 401 \
     "$(code -X POST "$BASE/api/callbacks/$path" \
         -H 'content-type: application/json' -d '{"cart":{"id":1}}')"

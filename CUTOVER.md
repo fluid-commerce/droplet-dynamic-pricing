@@ -17,8 +17,11 @@ The two services:
 
 Both live in `europe-west1`, project `fluid-417204`.
 
-**This droplet has nine callbacks — the most of any in the fleet — and every one
-of them sits at a different path in each app.** That is why `scripts/cutover.ts`
+**This droplet has eight callbacks — the most of any in the fleet — and every one
+of them sits at a different path in each app.** Rails also serves a ninth,
+`cart_customer_logged_in`, which the Next app does not: core fires it only on
+magic-link login, and the same action fires `cart_customer_attached` right
+after it, which reprices the same cart. That is why `scripts/cutover.ts`
 takes a `--paths next|rails` direction rather than the single `--callback-path`
 flag the template ships with.
 
@@ -31,7 +34,7 @@ into the admin Callbacks screen, and it is frequently *not* the Fluid definition
 name. A wrong name means Fluid silently stops calling; nothing errors, and the
 symptom is "prices are wrong".
 
-Every one of the nine was checked against
+Every one was checked against
 `fluid-workspace/fluid-main/app/lib/callback_definitions/*.yml` at
 `d32cd11800` — the filenames in that directory are the complete valid set, and
 there are 22 of them.
@@ -43,19 +46,19 @@ there are 22 of them.
 | 3 | **`POST /callbacks/subscription_added`** | **`cart_subscription_added`** | ✅ `cart_subscription_added.yml` | `POST /api/callbacks/cart-subscription-added` |
 | 4 | **`POST /callbacks/subscription_removed`** | **`cart_subscription_removed`** | ✅ `cart_subscription_removed.yml` | `POST /api/callbacks/cart-subscription-removed` |
 | 5 | `POST /callbacks/cart_email_on_create` | `cart_email_on_create` | ✅ `cart_email_on_create.yml` | `POST /api/callbacks/cart-email-on-create` |
-| 6 | **`POST /callbacks/customer_logged_in`** | **`cart_customer_logged_in`** | ✅ `cart_customer_logged_in.yml` | `POST /api/callbacks/cart-customer-logged-in` |
+| 6 | **`POST /callbacks/customer_logged_in`** | **`cart_customer_logged_in`** | ✅ `cart_customer_logged_in.yml` | — not served; see above |
 | 7 | `POST /callbacks/cart_customer_attached` | `cart_customer_attached` | ✅ `cart_customer_attached.yml` | `POST /api/callbacks/cart-customer-attached` |
 | 8 | `POST /callbacks/cart_customer_detached` | `cart_customer_detached` | ✅ `cart_customer_detached.yml` | `POST /api/callbacks/cart-customer-detached` |
 | 9 | `POST /callbacks/cart_country_changed` | `cart_country_changed` | ✅ `cart_country_changed.yml` | `POST /api/callbacks/cart-country-changed` |
 
-**Three of the nine have a Rails route name that is not the definition name**
+**Three have a Rails route name that is not the definition name**
 (rows 3, 4 and 6, in bold). **Names that do not exist as definitions: none.**
 
 The Next paths are named for the DEFINITION, kebab-cased, with no exceptions —
 which is what makes the table in `src/lib/pricing/routes-table.ts` mechanical.
 `RAILS_CALLBACK_PATHS` in the same file holds the other direction, and it is a
-literal table rather than a string transform precisely because of rows 3, 4 and
-6: deriving `/callbacks/cart_subscription_added` from the definition name would
+literal table rather than a string transform precisely because of rows 3 and 4:
+deriving `/callbacks/cart_subscription_added` from the definition name would
 register a route Rails does not have.
 
 **How the mapping was verified.** The `definition_name` sent to Fluid is
@@ -147,11 +150,10 @@ what the caller does with it:
 | `cart_subscription_removed` | `ManageSubscriptionAction` | no | **closed** |
 | `cart_customer_attached` | `CartCustomerCallbackSubscriber` | no | **closed** |
 | `cart_customer_detached` | same | no | **closed** |
-| `cart_customer_logged_in` | `Commerce::Cart#trigger_customer_logged_in_callback` | no | **closed** |
 | `cart_country_changed` | `UpdateCountryAction#notify_country_changed` — **`notify`, async** | no | **closed** |
 | **`cart_email_on_create`** | `CreateAction#request_email_callback` | **YES** | **open** |
 
-**The eight closed routes pass no `on*` overrides at all** and inherit the SDK's
+**The seven closed routes pass no `on*` overrides at all** and inherit the SDK's
 401 / 400 / 500. The reasoning:
 
 - The cart outcome is identical either way. A refused request means the droplet
@@ -189,7 +191,7 @@ which escapes `hydra.run` and is not caught by the subscribers' rescue.
 
 ### Latency, not status, is the shared risk
 
-Eight of the nine are dispatched synchronously on the shopper's request thread
+Seven of the eight are dispatched synchronously on the shopper's request thread
 with a 20-second ceiling. Watch p95, not just error rate, during phases 3 and 4
 below. The engine emits one `marker=callback-timing` line per request with
 `callback`, `outcome`, `duration_ms` and `cart`, and
@@ -269,13 +271,13 @@ On boot the app logs whether `fluid_callback_registrations` is populated
 line before going further.
 
 **2. Smoke.** `scripts/smoke-next.sh <url>`. Unlike the fleet's usual smoke test,
-this one has teeth on the callbacks too: eight of the nine fail closed, so an
+this one has teeth on the callbacks too: seven of the eight fail closed, so an
 unsigned probe must come back 401 and a missing route shows up as a 404. Only
 `cart-email-on-create` is opaque to an unsigned probe, and that one is checked
 for its exact neutral body.
 
 **3. One internal installation, `cart_country_changed` only.** The safest of the
-nine, and the reason is structural: `UpdateCountryAction` dispatches it with
+eight, and the reason is structural: `UpdateCountryAction` dispatches it with
 `notify`, so it runs on a thread pool and its response is never read — not even
 on the shopper's request thread. It fires only on a real country transition and
 touches only lines this droplet locked.
@@ -337,7 +339,7 @@ APPLY=1 pnpm cutover repoint acme --url https://...-next-...run.app \
                           --only cart_item_added
 ```
 
-Once all nine definitions are on the Next app for a company, move that company's
+Once all eight definitions are on the Next app for a company, move that company's
 five subscription webhooks in the same command shape:
 
 ```bash
@@ -383,14 +385,14 @@ Next urls — and an order between the two that failed silently when reversed.
 Both are gone: the Next app no longer reads the `callbacks` table. The callbacks
 it registers are declared in `droplet.config.ts`, and every url is built from
 `FLUID_DROPLET_URL` and CALLBACK_ROUTES, so an install it handles can only ever
-register the nine routes it serves, on its own origin.
+register the eight routes it serves, on its own origin.
 
 **Leave the `callbacks` table as it is.** Rails still reads it, and Rails is
 where installs go again if step 1 is rolled back — its rows must keep naming the
 Rails urls for that to register anything. The Rails admin **Callbacks** screen
 still edits it; the Next app has no such screen.
 
-**Verify after the edit** with a real test install: it must produce nine
+**Verify after the edit** with a real test install: it must produce eight
 `fluid_callback_registrations` rows, all on the Next origin.
 
 ```sql

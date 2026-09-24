@@ -71,13 +71,9 @@ export const dropletConfig: DropletConfig = {
   ],
 
   /**
-   * The eight callbacks this droplet registers, in the order CALLBACK_ROUTES lists
+   * The eight callbacks this droplet serves, in the order CALLBACK_ROUTES lists
    * them. Every one is registered at install against the path that table gives
    * it, on FLUID_DROPLET_URL.
-   *
-   * `cart_customer_logged_in` is not one of them. Core fires it only on
-   * magic-link login, and the same action fires `cart_customer_attached` right
-   * after, which reprices the same cart.
    *
    * There is no ninth: a definition Fluid offers but this droplet has no route
    * for cannot be named here, because `activeCallbacks` resolves the path

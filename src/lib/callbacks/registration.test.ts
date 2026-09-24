@@ -44,7 +44,7 @@ const CALLBACK_URL = "https://droplet.test/api/callbacks/cart-item-added";
 /**
  * The callbacks are read from `droplet.config.ts` now, not the database, so
  * these cases narrow it to one entry rather than stubbing a table. The real
- * nine are asserted separately, in `activeCallbacks`.
+ * eight are asserted separately, in `activeCallbacks`.
  */
 vi.mock("@/lib/config", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/config")>();
@@ -237,15 +237,7 @@ describe("activeCallbacks", () => {
       real.callbacks.map((callback) => callback.definition_name),
     );
 
-    // Served but deliberately not registered: installs made before it was
-    // dropped still hold a registration that calls this route.
-    const retired = new Set(["cart_customer_logged_in"]);
-
     for (const definition of Object.keys(CALLBACK_ROUTES)) {
-      if (retired.has(definition)) {
-        expect(configured).not.toContain(definition);
-        continue;
-      }
       expect(
         configured,
         `${definition} has a route but no entry in droplet.config.ts, so it is ` +
