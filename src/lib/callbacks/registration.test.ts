@@ -44,7 +44,7 @@ const CALLBACK_URL = "https://droplet.test/api/callbacks/cart-item-added";
 /**
  * The callbacks are read from `droplet.config.ts` now, not the database, so
  * these cases narrow it to one entry rather than stubbing a table. The real
- * nine are asserted separately, in `activeCallbacks`.
+ * eight are asserted separately, in `activeCallbacks`.
  */
 vi.mock("@/lib/config", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/config")>();
@@ -247,7 +247,7 @@ describe("activeCallbacks", () => {
   });
 
   it("builds each url from FLUID_DROPLET_URL", () => {
-    // The mocked single-entry config; the real nine are covered above.
+    // The mocked single-entry config; the real eight are covered above.
     expect(activeCallbacks()).toEqual([
       {
         name: "cart_item_added",

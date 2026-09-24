@@ -71,11 +71,11 @@ export const dropletConfig: DropletConfig = {
   ],
 
   /**
-   * The nine callbacks this droplet serves, in the order CALLBACK_ROUTES lists
+   * The eight callbacks this droplet serves, in the order CALLBACK_ROUTES lists
    * them. Every one is registered at install against the path that table gives
    * it, on FLUID_DROPLET_URL.
    *
-   * There is no tenth: a definition Fluid offers but this droplet has no route
+   * There is no ninth: a definition Fluid offers but this droplet has no route
    * for cannot be named here, because `activeCallbacks` resolves the path
    * through CALLBACK_ROUTES and refuses a name that is not in it.
    */
@@ -108,12 +108,6 @@ export const dropletConfig: DropletConfig = {
       enabled: true,
       definition_name: "cart_email_on_create",
       description: "Resolve the buyer from the email typed at checkout",
-      timeoutInSeconds: 20,
-    },
-    {
-      enabled: true,
-      definition_name: "cart_customer_logged_in",
-      description: "Re-price once a customer authenticates mid-cart",
       timeoutInSeconds: 20,
     },
     {
