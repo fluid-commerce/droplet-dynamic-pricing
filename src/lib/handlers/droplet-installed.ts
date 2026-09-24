@@ -235,6 +235,7 @@ export async function handleDropletInstalled(payload: unknown): Promise<void> {
     const { undeletedCallbackIds } = await takeOverPreviousInstallation(
       client,
       previous,
+      company.dropletInstallationUuid,
     );
     // The previous installation's ids are dropped rather than merged: they
     // are deleted now. Any that could not be are kept, so this app's own
