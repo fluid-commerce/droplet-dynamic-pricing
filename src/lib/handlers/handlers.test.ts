@@ -287,6 +287,38 @@ describe("handleDropletUninstalled", () => {
     expect(update.data.uninstalledAt).toBeInstanceOf(Date);
   });
 
+  it("leaves a company another installation has since taken over untouched", async () => {
+    // A rollback: the Rails droplet was reinstalled after this one, so the row
+    // carries Rails' dri, and this uninstall finds it by fluid_company_id.
+    mockPrisma.company.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(
+        companyFixture({
+          dropletInstallationUuid: "dri_rails",
+          installedCallbackIds: ["cbr_rails_1", "cbr_next_1"],
+        }),
+      );
+
+    await handleDropletUninstalled({
+      company: { fluid_company_id: 42, droplet_installation_uuid: "dri_acme" },
+    });
+
+    expect(cleanupCallbacksForCompany).not.toHaveBeenCalled();
+    expect(mockPrisma.company.update).not.toHaveBeenCalled();
+  });
+
+  it("cleans up as before when the payload names no installation", async () => {
+    mockPrisma.company.findFirst.mockResolvedValue(
+      companyFixture({ dropletInstallationUuid: "dri_rails" }),
+    );
+
+    await handleDropletUninstalled({ company: { fluid_company_id: 42 } });
+
+    expect(cleanupCallbacksForCompany).toHaveBeenCalled();
+    const update = mockPrisma.company.update.mock.calls.at(-1)![0];
+    expect(update.data.active).toBe(false);
+  });
+
   it("does nothing when no company matches", async () => {
     mockPrisma.company.findFirst.mockResolvedValue(null);
 

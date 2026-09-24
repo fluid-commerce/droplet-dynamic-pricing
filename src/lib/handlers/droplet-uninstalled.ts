@@ -45,6 +45,29 @@ export async function handleDropletUninstalled(
     return;
   }
 
+  // The row belongs to a newer installation, so this uninstall must not touch
+  // it. The Rails app shares this table and matches on fluid_shop: reinstalling
+  // the Rails droplet after this one (a rollback) writes Rails' dri onto the
+  // same row and merges its callback ids into the list below. findCompanyForPayload
+  // then falls back to fluid_company_id, and cleaning up here would delete the
+  // Rails callbacks and mark the company uninstalled under it.
+  //
+  // Both values must be present and differ; anything else cleans up as before.
+  // The same guard runs on the Rails side (DropletUninstalledJob).
+  const uninstalledDri = parsed.company.droplet_installation_uuid;
+  if (
+    uninstalledDri &&
+    company.dropletInstallationUuid &&
+    uninstalledDri !== company.dropletInstallationUuid
+  ) {
+    console.warn(
+      `[DropletUninstalled] Skipping cleanup for company ${company.id}: ` +
+        `uninstall is for installation ${uninstalledDri}, but the company is ` +
+        `now on ${company.dropletInstallationUuid}`,
+    );
+    return;
+  }
+
   const installedCallbackIds = Array.isArray(company.installedCallbackIds)
     ? (company.installedCallbackIds as unknown[]).filter(
         (id): id is string => typeof id === "string",
