@@ -237,7 +237,15 @@ describe("activeCallbacks", () => {
       real.callbacks.map((callback) => callback.definition_name),
     );
 
+    // Served but deliberately not registered: installs made before it was
+    // dropped still hold a registration that calls this route.
+    const retired = new Set(["cart_customer_logged_in"]);
+
     for (const definition of Object.keys(CALLBACK_ROUTES)) {
+      if (retired.has(definition)) {
+        expect(configured).not.toContain(definition);
+        continue;
+      }
       expect(
         configured,
         `${definition} has a route but no entry in droplet.config.ts, so it is ` +
@@ -247,7 +255,7 @@ describe("activeCallbacks", () => {
   });
 
   it("builds each url from FLUID_DROPLET_URL", () => {
-    // The mocked single-entry config; the real nine are covered above.
+    // The mocked single-entry config; the real eight are covered above.
     expect(activeCallbacks()).toEqual([
       {
         name: "cart_item_added",
