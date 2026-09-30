@@ -3,7 +3,8 @@ Rails.application.routes.draw do
 
   get "dashboard", to: "dynamic_pricing_dashboard#index"
 
-  devise_for :users
+  # No registration routes: see User for why sign-up is closed.
+  devise_for :users, skip: :registrations
 
   post "webhook", to: "webhooks#create", as: :webhook
   post "webhook/subscription_started", to: "webhooks/subscription_started#create"
