@@ -19,6 +19,15 @@ class Admin::IntegrationSettingsController < PublicAdminController
     end
   end
 
+  # Runs both Exigo checks against the SAVED credentials and renders the show
+  # page with the results. Read-only on both sides: SELECT 1 and a GET.
+  def test_connection
+    @integration_setting = @company.integration_setting || @company.build_integration_setting
+    client = ExigoClient.for_company(@company)
+    @connection_results = { "Database" => client.check_database, "API" => client.check_api }
+    render :show
+  end
+
 private
 
   def set_current_company

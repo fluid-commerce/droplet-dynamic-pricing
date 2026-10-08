@@ -136,9 +136,55 @@ class ExigoClient
     update_customer_via_api(customer_id, customer_type_id)
   end
 
+  # Connection checks for the integration settings screen. Each returns
+  # { ok:, message: } and never raises, so one side failing still reports the
+  # other. Messages carry the server's own words — the login name is the whole
+  # diagnosis in a case like ENG-1955 — but never a password.
+  def check_database
+    if credentials[:db_host].blank?
+      return { ok: false, message: "Exigo database credentials not configured for #{company.name}" }
+    end
+
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    execute_query("SELECT 1 AS ok")
+    target = "#{credentials[:db_name]} on #{credentials[:db_host]}"
+    { ok: true, message: "Connected to #{target} in #{elapsed_ms(started)} ms" }
+  rescue StandardError => e
+    { ok: false, message: e.message }
+  end
+
+  # A GET for a customer id that cannot exist: read-only whatever Exigo does
+  # with it. 401/403 is the only answer that means the credentials are wrong;
+  # a 404 or 400 still means the request got past authentication.
+  def check_api
+    base_url, username, password = extract_api_credentials
+    uri = URI.join(base_url.end_with?("/") ? base_url : "#{base_url}/", "customers?customerID=0")
+    request = Net::HTTP::Get.new(uri)
+    request.basic_auth(username, password)
+
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    response = configure_http_client(uri).request(request)
+    code = response.code.to_i
+    detail = "HTTP #{code} from #{uri.host} in #{elapsed_ms(started)} ms"
+
+    if [ 401, 403 ].include?(code)
+      { ok: false, message: "Credentials rejected (#{detail})" }
+    elsif code >= 500
+      { ok: false, message: "Exigo API error (#{detail}): #{response.body.to_s.truncate(200)}" }
+    else
+      { ok: true, message: "Authenticated (#{detail})" }
+    end
+  rescue StandardError => e
+    { ok: false, message: e.message }
+  end
+
 private
 
   attr_reader :company, :integration, :credentials
+
+  def elapsed_ms(started)
+    ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
+  end
 
   def execute_query(query, params = [])
     connection = establish_connection
