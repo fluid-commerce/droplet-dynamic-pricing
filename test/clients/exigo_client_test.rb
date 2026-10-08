@@ -129,6 +129,42 @@ class ExigoClientTest < ActiveSupport::TestCase
     assert_includes connection.queries.first, "N'shopper@example.com'"
   end
 
+  # tiny_tds rewrites the login to "user@<first host label>" whenever azure: is
+  # set, which only Azure SQL's gateway strips back off. Exigo's own servers
+  # took it literally: Yoli's production login reached 1160-drsql.epic-ha.com
+  # as 'Yoli_FluidProd@1160-drsql' and was refused (ENG-1955).
+  def connection_options_for(host)
+    @integration_setting.update!(credentials: @integration_setting.credentials.merge("exigo_db_host" => host))
+    captured = nil
+    TinyTds::Client.stub(:new, ->(opts) { captured = opts }) do
+      ExigoClient.for_company(@company).send(:establish_connection)
+    end
+    captured
+  end
+
+  test "establish_connection sends the username untouched to a non-Azure host" do
+    opts = connection_options_for("1160-drsql.epic-ha.com")
+
+    assert_equal "test_user", TinyTds::Client.allocate.send(:parse_username, opts)
+    assert_equal "test_db", opts[:database]
+  end
+
+  # contained: selects the database at login, as azure: did, so the only
+  # thing that changes for a non-Azure host is the login name.
+  test "establish_connection still selects the database at login on a non-Azure host" do
+    opts = connection_options_for("1160-drsql.epic-ha.com")
+
+    assert_not opts[:azure]
+    assert opts[:contained]
+  end
+
+  test "establish_connection keeps azure on for an Azure SQL host" do
+    opts = connection_options_for("exigo-rain.database.windows.net")
+
+    assert opts[:azure]
+    assert_equal "test_user@exigo-rain", TinyTds::Client.allocate.send(:parse_username, opts)
+  end
+
   test "for_company creates client with company-based credentials" do
     globex = companies(:globex)
     globex_integration = IntegrationSetting.create!(
