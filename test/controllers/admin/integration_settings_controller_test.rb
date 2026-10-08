@@ -167,4 +167,67 @@ describe Admin::IntegrationSettingsController do
       must_respond_with :success
     end
   end
+
+  describe "test_connection" do
+    def configure(company)
+      IntegrationSetting.create!(
+        company: company,
+        enabled: true,
+        credentials: {
+          exigo_db_host: "1160-drsql.epic-ha.com",
+          exigo_db_username: "Yoli_FluidProd",
+          exigo_db_password: "db-secret",
+          exigo_db_name: "YoliReporting",
+          api_base_url: "https://yoli-api.exigo.com/3.0",
+          api_username: "api_user",
+          api_password: "api-secret",
+        },
+        settings: {}
+      )
+    end
+
+    it "shows both checks with the saved credentials" do
+      company = companies(:acme)
+      configure(company)
+      client = Struct.new(:check_database, :check_api).new(
+        { ok: false, message: "Login failed for user 'Yoli_FluidProd'." },
+        { ok: true, message: "Authenticated (HTTP 404 from yoli-api.exigo.com in 120 ms)" },
+      )
+
+      ExigoClient.stub(:for_company, client) do
+        post test_connection_admin_integration_setting_path(dri: company.droplet_installation_uuid)
+      end
+
+      must_respond_with :success
+      _(response.body).must_include "Login failed for user &#39;Yoli_FluidProd&#39;."
+      _(response.body).must_include "Authenticated (HTTP 404"
+      _(response.body).wont_include "db-secret"
+      _(response.body).wont_include "api-secret"
+    end
+
+    it "says the integration is not configured instead of trying to connect" do
+      company = companies(:acme)
+
+      post test_connection_admin_integration_setting_path(dri: company.droplet_installation_uuid)
+
+      must_respond_with :success
+      _(response.body).must_include "Exigo database credentials not configured"
+      _(response.body).must_include "Exigo API credentials not configured"
+    end
+
+    it "returns 404 when company is not found" do
+      post test_connection_admin_integration_setting_path(dri: "non-existent-uuid")
+
+      must_respond_with :not_found
+    end
+
+    it "offers the button once credentials are saved" do
+      company = companies(:acme)
+      configure(company)
+
+      get admin_integration_setting_path(dri: company.droplet_installation_uuid)
+
+      _(response.body).must_include "Test connection"
+    end
+  end
 end

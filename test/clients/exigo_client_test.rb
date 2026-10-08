@@ -416,4 +416,106 @@ class ExigoClientTest < ActiveSupport::TestCase
 
     assert_equal expected_credentials, client.instance_variable_get(:@credentials)
   end
+
+  class FakeHttp
+    attr_reader :requests
+
+    def initialize(code, body = "")
+      @response = Struct.new(:code, :body).new(code, body)
+      @requests = []
+    end
+
+    def request(req)
+      @requests << req
+      @response
+    end
+  end
+
+  def check_api_with(http)
+    client = ExigoClient.for_company(@company)
+    client.stub(:configure_http_client, http) { client.check_api }
+  end
+
+  test "check_database passes when a trivial query runs" do
+    connection = RecordingConnection.new([ { "ok" => 1 } ])
+    client = ExigoClient.for_company(@company)
+    result = client.stub(:establish_connection, connection) { client.check_database }
+
+    assert result[:ok]
+    assert_equal [ "SELECT 1 AS ok" ], connection.queries
+  end
+
+  test "check_database does not try to connect without a host" do
+    client = ExigoClient.for_company(@company)
+    result = client.stub(:credentials, {}) do
+      client.stub(:establish_connection, -> { flunk "should not connect" }) { client.check_database }
+    end
+
+    assert_not result[:ok]
+    assert_match(/not configured/, result[:message])
+  end
+
+  test "check_database reports the server's login error" do
+    client = ExigoClient.for_company(@company)
+    failing = -> { raise ExigoClient::ConnectionError, "Login failed for user 'test_user'." }
+    result = client.stub(:establish_connection, failing) { client.check_database }
+
+    assert_not result[:ok]
+    assert_match(/Login failed for user 'test_user'/, result[:message])
+  end
+
+  test "check_api only ever issues a GET" do
+    http = FakeHttp.new("200", "[]")
+    check_api_with(http)
+
+    assert_equal [ Net::HTTP::Get ], http.requests.map(&:class)
+    encoded = http.requests.first["authorization"].split.last
+    assert_equal "api_test_user", Base64.decode64(encoded).split(":").first
+  end
+
+  test "check_api passes when Exigo accepts the credentials" do
+    assert check_api_with(FakeHttp.new("200", "[]"))[:ok]
+  end
+
+  # The probe asks for a customer that does not exist, so a 404 still proves
+  # the credentials got past authentication.
+  test "check_api passes on a 404, which is past authentication" do
+    result = check_api_with(FakeHttp.new("404", "not found"))
+
+    assert result[:ok]
+    assert_match(/404/, result[:message])
+  end
+
+  test "check_api fails when Exigo rejects the credentials" do
+    %w[401 403].each do |code|
+      result = check_api_with(FakeHttp.new(code, "denied"))
+
+      assert_not result[:ok], "expected #{code} to fail"
+      assert_match(/rejected/, result[:message])
+    end
+  end
+
+  test "check_api fails on a server error" do
+    assert_not check_api_with(FakeHttp.new("500", "boom"))[:ok]
+  end
+
+  test "check_api fails without raising when the host is unreachable" do
+    unreachable = Object.new
+    def unreachable.request(_req) = raise(Net::OpenTimeout, "execution expired")
+    result = check_api_with(unreachable)
+
+    assert_not result[:ok]
+    assert_match(/execution expired/, result[:message])
+  end
+
+  test "neither check echoes a password" do
+    client = ExigoClient.for_company(@company)
+    failing = -> { raise ExigoClient::ConnectionError, "boom" }
+    db = client.stub(:establish_connection, failing) { client.check_database }
+    api = check_api_with(FakeHttp.new("401", "denied"))
+
+    [ db, api ].each do |result|
+      assert_no_match(/test_pass|api_test_pass/, result.to_s)
+    end
+  end
 end

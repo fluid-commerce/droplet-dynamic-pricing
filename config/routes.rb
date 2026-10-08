@@ -29,7 +29,9 @@ Rails.application.routes.draw do
     get "dashboard/index"
     resource :droplet, only: %i[ create update ]
     resources :settings, only: %i[ index edit update ]
-    resource :integration_setting, only: %i[ show edit update ]
+    resource :integration_setting, only: %i[ show edit update ] do
+      post :test_connection
+    end
     resources :home, only: :index
     resources :transactions, only: :index
     resources :cart_pricing_events, only: :index
