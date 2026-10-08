@@ -172,13 +172,20 @@ private
     connection&.close
   end
 
+  # azure: makes tiny_tds send the login as "user@<first host label>", which
+  # only Azure SQL's gateway understands — any other server looks for a login
+  # by that literal name and refuses it (ENG-1955). contained: selects the
+  # database at login the same way azure: does, without touching the username.
   def establish_connection
+    azure = credentials[:db_host].to_s.downcase.end_with?(".database.windows.net")
+
     TinyTds::Client.new(
       host: credentials[:db_host],
       username: credentials[:db_username],
       password: credentials[:db_password],
       database: credentials[:db_name],
-      azure: true,
+      azure: azure,
+      contained: !azure,
       login_timeout: 5,
       timeout: 15,
     )
