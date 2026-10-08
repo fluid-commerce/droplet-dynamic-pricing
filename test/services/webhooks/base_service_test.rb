@@ -173,6 +173,59 @@ class Webhooks::BaseServiceTest < ActiveSupport::TestCase
     assert_equal %i[subscriptions exigo], asked
   end
 
+  # ENG-1955: with Exigo's login failing, has_exigo_autoship? swallowed the
+  # error as "no autoship" and every cancel/pause demoted the customer — 57
+  # with live autoships were stamped retail. An Exigo that cannot answer has
+  # not said no.
+  test "should_remain_preferred? keeps the customer when Exigo cannot answer" do
+    exigo_setting_for(@company)
+    service = build_service
+    service.define_singleton_method(:has_other_active_subscriptions?) { |_id, _ex| false }
+    service.define_singleton_method(:customer_external_id) { |_id| "ext-77" }
+    service.define_singleton_method(:exigo_client) { raise ExigoClient::ConnectionError, "Login failed" }
+
+    assert service.send(:should_remain_preferred?, 77, 1)
+  end
+
+  test "should_remain_preferred? still demotes when Exigo answers no" do
+    exigo_setting_for(@company)
+    service = build_service
+    service.define_singleton_method(:has_other_active_subscriptions?) { |_id, _ex| false }
+    service.define_singleton_method(:customer_external_id) { |_id| "ext-77" }
+    client = Object.new
+    client.define_singleton_method(:customer_has_active_autoship?) { |_id| false }
+    service.define_singleton_method(:exigo_client) { client }
+
+    refute service.send(:should_remain_preferred?, 77, 1)
+  end
+
+  test "should_remain_preferred? demotes without asking Exigo when the integration is off" do
+    service = build_service
+    service.define_singleton_method(:has_other_active_subscriptions?) { |_id, _ex| false }
+    service.define_singleton_method(:customer_external_id) { |_id| "ext-77" }
+    asked = []
+    service.define_singleton_method(:exigo_client) { asked << :exigo; raise "Exigo is off" }
+
+    refute service.send(:should_remain_preferred?, 77, 1)
+    assert_empty asked, "Exigo is off; nothing should ask it"
+  end
+
+  # The same hole on the Fluid side: a subscriptions call that errors is not
+  # an answer that the customer has none.
+  test "should_remain_preferred? keeps the customer when Fluid subscriptions cannot answer" do
+    service = build_service
+    subscriptions = Object.new
+    subscriptions.define_singleton_method(:get_by_customer) { |*_a, **_k| raise FluidClient::APIError, "502" }
+    client = Object.new
+    client.define_singleton_method(:subscriptions) { subscriptions }
+    service.define_singleton_method(:fluid_client) { client }
+    asked = []
+    service.define_singleton_method(:customer_external_id) { |_id| asked << :exigo; nil }
+
+    assert service.send(:should_remain_preferred?, 77, 1)
+    assert_empty asked, "an unknown answer must stop here"
+  end
+
 private
 
   def capture_log
@@ -195,6 +248,18 @@ private
 
   def build_service
     Webhooks::BaseService.new({ "subscription" => { "id" => 1 } }, @company)
+  end
+
+  def exigo_setting_for(company)
+    company.create_integration_setting!(
+      enabled: true,
+      credentials: {
+        exigo_db_host: "db.example.com", exigo_db_username: "user", exigo_db_password: "pass",
+        exigo_db_name: "exigo_db", api_base_url: "https://api.example.com",
+        api_username: "api_user", api_password: "api_pass",
+      },
+      settings: {}
+    )
   end
 
   def promotion_setting_for(company)
