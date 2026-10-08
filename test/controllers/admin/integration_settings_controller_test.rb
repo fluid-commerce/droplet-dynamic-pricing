@@ -153,6 +153,18 @@ describe Admin::IntegrationSettingsController do
       _(integration_setting.promote_member_type_on_first_subscription?).must_equal true
     end
 
+    it "saves the member-type fallback toggle" do
+      company = companies(:acme)
+      integration_setting = IntegrationSetting.create!(company: company, enabled: true, credentials: {}, settings: {})
+
+      patch admin_integration_setting_path(dri: company.droplet_installation_uuid), params: {
+        integration_setting: { settings: { member_type_fallback: "1" } },
+      }
+
+      must_respond_with :redirect
+      _(integration_setting.reload.member_type_fallback?).must_equal true
+    end
+
     it "returns 404 when company is not found" do
       get admin_integration_setting_path(dri: "non-existent-uuid")
 

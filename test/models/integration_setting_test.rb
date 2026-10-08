@@ -59,6 +59,24 @@ describe IntegrationSetting do
     end
   end
 
+  describe "#member_type_fallback?" do
+    it "is false when the setting is absent" do
+      refute companies(:acme).build_integration_setting(settings: {}).member_type_fallback?
+    end
+
+    it "is true when the toggle is on" do
+      setting = companies(:acme).build_integration_setting(settings: { "member_type_fallback" => "1" })
+
+      assert setting.member_type_fallback?
+    end
+
+    it "is false when the toggle is explicitly off" do
+      setting = companies(:acme).build_integration_setting(settings: { "member_type_fallback" => "0" })
+
+      refute setting.member_type_fallback?
+    end
+  end
+
   describe "#preferred_source" do
     it "defaults to \"exigo\" when the setting is absent" do
       setting = companies(:acme).build_integration_setting(settings: {})

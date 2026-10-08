@@ -83,6 +83,16 @@ class IntegrationSetting < ApplicationRecord
     preferred_source == FLUID_MEMBER_TYPE_PREFERRED_SOURCE
   end
 
+  # On the "exigo" source, read Fluid's member type as a last resort once the
+  # metafield, an active subscription and Exigo have all failed to confirm
+  # preferred — so a Subscriber the member-tier droplet already tagged keeps
+  # their price while Exigo is unreachable (ENG-1955). Exigo is still asked
+  # first and still decides whenever it says yes. Off by default: only correct
+  # for tenants whose member types are kept current.
+  def member_type_fallback?
+    ActiveModel::Type::Boolean.new.cast(settings.dig("member_type_fallback")) || false
+  end
+
   # Exigo preferred signals (see #exigo_preferred_signal).
   DEFAULT_EXIGO_PREFERRED_SIGNAL = "autoships"
   CUSTOMER_TYPE_EXIGO_PREFERRED_SIGNAL = "customer_type"

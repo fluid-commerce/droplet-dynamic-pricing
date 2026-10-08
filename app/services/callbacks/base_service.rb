@@ -787,13 +787,24 @@ private
     has_another_subscription_in_cart? || customer_has_active_subscription?
   end
 
-  # A live Fluid subscription, or an active Exigo autoship when the company runs
-  # Exigo. The Fluid-subscriptions lookup needs a customer_id, so it is gated
-  # behind a logged-in customer; the Exigo lookup is by email and works on guest
-  # carts too (it self-guards on blank email / integration off).
+  # A live Fluid subscription, then the company's own preferred signal: the
+  # member type on the fluid_member_type source, Exigo otherwise — followed by
+  # the member type when member_type_fallback is on. The same signals, in the
+  # same order, as is_preferred_customer?, so an item callback and an
+  # attach/login cannot disagree about one customer (ENG-1956). The
+  # Fluid-subscriptions lookup needs a customer_id, so it is gated behind a
+  # logged-in customer; the Exigo and member lookups also work by email on
+  # guest carts (each self-guards on a blank identifier).
   def customer_has_active_subscription?
-    (customer_logged_in? && has_active_subscriptions?(cart_customer_id)) ||
-      exigo_preferred_by_email?(customer_email)
+    return true if customer_logged_in? && has_active_subscriptions?(cart_customer_id)
+
+    if preferred_from_fluid_member_type?
+      return fluid_member_preferred?(customer_id: cart_customer_id, email: customer_email)
+    end
+
+    return true if exigo_preferred_by_email?(customer_email)
+
+    member_type_fallback? && fluid_member_preferred?(customer_id: cart_customer_id, email: customer_email)
   end
 
   # The single cart item carried by item_added / item_updated callbacks.
@@ -965,11 +976,17 @@ private
       return true if has_active_subscriptions?(customer_id)
     end
 
-    exigo_preferred_by_email?(email)
+    return true if exigo_preferred_by_email?(email)
+
+    member_type_fallback? && fluid_member_preferred?(customer_id: customer_id, email: email)
   end
 
   def preferred_from_fluid_member_type?
     find_company&.integration_setting&.preferred_from_fluid_member_type? || false
+  end
+
+  def member_type_fallback?
+    find_company&.integration_setting&.member_type_fallback? || false
   end
 
   # Resolves the Fluid member behind this cart and answers whether Fluid itself
