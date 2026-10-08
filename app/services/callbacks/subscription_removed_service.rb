@@ -79,13 +79,9 @@ private
 
     return false unless customer_logged_in?
 
-    customer_id = get_customer_id_by_email(customer_email)
-
-    if customer_id.present?
-      return true if has_active_subscriptions?(customer_id)
-      return true if get_customer_type_from_metafields(customer_id) == PREFERRED_CUSTOMER_TYPE
-    end
-
-    exigo_preferred_by_email?(customer_email)
+    # The same decision attach/login make — source, member-type fallback and
+    # all — so removing a subscription line cannot strip a customer the other
+    # callbacks price as preferred (ENG-1956).
+    is_preferred_customer?(customer_email)
   end
 end
