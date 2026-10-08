@@ -53,6 +53,7 @@ private
         exigo_preferred_signal
         preferred_source
         promote_member_type_on_first_subscription
+        member_type_fallback
       ],
       credentials: %i[
         exigo_db_host

@@ -76,8 +76,13 @@ protected
     end
 
     subscriptions.any?
-  rescue FluidClient::ResourceNotFoundError, FluidClient::Error
+  rescue FluidClient::ResourceNotFoundError
     false
+  rescue FluidClient::Error => e
+    # Unknown, not "none": nil makes should_remain_preferred? keep the customer
+    # rather than demote on a failed read (ENG-1955).
+    Rails.logger.error "Failed to read active subscriptions for customer #{customer_id}: #{e.message}"
+    nil
   end
 
   def customer_external_id(customer_id)
@@ -95,8 +100,11 @@ protected
     return false if external_id.blank?
 
     exigo_client.customer_has_active_autoship?(external_id)
-  rescue StandardError
-    false
+  rescue StandardError => e
+    # Unknown, not "no autoship". Swallowing this as false is what demoted 57
+    # customers with live autoships while Exigo's login was failing (ENG-1955).
+    Rails.logger.error "Failed to check Exigo autoship for external ID #{external_id}: #{e.message}"
+    nil
   end
 
   def update_customer_metadata(customer_id, customer_type)
@@ -267,11 +275,13 @@ protected
     # whose answer cannot change.
     return true if promote_member_type_on_first_subscription?
 
-    return true if has_other_active_subscriptions?(customer_id, exclude_subscription_id)
+    # Each live signal answers true, false, or nil when it could not be read.
+    # Only a definite false from every one of them demotes: a lookup that
+    # failed must not cost the customer their price (ENG-1955).
+    subscriptions = has_other_active_subscriptions?(customer_id, exclude_subscription_id)
+    return true if subscriptions.nil? || subscriptions
 
-    external_id = customer_external_id(customer_id)
-    return true if has_exigo_autoship?(external_id)
-
-    false
+    autoship = has_exigo_autoship?(customer_external_id(customer_id))
+    autoship.nil? || autoship
   end
 end

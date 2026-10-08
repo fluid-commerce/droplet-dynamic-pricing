@@ -92,6 +92,26 @@
     </div>
   </div>
 
+  <!-- Member-type fallback -->
+  <div class="bg-white rounded-lg p-6 border border-gray-200">
+    <div class="flex items-center justify-between">
+      <div class="pr-6">
+        <h3 class="font-semibold text-gray-700">Fall back to the Fluid member type</h3>
+        <p class="text-sm text-gray-500 mt-1">
+          On the Exigo source, when the metafield, an active subscription and
+          Exigo have all failed to confirm preferred, a Fluid member type of
+          "preferred" still prices the cart as preferred — so customers keep
+          their price while Exigo is unreachable. Exigo is always asked first.
+          Only turn on for tenants whose member types are kept current.
+        </p>
+      </div>
+      <div class="flex items-center">
+        <%= hidden_field_tag "integration_setting[settings][member_type_fallback]", "0" %>
+        <%= check_box_tag "integration_setting[settings][member_type_fallback]", "1", @integration_setting.member_type_fallback?, class: "toggle-checkbox h-6 w-12 rounded-full" %>
+      </div>
+    </div>
+  </div>
+
   <!-- Exigo Database Credentials -->
   <div class="bg-white rounded-lg p-6 border border-gray-200">
     <h3 class="font-semibold text-gray-700 mb-4">Exigo Database Credentials</h3>

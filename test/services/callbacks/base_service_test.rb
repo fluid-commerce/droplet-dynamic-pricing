@@ -1308,6 +1308,98 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     refute service.send(:preferred_lookup_failed?)
   end
 
+  # ENG-1956. On the Exigo source the member type is a last resort, asked only
+  # once Exigo has not confirmed preferred — so a Subscriber keeps their price
+  # through an Exigo outage (ENG-1955) without adding a Fluid call for anyone
+  # Exigo already answers for.
+  def fallback_service(member:, exigo:, settings: { "member_type_fallback" => "1" }, cart: {})
+    exigo_integration_setting_for(@company, settings: settings)
+    service = Callbacks::BaseService.new(@callback_params.merge(cart: @cart_data.merge(cart)))
+    order = []
+    members = FakeMembersResource.new(member: { "member_type_slug" => member })
+    members.define_singleton_method(:find_by) do |**identifier|
+      order << :member_type
+      calls << identifier
+      { "member" => { "member_type_slug" => member } }
+    end
+    service.define_singleton_method(:fluid_members) { members }
+    service.define_singleton_method(:get_customer_type_from_metafields) { |_id| nil }
+    service.define_singleton_method(:has_active_subscriptions?) { |_id| false }
+    service.define_singleton_method(:exigo_client) do
+      client = Object.new
+      client.define_singleton_method(:customer_has_active_autoship_by_email?) do |_email|
+        order << :exigo
+        exigo == :raise ? raise(ExigoClient::ConnectionError, "Login failed") : exigo
+      end
+      client
+    end
+    [ service, order ]
+  end
+
+  test "the member-type fallback is off by default on the Exigo source" do
+    service, order = fallback_service(member: "preferred", exigo: false, settings: {})
+
+    refute service.send(:is_preferred_customer?, "vip@example.com")
+    assert_equal [ :exigo ], order
+  end
+
+  test "with the fallback on, Exigo is asked before the member type" do
+    service, order = fallback_service(member: "preferred", exigo: false)
+
+    assert service.send(:is_preferred_customer?, "vip@example.com")
+    assert_equal %i[exigo member_type], order
+  end
+
+  test "with the fallback on, an Exigo yes never resolves a member" do
+    service, order = fallback_service(member: "customer", exigo: true)
+
+    assert service.send(:is_preferred_customer?, "vip@example.com")
+    assert_equal [ :exigo ], order
+  end
+
+  # The incident itself: Exigo cannot answer, the member type can.
+  test "with the fallback on, the member type holds preferred through an Exigo outage" do
+    service, = fallback_service(member: "preferred", exigo: :raise)
+
+    assert service.send(:is_preferred_customer?, "vip@example.com")
+  end
+
+  test "with the fallback on, another member type is still not preferred" do
+    service, = fallback_service(member: "customer", exigo: false)
+
+    refute service.send(:is_preferred_customer?, "vip@example.com")
+  end
+
+  # The asymmetry the ticket names: item_added / item_updated decide through
+  # cart_qualifies_for_preferred_pricing?, which never read the member type.
+  test "item callbacks honor the fallback in the same order" do
+    service, order = fallback_service(member: "preferred", exigo: :raise,
+                                      cart: { "customer_id" => 55, "email" => "vip@example.com" })
+
+    assert service.send(:cart_qualifies_for_preferred_pricing?)
+    assert_equal %i[exigo member_type], order
+  end
+
+  test "item callbacks leave the fallback alone when it is off" do
+    service, order = fallback_service(member: "preferred", exigo: false, settings: {},
+                                      cart: { "customer_id" => 55, "email" => "vip@example.com" })
+
+    refute service.send(:cart_qualifies_for_preferred_pricing?)
+    assert_equal [ :exigo ], order
+  end
+
+  # On the fluid_member_type source the item callbacks asked Exigo, which that
+  # source exists to never do, and ignored the member type it reads everywhere
+  # else — so item_added and attach/login could disagree on the same customer.
+  test "item callbacks on the fluid_member_type source read the member type and not Exigo" do
+    service, order = fallback_service(member: "preferred", exigo: true,
+                                      settings: { "preferred_source" => "fluid_member_type" },
+                                      cart: { "customer_id" => 55, "email" => "vip@example.com" })
+
+    assert service.send(:cart_qualifies_for_preferred_pricing?)
+    assert_equal [ :member_type ], order
+  end
+
 private
 
   def member_type_integration_setting_for(company)

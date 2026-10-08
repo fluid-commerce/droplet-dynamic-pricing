@@ -261,6 +261,66 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
     assert_equal 72.0, item1[:price].to_f, "Should use subscription price when cart has subscription items"
   end
 
+  # ENG-1956: removing a subscription line decided preferred on its own —
+  # subscriptions, metafield, Exigo — so it ignored the member type and could
+  # strip a Subscriber to retail during an Exigo outage that attach/login and
+  # item_added now ride out.
+  def keep_prices_service(member:, exigo:, settings:)
+    IntegrationSetting.create!(
+      company: company,
+      enabled: true,
+      credentials: {
+        exigo_db_host: "db.example.com", exigo_db_username: "user", exigo_db_password: "pass",
+        exigo_db_name: "exigo_db", api_base_url: "https://api.example.com",
+        api_username: "api_user", api_password: "api_pass",
+      },
+      settings: settings
+    )
+    service = Callbacks::SubscriptionRemovedService.new(callback_params)
+    asked = []
+    members = Object.new
+    members.define_singleton_method(:find_by) do |**_identifier|
+      asked << :member_type
+      { "member" => { "member_type_slug" => member } }
+    end
+    service.define_singleton_method(:fluid_members) { members }
+    service.define_singleton_method(:has_another_subscription_in_cart?) { false }
+    service.define_singleton_method(:has_active_subscriptions?) { |_id| false }
+    service.define_singleton_method(:get_customer_type_from_metafields) { |_id| asked << :metafield; nil }
+    service.define_singleton_method(:exigo_client) do
+      client = Object.new
+      client.define_singleton_method(:customer_has_active_autoship_by_email?) do |_email|
+        asked << :exigo
+        exigo == :raise ? raise(ExigoClient::ConnectionError, "Login failed") : exigo
+      end
+      client
+    end
+    [ service, asked ]
+  end
+
+  test "keeps subscription prices for a preferred member through an Exigo outage when the fallback is on" do
+    service, asked = keep_prices_service(member: "preferred", exigo: :raise,
+settings: { "member_type_fallback" => "1" })
+
+    assert service.send(:should_keep_subscription_prices, "customer@example.com")
+    assert_equal %i[metafield exigo member_type], asked
+  end
+
+  test "still strips a non-preferred customer when Exigo says no and the fallback is off" do
+    service, asked = keep_prices_service(member: "preferred", exigo: false, settings: {})
+
+    refute service.send(:should_keep_subscription_prices, "customer@example.com")
+    assert_equal %i[metafield exigo], asked
+  end
+
+  test "reads the member type and neither the metafield nor Exigo on the fluid_member_type source" do
+    service, asked = keep_prices_service(member: "preferred", exigo: true,
+                                         settings: { "preferred_source" => "fluid_member_type" })
+
+    assert service.send(:should_keep_subscription_prices, "customer@example.com")
+    assert_equal %i[member_type], asked
+  end
+
   test "class method call works" do
     service_instance = Minitest::Mock.new
     service_instance.expect :call, { success: true }
