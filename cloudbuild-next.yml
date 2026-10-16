@@ -99,9 +99,15 @@ steps:
         "${_APP_NAME}-next",
         "--platform=managed",
         "--image=europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA",
-        "--region=europe-west1",
+        "--project=fluid-prod-0",
+        "--region=us-south1",
+        "--network=fluid-prod-network-vpc",
+        "--subnet=fluid-prod-network-cloudrun-us-south1",
+        "--vpc-egress=all-traffic",
+        "--service-account=fluid-prod-droplets@fluid-prod-0.iam.gserviceaccount.com",
+        "--clear-cloudsql-instances",
         "--revision-suffix=${COMMIT_SHA}-${_TIMESTAMP}",
-        "--update-secrets=DATABASE_URL=DYNAMIC_PRICING_DATABASE_URL:latest,FLUID_WEBHOOK_AUTH_TOKEN=DYNAMIC_PRICING_FLUID_WEBHOOK_AUTH_TOKEN:latest,FLUID_DROPLET_WEBHOOK_SECRET=DYNAMIC_PRICING_NEXT_DROPLET_WEBHOOK_SECRET:latest",
+        "--update-secrets=DATABASE_URL=projects/106074092699/secrets/DYNAMIC_PRICING_DATABASE_URL:latest,FLUID_WEBHOOK_AUTH_TOKEN=projects/106074092699/secrets/DYNAMIC_PRICING_FLUID_WEBHOOK_AUTH_TOKEN:latest,FLUID_DROPLET_WEBHOOK_SECRET=projects/106074092699/secrets/DYNAMIC_PRICING_NEXT_DROPLET_WEBHOOK_SECRET:latest",
         "--startup-probe=httpGet.path=/api/ready,initialDelaySeconds=0,periodSeconds=3,timeoutSeconds=3,failureThreshold=40",
       ]
     id: deploy next

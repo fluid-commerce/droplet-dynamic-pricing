@@ -22,12 +22,12 @@ for var in "${VARS[@]}"; do
 done
 
 # Update the environment variables for the service cloud run web Cloud Run migrations
-gcloud run jobs update $SERVICE_JOBS_MIGRATIONS --region=europe-west1 --image $IMAGE_URL $CLOUD_RUN_ENV_ARGS
+gcloud run jobs update $SERVICE_JOBS_MIGRATIONS --region=us-south1 --project=fluid-prod-0 --image $IMAGE_URL $CLOUD_RUN_ENV_ARGS
 
 # Update the environment variables for the service cloud run web
 echo "Updating Cloud Run service: $SERVICE"
-gcloud run services update $SERVICE --region=europe-west1 --image $IMAGE_URL $CLOUD_RUN_ENV_ARGS
+gcloud run services update $SERVICE --region=us-south1 --project=fluid-prod-0 --image $IMAGE_URL $CLOUD_RUN_ENV_ARGS
 
 # Update the environment variables for the service cloud run solidqueue
 echo "Updating Cloud Run worker pool: $SERVICE_SOLIDQUEUE"
-gcloud beta run worker-pools update $SERVICE_SOLIDQUEUE --region=europe-west1 --image $IMAGE_URL $CLOUD_RUN_ENV_ARGS
+gcloud beta run worker-pools update $SERVICE_SOLIDQUEUE --region=us-south1 --project=fluid-prod-0 --image $IMAGE_URL $CLOUD_RUN_ENV_ARGS
