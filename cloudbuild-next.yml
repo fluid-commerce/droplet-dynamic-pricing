@@ -103,7 +103,7 @@ steps:
         "--region=us-south1",
         "--network=fluid-prod-network-vpc",
         "--subnet=fluid-prod-network-cloudrun-us-south1",
-        "--vpc-egress=all-traffic",
+        "--vpc-egress=private-ranges-only",
         "--service-account=fluid-prod-droplets@fluid-prod-0.iam.gserviceaccount.com",
         "--clear-cloudsql-instances",
         "--revision-suffix=${COMMIT_SHA}-${_TIMESTAMP}",
