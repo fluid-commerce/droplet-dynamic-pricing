@@ -7,7 +7,7 @@ APP_NAME=fluid-droplet-dynamic-pricing
 SERVICE=$APP_NAME
 SERVICE_JOBS_MIGRATIONS=$APP_NAME-migrations
 SERVICE_SOLIDQUEUE=$APP_NAME-solidqueue
-IMAGE_URL=europe-west1-docker.pkg.dev/fluid-417204/fluid-droplets/$APP_NAME-rails/web:latest
+IMAGE_URL=us-south1-docker.pkg.dev/fluid-417204/fluid-droplets/$APP_NAME-rails/web:latest
 
 # Variables array - add your variables here
 VARS=(

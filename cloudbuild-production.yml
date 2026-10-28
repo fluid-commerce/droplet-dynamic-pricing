@@ -1,16 +1,16 @@
 # google cloud build
-# gcloud beta builds submit --config cloudbuild-production.yml --region=europe-west1 --substitutions=COMMIT_SHA=$(git rev-parse --short HEAD),_TIMESTAMP=$(date +%Y%m%d%H%M%S) --project=fluid-417204 .
+# gcloud beta builds submit --config cloudbuild-production.yml --region=us-south1 --substitutions=COMMIT_SHA=$(git rev-parse --short HEAD),_TIMESTAMP=$(date +%Y%m%d%H%M%S) --project=fluid-417204 .
 steps:
   - name: gcr.io/cloud-builders/docker
     args:
       [
         "build",
-        "--cache-from=europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-base/web:latest",
-        "--cache-from=europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:latest",
+        "--cache-from=us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-base/web:latest",
+        "--cache-from=us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:latest",
         "-t",
-        "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
+        "us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
         "-t",
-        "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:latest",
+        "us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:latest",
         ".",
         "-f",
         "docker/Dockerfile",
@@ -21,7 +21,7 @@ steps:
     args:
       [
         "push",
-        "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
+        "us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
       ]
     id: push-commit-sha
 
@@ -29,7 +29,7 @@ steps:
     args:
       [
         "push",
-        "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:latest",
+        "us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:latest",
       ]
     id: push-latest
 
@@ -40,7 +40,7 @@ steps:
         "jobs",
         "update",
         "${_APP_NAME}-migrations",
-        "--image=europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
+        "--image=us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
         "--project=fluid-prod-0",
         "--region=us-south1",
         "--network=fluid-prod-network-vpc",
@@ -62,7 +62,7 @@ steps:
         "update",
         "${_APP_NAME}",
         "--platform=managed",
-        "--image=europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
+        "--image=us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA",
         "--project=fluid-prod-0",
         "--region=us-south1",
         "--network=fluid-prod-network-vpc",
@@ -80,8 +80,8 @@ substitutions:
   _APP_REPOSITORY: "fluid-droplets"
 
 images:
-  - "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA"
-  - "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:latest"
+  - "us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:$COMMIT_SHA"
+  - "us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-rails/web:latest"
 
 options:
   substitutionOption: ALLOW_LOOSE
