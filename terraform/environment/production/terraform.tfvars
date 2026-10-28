@@ -19,7 +19,7 @@ email_service_account = "YOUR_SERVICE_ACCOUNT_EMAIL"
 # variable module container
 #master key
 container_rails_master_key        = "YOUR_MASTER_KEY"
-container_image                   = "europe-west1-docker.pkg.dev/PROJECT_ID/fluid-droplets/fluid-droplet-template-rails/web:latest"
+container_image                   = "us-south1-docker.pkg.dev/PROJECT_ID/fluid-droplets/fluid-droplet-template-rails/web:latest"
 container_db_url_production       = "postgresql://template_production_user:YOUR_PASSWORD@localhost/fluid_droplet_template_production?host="
 container_db_url_production_queue = "postgresql://template_production_user:YOUR_PASSWORD@localhost/fluid_droplet_template_production_queue?host="
 container_db_url_production_cache = "postgresql://template_production_user:YOUR_PASSWORD@localhost/fluid_droplet_template_production_cache?host="

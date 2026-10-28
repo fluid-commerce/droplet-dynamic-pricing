@@ -45,7 +45,7 @@ variable "boot_disk_size" {
 variable "startup_script" {
   description = "Startup script of the Compute Engine instance"
   type        = string
-  default     = " #! /bin/bash\n docker images \"europe-west1-docker.pkg.dev/fluid-417204/fluid-droplets/fluid-droplet-dynamic-pricing-rails/web\" --format \"{{.ID}}\" | tail -n +2 | xargs -r docker rmi -f"
+  default     = " #! /bin/bash\n docker images \"us-south1-docker.pkg.dev/fluid-417204/fluid-droplets/fluid-droplet-dynamic-pricing-rails/web\" --format \"{{.ID}}\" | tail -n +2 | xargs -r docker rmi -f"
 }
 
 variable "email_service_account" {

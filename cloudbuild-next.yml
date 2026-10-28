@@ -1,6 +1,6 @@
 # Builds and deploys the Next app as its OWN Cloud Run service.
 #
-#   gcloud beta builds submit --config cloudbuild-next.yml --region=europe-west1 \
+#   gcloud beta builds submit --config cloudbuild-next.yml --region=us-south1 \
 #     --substitutions=COMMIT_SHA=$(git rev-parse --short HEAD),_TIMESTAMP=$(date +%Y%m%d%H%M%S) \
 #     --project=fluid-417204 .
 #
@@ -31,7 +31,7 @@ steps:
       [
         "build",
         "-t",
-        "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA",
+        "us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA",
         ".",
         "-f",
         "Dockerfile.next",
@@ -42,8 +42,8 @@ steps:
     args:
       [
         "tag",
-        "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA",
-        "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:latest",
+        "us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA",
+        "us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:latest",
       ]
     id: tag
 
@@ -51,7 +51,7 @@ steps:
     args:
       [
         "push",
-        "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA",
+        "us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA",
       ]
     id: push commit sha
 
@@ -59,7 +59,7 @@ steps:
     args:
       [
         "push",
-        "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:latest",
+        "us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:latest",
       ]
     id: push latest
 
@@ -98,7 +98,7 @@ steps:
         "update",
         "${_APP_NAME}-next",
         "--platform=managed",
-        "--image=europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA",
+        "--image=us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA",
         "--project=fluid-prod-0",
         "--region=us-south1",
         "--network=fluid-prod-network-vpc",
@@ -118,8 +118,8 @@ substitutions:
   _APP_REPOSITORY: "fluid-droplets"
 
 images:
-  - "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA"
-  - "europe-west1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:latest"
+  - "us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:$COMMIT_SHA"
+  - "us-south1-docker.pkg.dev/fluid-417204/${_APP_REPOSITORY}/${_APP_NAME}-next/web:latest"
 
 options:
   substitutionOption: ALLOW_LOOSE

@@ -3,7 +3,7 @@
 
 # A name for the container to run
 CONTAINER_NAME="droplet-dynamic-pricing"
-IMAGE="europe-west1-docker.pkg.dev/fluid-417204/fluid-droplets/fluid-droplet-dynamic-pricing-rails/web"
+IMAGE="us-south1-docker.pkg.dev/fluid-417204/fluid-droplets/fluid-droplet-dynamic-pricing-rails/web"
 TAG="latest"
 
 docker images $IMAGE --format "{{.ID}}" | tail -n +2 | xargs -r docker rmi -f

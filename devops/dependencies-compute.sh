@@ -19,4 +19,4 @@ sudo usermod -aG docker $USER
 sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Configure Docker to use the correct registry
-sudo gcloud auth configure-docker europe-west1-docker.pkg.dev
+sudo gcloud auth configure-docker us-south1-docker.pkg.dev
