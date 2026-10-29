@@ -25,7 +25,7 @@
  *  - the yield to the BP wholesale droplet (STU2-2377 / STU2-2964)
  */
 
-import { field, isBlank, isPresent, toF, toI } from "@/lib/ruby";
+import { castBoolean, field, isBlank, isPresent, toF, toI } from "@/lib/ruby";
 import {
   IntegrationSettings,
   PREFERRED_CUSTOMER_VOLUME_SOURCE,
@@ -376,7 +376,8 @@ export class PricingContext {
    * the authoritative source that carries price, subscription_price, cv and qv
    * together — NOT the cart item's price fields, which can be inconsistent.
    * Items without a resolvable variant are SKIPPED rather than zeroed out, so
-   * real commission values on Fluid are never wiped.
+   * real commission values on Fluid are never wiped. Promo-inserted free lines
+   * are skipped too: see `freeItem` (ENG-3922).
    */
   async updateCartItemsVolumes(
     items: Json[],
@@ -393,6 +394,13 @@ export class PricingContext {
         const itemId = field(item, "id");
         const variantId = this.itemVariantId(item);
         if (isBlank(itemId) || isBlank(variantId)) continue;
+
+        if (this.freeItem(item)) {
+          this.deps.log.info(
+            `[DynamicPricing] Leaving volumes of free item ${String(itemId)} on cart ${this.cartToken} to Fluid`,
+          );
+          continue;
+        }
 
         // Caught PER ITEM, not around the loop: with a batched callback a
         // transient failure on an early item must not strand every later
@@ -641,6 +649,17 @@ export class PricingContext {
     return (
       field(item, "variant_id") ?? field(field<Json>(item, "variant"), "id")
     );
+  }
+
+  /**
+   * A promo-inserted gift line belongs to Fluid's discount engine. Any
+   * update_volumes write — even one equal to the catalog value — stamps
+   * cv/qv_manually_updated, after which core no longer zeroes the line under
+   * exclude_free_items_from_volume and the rep is credited volume on a
+   * giveaway (ENG-3922).
+   */
+  freeItem(item: Json): boolean {
+    return castBoolean(field(item, "free_item"));
   }
 
   /**

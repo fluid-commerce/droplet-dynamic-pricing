@@ -168,6 +168,43 @@ describe("updateCartItemsVolumes", () => {
     ]);
   });
 
+  it("leaves a promo-inserted free line to Fluid (ENG-3922)", async () => {
+    // Any update_volumes write stamps cv/qv_manually_updated, which stops core
+    // from zeroing the gift under exclude_free_items_from_volume.
+    const deps = recordingDeps({
+      settings: { adjust_volumes_for_subscription: true },
+      fluid: { variants: { v1: variantRows } },
+    });
+    const ctx = new PricingContext({ cart: cartPayload() }, deps);
+
+    await ctx.updateCartItemsVolumes(
+      [item({ id: 1 }), item({ id: 2, free_item: true })],
+      "subscription",
+    );
+
+    expect(
+      deps.callsTo("updateCartItemVolumes").map((call) => call.args[1]),
+    ).toEqual([1]);
+    expect(deps.callsTo("getVariant")).toHaveLength(1);
+  });
+
+  it("still writes a line whose free_item is false", async () => {
+    const deps = recordingDeps({
+      settings: { adjust_volumes_for_subscription: true },
+      fluid: { variants: { v1: variantRows } },
+    });
+    const ctx = new PricingContext({ cart: cartPayload() }, deps);
+
+    await ctx.updateCartItemsVolumes(
+      [item({ id: 1, free_item: false }), item({ id: 2, free_item: "false" })],
+      "subscription",
+    );
+
+    expect(
+      deps.callsTo("updateCartItemVolumes").map((call) => call.args[1]),
+    ).toEqual([1, 2]);
+  });
+
   it("SKIPS an item whose variant cannot be resolved rather than zeroing it", async () => {
     // Zeroing here would wipe real commission values on Fluid.
     const deps = recordingDeps({

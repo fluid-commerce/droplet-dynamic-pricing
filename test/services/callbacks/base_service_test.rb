@@ -249,6 +249,43 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     assert_equal 0, carts.volume_calls.size
   end
 
+  test "update_cart_items_volumes leaves a promo-inserted free line to Fluid" do
+    # ENG-3922: any update_volumes write stamps cv/qv_manually_updated, which
+    # stops core from zeroing the gift under exclude_free_items_from_volume.
+    enable_volume_adjustment!
+    items = [
+      { "id" => 1, "variant_id" => 10, "price" => "100.0", "subscription_price" => "90.0", "quantity" => 4 },
+      { "id" => 2, "variant_id" => 10, "price" => "0.0", "quantity" => 1, "free_item" => true },
+    ]
+    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40, "price" => "100.0",
+"subscription_price" => "90.0", } ])
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    assert_equal [ 1 ], carts.volume_calls.map { |call| call[:item_id] }
+    assert_equal({ "cv" => 45, "qv" => 36 }, carts.volume_calls.first[:volumes])
+  end
+
+  test "update_cart_items_volumes still writes a line whose free_item is false" do
+    enable_volume_adjustment!
+    items = [
+      { "id" => 1, "variant_id" => 10, "price" => "100.0", "subscription_price" => "90.0", "quantity" => 1,
+        "free_item" => false, },
+      { "id" => 2, "variant_id" => 10, "price" => "100.0", "subscription_price" => "90.0", "quantity" => 1,
+        "free_item" => "false", },
+    ]
+    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40, "price" => "100.0",
+"subscription_price" => "90.0", } ])
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    assert_equal [ 1, 2 ], carts.volume_calls.map { |call| call[:item_id] }
+  end
+
   test "update_cart_items_volumes skips items without a variant_id" do
     enable_volume_adjustment!
     items = [ { "id" => 1, "price" => "100.0", "subscription_price" => "90.0", "quantity" => 1 } ]
