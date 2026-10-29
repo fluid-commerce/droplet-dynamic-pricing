@@ -312,6 +312,7 @@ private
   # Each item needs an "id" and a variant id (flat "variant_id" or nested
   # "variant" => { "id" }). Items without a resolvable variant are skipped
   # rather than zeroed out, so we never wipe real commission values on Fluid.
+  # Promo-inserted free lines are skipped too: see free_item? (ENG-3922).
   def update_cart_items_volumes(items, mode: :subscription)
     return unless adjust_volumes_for_subscription?
     return if refuse_settled_write("volumes")
@@ -326,6 +327,11 @@ private
       item_id = item["id"]
       variant_id = item_variant_id(item)
       next if item_id.blank? || variant_id.blank?
+
+      if free_item?(item)
+        Rails.logger.info "[DynamicPricing] Leaving volumes of free item #{item_id} on cart #{cart_token} to Fluid"
+        next
+      end
 
       base = variant_base_volumes(variant_id)
       next if base.nil?
@@ -423,6 +429,15 @@ private
 
   def item_variant_id(item)
     item["variant_id"] || item.dig("variant", "id")
+  end
+
+  # A promo-inserted gift line belongs to Fluid's discount engine. Any
+  # update_volumes write — even one equal to the catalog value — stamps
+  # cv/qv_manually_updated, after which core no longer zeroes the line under
+  # exclude_free_items_from_volume and the rep is credited volume on a
+  # giveaway (ENG-3922).
+  def free_item?(item)
+    ActiveModel::Type::Boolean.new.cast(item["free_item"]) || false
   end
 
   # The variant's active row for the cart's own country, mirroring
