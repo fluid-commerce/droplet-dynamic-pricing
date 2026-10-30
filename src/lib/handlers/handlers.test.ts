@@ -214,10 +214,13 @@ describe("handleDropletInstalled", () => {
       expect(takeOverPreviousInstallation).toHaveBeenCalledWith(
         expect.anything(),
         {
+          dropletUuid: "drp_rails",
           dri: "dri_rails",
           authenticationToken: "dit_rails",
           installedCallbackIds: ["cbr_rails_1", "cbr_rails_2"],
         },
+        // This install's own dri, so the listing never uninstalls it.
+        "dri_acme",
       );
       // Not merged with the Rails ids: those were just deleted.
       const update = mockPrisma.company.update.mock.calls.at(-1)![0];

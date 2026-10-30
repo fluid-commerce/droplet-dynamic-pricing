@@ -13,7 +13,7 @@
  *    uninstalled under it.
  *
  * So once this installation's own callbacks are registered, the previous
- * installation's are removed and the installation itself is uninstalled in
+ * droplet's callbacks are removed and its installation is uninstalled in
  * Fluid. Every step logs and carries on. A failure leaves Rails still
  * answering next to this app — the state before this existed — never a
  * company with no pricing at all.
@@ -29,7 +29,10 @@ import { RAILS_WEBHOOK_PATHS } from "@/lib/config";
 type FluidClient = ReturnType<typeof createFluidClient>;
 
 export interface PreviousInstallation {
-  dri: string;
+  /** The other droplet's uuid — what identifies its live installation in Fluid. */
+  dropletUuid: string;
+  /** The dri the row recorded. Can be stale or missing; only a fallback. */
+  dri: string | null;
   authenticationToken: string;
   installedCallbackIds: string[];
 }
@@ -46,25 +49,32 @@ interface ExistingCompany {
  * The live installation of ANOTHER droplet that this install is replacing, or
  * null.
  *
+ * Keyed on the droplet uuid, not the row's dri. Long-lived Rails rows were
+ * found carrying no dri or a stale one — Yoli has fourteen uninstalled
+ * installations of the Rails droplet behind its active one — so requiring a
+ * current dri here meant the takeover silently never ran for them.
+ *
  * A reinstall or redelivery of this droplet carries this droplet's own uuid,
- * so it never matches. Neither does a row whose other installation is already
- * uninstalled, or one that never recorded its dri.
+ * so it never matches. Neither does a row whose other droplet is already
+ * uninstalled.
  */
 export function previousInstallationOf(
   existing: ExistingCompany | null,
   incoming: { droplet_uuid: string; droplet_installation_uuid?: string },
 ): PreviousInstallation | null {
   if (!existing || existing.uninstalledAt) return null;
-  if (!existing.dropletInstallationUuid || !existing.companyDropletUuid) {
-    return null;
-  }
+  if (!existing.companyDropletUuid) return null;
   if (existing.companyDropletUuid === incoming.droplet_uuid) return null;
-  if (existing.dropletInstallationUuid === incoming.droplet_installation_uuid) {
+  if (
+    existing.dropletInstallationUuid &&
+    existing.dropletInstallationUuid === incoming.droplet_installation_uuid
+  ) {
     return null;
   }
 
   return {
-    dri: existing.dropletInstallationUuid,
+    dropletUuid: existing.companyDropletUuid,
+    dri: existing.dropletInstallationUuid || null,
     authenticationToken: existing.authenticationToken,
     installedCallbackIds: stringIds(existing.installedCallbackIds),
   };
@@ -77,8 +87,8 @@ export function stringIds(value: unknown): string[] {
 }
 
 /**
- * Removes the previous installation's callbacks and webhooks, then uninstalls
- * it.
+ * Removes the previous droplet's callbacks and webhooks, then uninstalls its
+ * live installation(s).
  *
  * Returns the callback uuids that could NOT be deleted, so the caller keeps
  * them on the company and this app's own uninstall still tries them later.
@@ -86,14 +96,17 @@ export function stringIds(value: unknown): string[] {
 export async function takeOverPreviousInstallation(
   client: FluidClient,
   previous: PreviousInstallation,
+  ownDri: string | null,
 ): Promise<{ undeletedCallbackIds: string[] }> {
   console.log(
-    `[Takeover] Replacing installation ${previous.dri} ` +
-      `(${previous.installedCallbackIds.length} callback registration(s))`,
+    `[Takeover] Replacing droplet ${previous.dropletUuid} ` +
+      `(row dri ${previous.dri ?? "none"}, ` +
+      `${previous.installedCallbackIds.length} recorded callback registration(s))`,
   );
 
   // With THIS installation's token: core scopes registration deletes to the
-  // company, not to the installation that created them.
+  // company, not to the installation that created them. Stale ids 404, which
+  // counts as done.
   const undeletedCallbackIds: string[] = [];
   for (const uuid of previous.installedCallbackIds) {
     try {
@@ -110,27 +123,69 @@ export async function takeOverPreviousInstallation(
 
   // With the PREVIOUS token: core lets a droplet token delete only webhooks
   // its own installation owns, so this cannot reach another droplet's webhook
-  // even where the path filter below would match it.
+  // even where the path filter below would match it. A stale token just fails
+  // here; the uninstall below still removes the webhooks the live installation
+  // owns.
   await deleteRailsSubscriptionWebhooks(
     createFluidClient(previous.authenticationToken),
   );
 
-  // Last, so core's cleanup of whatever the installation still owns runs only
-  // once this app is already serving the company.
-  try {
-    await client.uninstallDropletInstallation(previous.dri);
-    console.log(`[Takeover] Uninstalled ${previous.dri}`);
-  } catch (error) {
-    if (!(error instanceof FluidResourceNotFoundError)) {
-      console.error(
-        `[Takeover] Could not uninstall ${previous.dri}; it stays installed ` +
-          "in Fluid with its callbacks removed:",
-        error instanceof Error ? error.message : error,
-      );
+  // Last, so core's cleanup of everything the installation owns — its
+  // callback registrations and webhooks — runs only once this app is already
+  // serving the company.
+  for (const dri of await liveInstallationsOf(client, previous, ownDri)) {
+    try {
+      await client.uninstallDropletInstallation(dri);
+      console.log(`[Takeover] Uninstalled ${dri}`);
+    } catch (error) {
+      if (!(error instanceof FluidResourceNotFoundError)) {
+        console.error(
+          `[Takeover] Could not uninstall ${dri}; it stays installed in Fluid:`,
+          error instanceof Error ? error.message : error,
+        );
+      }
     }
   }
 
   return { undeletedCallbackIds };
+}
+
+/**
+ * The previous droplet's installations Fluid still has live on this company.
+ *
+ * Asked of Fluid rather than read off the row, because the row's dri can be
+ * stale. Falls back to the row's dri only when the listing itself fails.
+ */
+async function liveInstallationsOf(
+  client: FluidClient,
+  previous: PreviousInstallation,
+  ownDri: string | null,
+): Promise<string[]> {
+  try {
+    const { droplet_installations: installations = [] } =
+      await client.listDropletInstallations();
+    const live = installations
+      .filter(
+        (installation) =>
+          installation.droplet_uuid === previous.dropletUuid &&
+          installation.uuid !== ownDri &&
+          installation.active !== false,
+      )
+      .map((installation) => installation.uuid);
+
+    if (live.length === 0) {
+      console.log(
+        `[Takeover] Fluid lists no live installation of ${previous.dropletUuid}`,
+      );
+    }
+    return live;
+  } catch (error) {
+    console.error(
+      "[Takeover] Could not list droplet installations; falling back to the row's dri:",
+      error instanceof Error ? error.message : error,
+    );
+    return previous.dri && previous.dri !== ownDri ? [previous.dri] : [];
+  }
 }
 
 async function deleteRailsSubscriptionWebhooks(
