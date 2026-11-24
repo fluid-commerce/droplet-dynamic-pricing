@@ -15,7 +15,7 @@ jobs:
   # deploys, so there is nothing to decide. See .github/scripts/changed-areas.sh.
   changes:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       rails: ${{ steps.areas.outputs.rails }}
       next: ${{ steps.areas.outputs.next }}
@@ -30,7 +30,7 @@ jobs:
         run: bash .github/scripts/changed-areas.sh
 
   system-setup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       ruby-cache-key: ${{ steps.ruby-cache-key.outputs.value }}
     steps:
@@ -63,7 +63,7 @@ jobs:
           key: ${{ runner.os }}-ruby-${{ steps.ruby-cache-key.outputs.value }}
 
   rails-security-scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [system-setup]
     steps:
       - name: Checkout code
@@ -89,7 +89,7 @@ jobs:
         run: bin/brakeman --no-pager
 
   rubocop:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [system-setup]
     steps:
       - name: Checkout code
@@ -116,7 +116,7 @@ jobs:
 
   tests:
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [system-setup]
 
     services:
