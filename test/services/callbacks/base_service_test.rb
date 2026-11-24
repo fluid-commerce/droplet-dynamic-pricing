@@ -205,7 +205,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     assert_equal "ct_abc", call[:token]
     assert_equal 1, call[:item_id]
     # ratio = (100-90)/100 = 0.1 -> 50*0.9 = 45, 40*0.9 = 36
-    assert_equal({ "cv" => 45, "qv" => 36 }, call[:volumes])
+    assert_equal({ "cv" => 45, "qv" => 36, "discountable" => true }, call[:volumes])
   end
 
   test "update_cart_items_volumes writes later items when an earlier one fails" do
@@ -265,7 +265,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     service.send(:update_cart_items_volumes, items, mode: :subscription)
 
     assert_equal [ 1 ], carts.volume_calls.map { |call| call[:item_id] }
-    assert_equal({ "cv" => 45, "qv" => 36 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 45, "qv" => 36, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   test "update_cart_items_volumes still writes a line whose free_item is false" do
@@ -311,7 +311,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
     service.send(:update_cart_items_volumes, items, mode: :regular)
 
-    assert_equal({ "cv" => 50, "qv" => 40 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 50, "qv" => 40, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   test "update_cart_items_volumes keeps per-unit volume regardless of quantity" do
@@ -327,10 +327,10 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
     service.send(:update_cart_items_volumes, items, mode: :subscription)
 
-    assert_equal({ "cv" => 45, "qv" => 36 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 45, "qv" => 36, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
-  test "update_cart_items_volumes matches the cart country, falling back to the first entry" do
+  test "update_cart_items_volumes matches the cart country row" do
     enable_volume_adjustment!
     items = [ {
       "id" => 1, "variant_id" => 10, "price" => "100.0",
@@ -346,7 +346,89 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     service.send(:update_cart_items_volumes, items, mode: :subscription)
 
     # ratio 0.1 on CA base: 20*0.9 = 18, 10*0.9 = 9
-    assert_equal({ "cv" => 18, "qv" => 9 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 18, "qv" => 9, "discountable" => true }, carts.volume_calls.first[:volumes])
+  end
+
+  test "update_cart_items_volumes sends discountable true in subscription mode (ENG-5190)" do
+    enable_volume_adjustment!
+    items = [ { "id" => 1, "variant_id" => 10, "price" => "100.0", "subscription_price" => "90.0", "quantity" => 2 } ]
+    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40, "price" => "100.0",
+"subscription_price" => "90.0", } ])
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    assert_equal true, carts.volume_calls.first[:volumes]["discountable"],
+                 "without it Fluid stores a manual override that promo codes never reduce"
+  end
+
+  test "update_cart_items_volumes sends discountable true in regular mode (ENG-5190)" do
+    enable_volume_adjustment!
+    items = [ { "id" => 1, "variant_id" => 10, "price" => "100.0", "subscription_price" => "90.0", "quantity" => 2 } ]
+    variants = FakeVariantsResource.new(10 => [ { "country_code" => "US", "cv" => 50, "qv" => 40, "price" => "100.0",
+"subscription_price" => "90.0", } ])
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+
+    service.send(:update_cart_items_volumes, items, mode: :regular)
+
+    assert_equal true, carts.volume_calls.first[:volumes]["discountable"]
+  end
+
+  test "update_cart_items_volumes sends discountable true with the preferred_customer source (ENG-5190)" do
+    enable_preferred_customer_volume_source!
+    items = [ { "id" => 1, "variant_id" => 10, "quantity" => 1 } ]
+    variants = FakeVariantsResource.new(10 => [ {
+      "country_code" => "US", "cv" => 100, "qv" => 100, "pc_cv" => 100, "pc_qv" => 110,
+      "price" => "122.0", "subscription_price" => "110.0",
+    } ])
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts)
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    assert_equal true, carts.volume_calls.first[:volumes]["discountable"]
+  end
+
+  %i[ subscription regular ].each do |mode|
+    test "update_cart_items_volumes writes nothing for a variant with no row for the cart country in #{mode} mode" do
+      # ENG-5190: the old fallback to the first row wrote 0/0 volumes on a real order.
+      enable_volume_adjustment!
+      items = [ { "id" => 1, "variant_id" => 10, "price" => "100.0", "subscription_price" => "90.0", "quantity" => 1 } ]
+      variants = FakeVariantsResource.new(10 => [
+        { "country_code" => "US", "cv" => 0, "qv" => 0, "price" => "100.0", "subscription_price" => "90.0" },
+      ])
+      carts = FakeVolumeCartsResource.new
+      service = build_volume_service(fake_variants: variants, fake_carts: carts, country_code: "CA")
+
+      service.send(:update_cart_items_volumes, items, mode: mode)
+
+      assert_empty carts.volume_calls, "no write, and in particular no 0/0 write"
+    end
+  end
+
+  test "update_cart_items_volumes still writes the matching country row when other countries exist" do
+    enable_volume_adjustment!
+    items = [
+      { "id" => 1, "variant_id" => 10, "price" => "100.0", "subscription_price" => "90.0", "quantity" => 1 },
+      { "id" => 2, "variant_id" => 11, "price" => "100.0", "subscription_price" => "90.0", "quantity" => 1 },
+    ]
+    variants = FakeVariantsResource.new(
+      10 => [
+        { "country_code" => "US", "cv" => 50, "qv" => 40, "price" => "100.0", "subscription_price" => "90.0" },
+        { "country_code" => "CA", "cv" => 20, "qv" => 10, "price" => "100.0", "subscription_price" => "90.0" },
+      ],
+      11 => [ { "country_code" => "US", "cv" => 0, "qv" => 0, "price" => "100.0", "subscription_price" => "90.0" } ]
+    )
+    carts = FakeVolumeCartsResource.new
+    service = build_volume_service(fake_variants: variants, fake_carts: carts, country_code: "CA")
+
+    service.send(:update_cart_items_volumes, items, mode: :subscription)
+
+    assert_equal [ 1 ], carts.volume_calls.map { |call| call[:item_id] },
+                 "the CA line is written; the line with no CA row is skipped"
+    assert_equal({ "cv" => 18, "qv" => 9, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   # The discount ratio comes from the variant_country's own price /
@@ -369,7 +451,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     service.send(:update_cart_items_volumes, items, mode: :subscription)
 
     # 125 * (23.99 / 29.99) = 99.98 -> 100
-    assert_equal({ "cv" => 100, "qv" => 100 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 100, "qv" => 100, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   # Fluid's real cart payload nests the variant id under "variant" and exposes
@@ -389,7 +471,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     service.send(:update_cart_items_volumes, items, mode: :subscription)
 
     assert_equal 1, carts.volume_calls.size
-    assert_equal({ "cv" => 45, "qv" => 36 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 45, "qv" => 36, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   test "update_cart_items_volumes resolves the country from a country object (country.iso)" do
@@ -418,7 +500,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     service.send(:update_cart_items_volumes, items, mode: :subscription)
 
     # CA base 20/10 with ratio 0.1 -> 18 / 9
-    assert_equal({ "cv" => 18, "qv" => 9 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 18, "qv" => 9, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   test "update_cart_items_volumes falls back to ship_to country_code" do
@@ -446,7 +528,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     } ]
     service.send(:update_cart_items_volumes, items, mode: :subscription)
 
-    assert_equal({ "cv" => 18, "qv" => 9 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 18, "qv" => 9, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   # --- subscription_volume_source (Oliabo pc_cv/pc_qv, STU2 / PRIMA) ---
@@ -469,7 +551,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     service.send(:update_cart_items_volumes, items, mode: :subscription)
 
     # ratio 110/122 = 0.9016 -> round(100 * 0.9016) = 90 for both cv and qv
-    assert_equal({ "cv" => 90, "qv" => 90 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 90, "qv" => 90, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   test "update_cart_items_volumes preferred_customer source writes pc_cv/pc_qv directly" do
@@ -486,7 +568,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     service.send(:update_cart_items_volumes, items, mode: :subscription)
 
     # pc volumes written directly, NOT scaled by the price ratio
-    assert_equal({ "cv" => 100, "qv" => 110 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 100, "qv" => 110, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   test "update_cart_items_volumes preferred_customer source honors quantity per-unit" do
@@ -503,7 +585,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
     service.send(:update_cart_items_volumes, items, mode: :subscription)
 
     # per-unit pc volumes, unaffected by quantity
-    assert_equal({ "cv" => 100, "qv" => 110 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 100, "qv" => 110, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   test "update_cart_items_volumes preferred_customer source writes retail volumes as-is when pc volumes are missing" do
@@ -521,7 +603,7 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
 
     # pc missing -> write retail cv/qv as-is (100/100), NOT the price-ratio 90/90,
     # so a catalog misconfig is diagnosable rather than silently masked.
-    assert_equal({ "cv" => 100, "qv" => 100 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 100, "qv" => 100, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   # --- country-safe pricing (STU2-3108) ---
@@ -836,16 +918,16 @@ class Callbacks::BaseServiceTest < ActiveSupport::TestCase
   end
 
   test "variant_country_row never falls back to another country's row" do
-    # No row for the cart's country means no price. Volumes keep their own
-    # resolution (STU2-2526) and still fall back.
+    # No row for the cart's country means no price. Volumes resolve their own row
+    # (STU2-2526) but no longer fall back either (ENG-5190).
     service = build_pricing_service(
       country_code: "MX",
       items: [ { "id" => 1, "variant_id" => INCIDENT_VARIANT_ID } ]
     )
 
     assert_nil service.send(:variant_country_row, INCIDENT_VARIANT_ID)
-    assert_equal "113.85", service.send(:variant_base_volumes, INCIDENT_VARIANT_ID)[:price],
-                 "volumes are STU2-2526's and unchanged by this ticket"
+    assert_nil service.send(:variant_base_volumes, INCIDENT_VARIANT_ID),
+               "a variant with no row for the cart's country has no volumes either (ENG-5190)"
   end
 
   test "variant country rows are fetched once per variant across several cart items" do

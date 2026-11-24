@@ -66,7 +66,7 @@ class Callbacks::CartItemUpdatedServiceTest < ActiveSupport::TestCase
 
     assert_equal 1, carts.volume_calls.size
     assert_equal 674139, carts.volume_calls.first[:item_id]
-    assert_equal({ "cv" => 90, "qv" => 45 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 90, "qv" => 45, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   test "call returns failure when cart is blank" do

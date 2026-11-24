@@ -36,7 +36,7 @@ class Callbacks::CustomerLoggedInServiceTest < ActiveSupport::TestCase
 
     assert_equal 1, carts.volume_calls.size
     # ratio = (100-90)/100 = 0.1 -> 100*0.9 = 90, 50*0.9 = 45
-    assert_equal({ "cv" => 90, "qv" => 45 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 90, "qv" => 45, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   # STU2-2531: a live Fluid subscription makes the customer preferred even when

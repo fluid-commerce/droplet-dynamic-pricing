@@ -92,7 +92,7 @@ class Callbacks::SubscriptionAddedServiceTest < ActiveSupport::TestCase
 
     assert_equal 1, carts.volume_calls.size
     # ratio = (80-72)/80 = 0.1 -> 100*0.9 = 90, 50*0.9 = 45
-    assert_equal({ "cv" => 90, "qv" => 45 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 90, "qv" => 45, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   def test_does_not_touch_volumes_when_company_has_not_opted_in
