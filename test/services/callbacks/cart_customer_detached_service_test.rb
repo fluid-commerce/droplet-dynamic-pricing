@@ -39,7 +39,7 @@ class Callbacks::CartCustomerDetachedServiceTest < ActiveSupport::TestCase
 
     assert result[:success]
     assert_nil carts.metadata_calls.first[:metadata]["price_type"]
-    assert_equal({ "cv" => 100, "qv" => 50 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 100, "qv" => 50, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   test "keeps subscription pricing and volumes when a subscription item remains in the cart" do
@@ -55,7 +55,7 @@ class Callbacks::CartCustomerDetachedServiceTest < ActiveSupport::TestCase
     svc.call
 
     assert_equal "preferred_customer", carts.metadata_calls.first[:metadata]["price_type"]
-    assert_equal({ "cv" => 90, "qv" => 45 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 90, "qv" => 45, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   test "reverts prices but does not touch volumes when the volume toggle is off" do

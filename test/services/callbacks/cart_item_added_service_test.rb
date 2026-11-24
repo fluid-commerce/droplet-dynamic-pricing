@@ -408,7 +408,7 @@ class Callbacks::CartItemAddedServiceTest < ActiveSupport::TestCase
     assert_equal 1, carts.volume_calls.size
     # ratio = (100-90)/100 = 0.1 -> 100*0.9 = 90, 50*0.9 = 45
     assert_equal 674139, carts.volume_calls.first[:item_id]
-    assert_equal({ "cv" => 90, "qv" => 45 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 90, "qv" => 45, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   test "class method call works" do

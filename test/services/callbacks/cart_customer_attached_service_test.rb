@@ -44,7 +44,7 @@ class Callbacks::CartCustomerAttachedServiceTest < ActiveSupport::TestCase
     assert result[:success]
     assert_equal "preferred_customer", carts.metadata_calls.first[:metadata]["price_type"]
     assert_equal 1, carts.volume_calls.size
-    assert_equal({ "cv" => 90, "qv" => 45 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 90, "qv" => 45, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   test "does not touch pricing or volumes for a non-preferred customer" do
@@ -68,7 +68,7 @@ class Callbacks::CartCustomerAttachedServiceTest < ActiveSupport::TestCase
     svc.stub(:is_preferred_customer?, false) { svc.call }
 
     assert_nil carts.metadata_calls.first[:metadata]["price_type"]
-    assert_equal({ "cv" => 100, "qv" => 50 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 100, "qv" => 50, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   test "falls back to the customer payload email when the cart email is blank" do

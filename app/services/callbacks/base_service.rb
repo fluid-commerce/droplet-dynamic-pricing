@@ -313,6 +313,11 @@ private
   # "variant" => { "id" }). Items without a resolvable variant are skipped
   # rather than zeroed out, so we never wipe real commission values on Fluid.
   # Promo-inserted free lines are skipped too: see free_item? (ENG-3922).
+  #
+  # Every write carries "discountable" => true (ENG-5190). Without it Fluid
+  # stores the values as a manual override that volume discounts (promo codes
+  # with apply_to_volume) never reduce. With it Fluid stores them as a base
+  # that discounts still reduce, and restores when the code is removed.
   def update_cart_items_volumes(items, mode: :subscription)
     return unless adjust_volumes_for_subscription?
     return if refuse_settled_write("volumes")
@@ -338,7 +343,7 @@ private
 
       volumes = cart_item_volumes(base, mode, item["quantity"], source)
 
-      fluid_client.carts.update_item_volumes(cart_token, item_id, volumes)
+      fluid_client.carts.update_item_volumes(cart_token, item_id, volumes.merge("discountable" => true))
     rescue StandardError => e
       report_exception(e, message: "Failed to update volumes for item #{item_id} on cart #{cart_token}: #{e.message}")
     end
@@ -407,14 +412,16 @@ private
     [ (total.to_f / qty).round, 0 ].max
   end
 
-  # The variant's per-unit base CV/QV plus prices, falling back to the first country
-  # entry. Resolves its own row rather than reusing variant_country_row: volumes are
-  # STU2-2526's and stay exactly as that ticket left them.
+  # The variant's per-unit base CV/QV plus prices for the cart's country. Returns
+  # nil when the variant has no row for that country, so the caller skips the line:
+  # a fallback to another country's row wrote 0/0 volumes on a real order
+  # (ENG-5190). Resolves its own row rather than reusing variant_country_row:
+  # volumes are STU2-2526's and stay exactly as that ticket left them.
   def variant_base_volumes(variant_id)
     rows = variant_country_rows(variant_id)
     return nil if rows.blank?
 
-    match = rows.find { |row| row_field(row, "country_code") == cart_country } || rows.first
+    match = rows.find { |row| row_field(row, "country_code") == cart_country }
     return nil if match.nil?
 
     {

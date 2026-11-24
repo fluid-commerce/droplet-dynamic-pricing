@@ -87,7 +87,7 @@ class Callbacks::SubscriptionRemovedServiceTest < ActiveSupport::TestCase
 
     assert_equal 1, carts.volume_calls.size
     # regular mode restores the variant base volume (ratio 0)
-    assert_equal({ "cv" => 100, "qv" => 50 }, carts.volume_calls.first[:volumes])
+    assert_equal({ "cv" => 100, "qv" => 50, "discountable" => true }, carts.volume_calls.first[:volumes])
   end
 
   test "updates to REGULAR pricing when customer has NO other subscriptions" do
